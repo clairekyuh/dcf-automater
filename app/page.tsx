@@ -50,7 +50,8 @@ function recommendations(data: CompanyData) {
 
 function buildModel(data: CompanyData): Model {
   const rec = recommendations(data);
-  return { growth: rec.growth, margin: rec.margin, tax: 21, da: Math.max(2, data.metrics.capexPercentRevenue * .75), capex: Math.max(2, data.metrics.capexPercentRevenue), nwc: 2, wacc: rec.wacc, terminalGrowth: rec.terminal, exitMultiple: rec.multiple, cash: data.metrics.cash, debt: data.metrics.debt, shares: data.market.shares || 1, marketPrice: data.market.estimatedPrice };
+  const round1 = (value: number) => Math.round(value * 10) / 10;
+  return { growth: rec.growth, margin: rec.margin, tax: 21, da: round1(Math.max(2, data.metrics.capexPercentRevenue * .75)), capex: round1(Math.max(2, data.metrics.capexPercentRevenue)), nwc: 2, wacc: rec.wacc, terminalGrowth: rec.terminal, exitMultiple: rec.multiple, cash: data.metrics.cash, debt: data.metrics.debt, shares: data.market.shares || 1, marketPrice: Math.round(data.market.estimatedPrice * 100) / 100 };
 }
 
 function calculate(data: CompanyData, model: Model, method: "perpetuity" | "multiple", growthShift = 0, marginShift = 0) {
@@ -141,7 +142,7 @@ export default function Home() {
     <header id="top"><p className="eyebrow">FROM TICKER TO INVESTMENT THESIS</p><h1>See the assumptions.<br/><em>Stress-test the value.</em></h1><p className="lede">Company fundamentals, a transparent DCF, and risk flags in one editable workflow.</p>
       <form className="ticker-search" onSubmit={search}><div><span>TICKER</span><input aria-label="Ticker symbol" value={ticker} onChange={(e)=>setTicker(e.target.value.toUpperCase())} placeholder="AAPL" /></div><button disabled={loading}>{loading ? "LOADING…" : "ANALYZE COMPANY →"}</button></form>
       {error && <div className="api-error"><b>Data connection:</b> {error}</div>}
-      <p className="demo-note">Try IBM with Alpha Vantage demo access. Add your free API key for other tickers.</p>
+      <p className="demo-note">Powered by Alpha Vantage. The free plan supports approximately six full ticker analyses per day.</p>
     </header>
 
     <section className="company-card">

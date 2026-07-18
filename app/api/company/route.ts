@@ -59,7 +59,7 @@ export async function GET(request: NextRequest) {
     const responses = [];
     for (const functionName of functions) {
       responses.push(await alpha(functionName, symbol, apiKey));
-      if (functionName !== "CASH_FLOW") await new Promise((resolve) => setTimeout(resolve, 600));
+      if (functionName !== "CASH_FLOW") await new Promise((resolve) => setTimeout(resolve, 1100));
     }
     const [overview, income, balance, cashflow] = responses;
 
