@@ -16,6 +16,8 @@ Open [http://localhost:3000](http://localhost:3000).
 ## Current features
 
 - Automatic company overview, sector, industry, and five years of financials
+- Nine-step guided DCF lesson using the currently loaded company's numbers
+- Expandable plain-language explanations for every editable assumption
 - Fully transparent five-year unlevered free-cash-flow build
 - Perpetuity-growth and exit-multiple terminal value methods
 - Editable industry-based starting assumptions

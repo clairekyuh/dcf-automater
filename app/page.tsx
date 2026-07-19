@@ -105,8 +105,90 @@ function riskAnalysis(data: CompanyData, model: Model, result: ReturnType<typeof
   return risks;
 }
 
-function NumberField({ label, value, suffix, onChange }: { label: string; value: number; suffix: string; onChange: (value: number) => void }) {
-  return <label className="number-field"><span>{label}</span><div><input type="number" step="0.1" value={Number.isFinite(value) ? value : 0} onChange={(e) => onChange(Number(e.target.value))} /><b>{suffix}</b></div></label>;
+function NumberField({ label, value, suffix, help, onChange }: { label: string; value: number; suffix: string; help: string; onChange: (value: number) => void }) {
+  const [showHelp, setShowHelp] = useState(false);
+  return <div className="number-field"><div className="field-label"><span>{label}</span><button type="button" aria-label={`Explain ${label}`} aria-expanded={showHelp} onClick={() => setShowHelp((open) => !open)}>?</button></div><div><input aria-label={`${label} ${suffix}`} type="number" step="0.1" value={Number.isFinite(value) ? value : 0} onChange={(e) => onChange(Number(e.target.value))} /><b>{suffix}</b></div>{showHelp && <p className="field-help">{help}</p>}</div>;
+}
+
+function LearningWalkthrough({ data, model, result, method }: { data: CompanyData; model: Model; result: ReturnType<typeof calculate>; method: "perpetuity" | "multiple" }) {
+  const [step, setStep] = useState(0);
+  const first = result.years[0];
+  const last = result.years[4];
+  const steps = [
+    {
+      title: "Begin with the business, not the formula",
+      concept: "A DCF estimates what a company is worth today by forecasting the cash it can generate, then reducing future cash to today's dollars.",
+      formula: "Value today = Present value of forecast cash flows + present value of terminal value",
+      example: `${data.company.name} begins with ${usd0.format(data.metrics.revenue)}M of latest annual revenue.`,
+      question: "Do you understand how the company makes money, its competitive advantage, and what could permanently impair it?",
+    },
+    {
+      title: "Forecast revenue",
+      concept: "Revenue is the top line. Growth should normally slow as a company becomes larger, which is why this model gradually fades the selected growth rate.",
+      formula: "Next-year revenue = Current revenue × (1 + growth rate)",
+      example: `${usd0.format(data.metrics.revenue)}M × (1 + ${fmt.format(first.growth)}%) = ${usd0.format(first.revenue)}M in Year 1.`,
+      question: `Is ${fmt.format(model.growth)}% growth realistic compared with history, the ${data.company.industry} market, and competitors?`,
+    },
+    {
+      title: "Convert sales into operating profit",
+      concept: "EBIT is profit from operations before interest and tax. The EBIT margin captures pricing power, product mix, labor, and operating efficiency.",
+      formula: "EBIT = Revenue × EBIT margin",
+      example: `${usd0.format(first.revenue)}M × ${fmt.format(model.margin)}% = ${usd0.format(first.ebit)}M of Year 1 EBIT.`,
+      question: "Could competition, input costs, regulation, or product mix push the margin above or below your target?",
+    },
+    {
+      title: "Calculate after-tax operating profit",
+      concept: "NOPAT treats the business as if it had no debt, keeping the operating forecast separate from financing decisions.",
+      formula: "NOPAT = EBIT × (1 − tax rate)",
+      example: `${usd0.format(first.ebit)}M − ${usd0.format(first.tax)}M of modeled tax = ${usd0.format(first.nopat)}M of NOPAT.`,
+      question: "Is the normalized tax rate appropriate, or are recent tax benefits and charges temporary?",
+    },
+    {
+      title: "Account for reinvestment",
+      concept: "Accounting profit is not cash flow. Add back non-cash D&A, then subtract capital expenditures and cash tied up in working capital.",
+      formula: "Unlevered FCF = NOPAT + D&A − Capex − Change in NWC",
+      example: `${usd0.format(first.nopat)}M + ${usd0.format(first.depreciation)}M − ${usd0.format(first.capex)}M − ${usd0.format(first.changeNwc)}M = ${usd0.format(first.fcf)}M.`,
+      question: "Does the growth forecast require more factories, equipment, inventory, or customer financing than the model assumes?",
+    },
+    {
+      title: "Discount future cash flow",
+      concept: "A dollar received later is worth less than a dollar today. WACC represents the return demanded by both shareholders and lenders for bearing risk.",
+      formula: "Present value = Future FCF ÷ (1 + WACC)ⁿ",
+      example: `Year 5 FCF of ${usd0.format(last.fcf)}M × ${last.discountFactor.toFixed(3)} = ${usd0.format(last.pv)}M today.`,
+      question: `Does ${fmt.format(model.wacc)}% adequately reflect the company's cyclicality, leverage, size, country, and execution risk?`,
+    },
+    {
+      title: "Estimate value after Year 5",
+      concept: method === "perpetuity" ? "The Gordon Growth method assumes cash flow grows forever at a stable rate. Small changes to WACC or growth can move value sharply." : "The exit-multiple method assumes the company can be sold at a selected EBITDA multiple in Year 5. It anchors value to market pricing.",
+      formula: method === "perpetuity" ? "Terminal value = Year 5 FCF × (1 + g) ÷ (WACC − g)" : "Terminal value = Year 5 EBITDA × exit multiple",
+      example: `${method === "perpetuity" ? `${usd0.format(last.fcf)}M at ${fmt.format(model.terminalGrowth)}% perpetual growth` : `${usd0.format(last.ebit + last.depreciation)}M of Year 5 EBITDA at ${fmt.format(model.exitMultiple)}×`} = ${usd0.format(result.terminalValue)}M before discounting.`,
+      question: `Terminal value is ${fmt.format(result.terminalShare)}% of enterprise value. Is that much dependence on the distant future acceptable?`,
+    },
+    {
+      title: "Bridge enterprise value to equity value",
+      concept: "The operating assets belong to both debt and equity investors. Add excess cash and subtract debt to isolate the value attributable to common shareholders.",
+      formula: "Equity value = Enterprise value + Cash − Debt",
+      example: `${usd0.format(result.enterpriseValue)}M + ${usd0.format(model.cash)}M − ${usd0.format(model.debt)}M = ${usd0.format(result.equityValue)}M.`,
+      question: "Are there leases, pensions, minority interests, options, or other claims that should also be included?",
+    },
+    {
+      title: "Calculate value per share—and stay skeptical",
+      concept: "Divide equity value by diluted shares, then compare it with market price. The gap is a scenario result, not proof that the stock is cheap or expensive.",
+      formula: "Intrinsic value per share = Equity value ÷ Diluted shares",
+      example: `${usd0.format(result.equityValue)}M ÷ ${fmt.format(model.shares)}M shares = ${usd.format(result.perShare)} per share.`,
+      question: `What would need to be true for this value to be wrong, and is the gap versus ${usd.format(model.marketPrice)} large enough to absorb those errors?`,
+    },
+  ];
+  const active = steps[step];
+  return <section className="learning-section" id="learn-dcf">
+    <div className="learning-intro"><div><p className="eyebrow">GUIDED LEARNING MODE</p><h2>Walk through this DCF, one idea at a time.</h2><p>Every example below uses the company and assumptions currently loaded above. Change an input and the lesson updates with it.</p></div><div className="lesson-count"><strong>{String(step + 1).padStart(2, "0")}</strong><span>OF {String(steps.length).padStart(2, "0")}</span></div></div>
+    <div className="lesson-progress" aria-label="DCF learning steps">{steps.map((item, index) => <button type="button" key={item.title} className={index === step ? "active" : index < step ? "complete" : ""} aria-label={`Step ${index + 1}: ${item.title}`} onClick={() => setStep(index)}><span>{index + 1}</span></button>)}</div>
+    <div className="lesson-card" aria-live="polite">
+      <div className="lesson-main"><span className="lesson-kicker">STEP {step + 1}</span><h3>{active.title}</h3><p>{active.concept}</p><div className="formula"><span>FORMULA</span><code>{active.formula}</code></div></div>
+      <div className="lesson-side"><div><span>WITH THIS COMPANY</span><p>{active.example}</p></div><div className="challenge"><span>QUESTION TO ASK</span><p>{active.question}</p></div></div>
+    </div>
+    <div className="lesson-controls"><button type="button" disabled={step === 0} onClick={() => setStep((current) => Math.max(0, current - 1))}>← Previous</button><span>{active.title}</span><button type="button" disabled={step === steps.length - 1} onClick={() => setStep((current) => Math.min(steps.length - 1, current + 1))}>Next step →</button></div>
+  </section>;
 }
 
 export default function Home() {
@@ -151,23 +233,25 @@ export default function Home() {
       <p>{data.company.description}</p><small>Source: {data.source} · Financials as of {data.asOf} · Values in {data.company.currency} millions</small>
     </section>
 
+    <LearningWalkthrough data={data} model={model} result={result} method={method} />
+
     <section className="model-shell">
       <aside>
         <div className="section-title"><span>01</span><h2>Editable assumptions</h2></div>
         <div className="recommendation"><b>INDUSTRY STARTING POINT</b><p>{rec.note}</p><small>Recommendations are heuristics, not observed peer medians. Modify them to match your thesis.</small></div>
         <div className="field-grid">
-          <NumberField label="Revenue growth" value={model.growth} suffix="%" onChange={(v)=>update("growth",v)} />
-          <NumberField label="Target EBIT margin" value={model.margin} suffix="%" onChange={(v)=>update("margin",v)} />
-          <NumberField label="Tax rate" value={model.tax} suffix="%" onChange={(v)=>update("tax",v)} />
-          <NumberField label="D&A / revenue" value={model.da} suffix="%" onChange={(v)=>update("da",v)} />
-          <NumberField label="Capex / revenue" value={model.capex} suffix="%" onChange={(v)=>update("capex",v)} />
-          <NumberField label="NWC / new revenue" value={model.nwc} suffix="%" onChange={(v)=>update("nwc",v)} />
-          <NumberField label="WACC" value={model.wacc} suffix="%" onChange={(v)=>update("wacc",v)} />
-          <NumberField label="Terminal growth" value={model.terminalGrowth} suffix="%" onChange={(v)=>update("terminalGrowth",v)} />
-          <NumberField label="Exit EBITDA multiple" value={model.exitMultiple} suffix="×" onChange={(v)=>update("exitMultiple",v)} />
-          <NumberField label="Market price" value={model.marketPrice} suffix="$" onChange={(v)=>update("marketPrice",v)} />
+          <NumberField label="Revenue growth" value={model.growth} suffix="%" help="Expected annual sales growth. The model fades this rate over time as the company matures." onChange={(v)=>update("growth",v)} />
+          <NumberField label="Target EBIT margin" value={model.margin} suffix="%" help="Operating profit before interest and tax as a percentage of revenue. It reflects pricing, costs, and operating efficiency." onChange={(v)=>update("margin",v)} />
+          <NumberField label="Tax rate" value={model.tax} suffix="%" help="A normalized cash tax rate applied to operating profit. One-time tax benefits should usually be excluded." onChange={(v)=>update("tax",v)} />
+          <NumberField label="D&A / revenue" value={model.da} suffix="%" help="Depreciation and amortization are non-cash accounting expenses, so they are added back when calculating cash flow." onChange={(v)=>update("da",v)} />
+          <NumberField label="Capex / revenue" value={model.capex} suffix="%" help="Cash spent on long-term assets such as equipment, stores, factories, and data centers. Capex reduces free cash flow." onChange={(v)=>update("capex",v)} />
+          <NumberField label="NWC / new revenue" value={model.nwc} suffix="%" help="Cash absorbed by receivables, inventory, and other working-capital needs as the company grows." onChange={(v)=>update("nwc",v)} />
+          <NumberField label="WACC" value={model.wacc} suffix="%" help="The required return for all capital providers. More risk generally means a higher WACC and a lower present value." onChange={(v)=>update("wacc",v)} />
+          <NumberField label="Terminal growth" value={model.terminalGrowth} suffix="%" help="The perpetual growth rate after Year 5. It should be conservative and must remain below WACC." onChange={(v)=>update("terminalGrowth",v)} />
+          <NumberField label="Exit EBITDA multiple" value={model.exitMultiple} suffix="×" help="The assumed market valuation multiple applied to Year 5 EBITDA when using the exit-multiple method." onChange={(v)=>update("exitMultiple",v)} />
+          <NumberField label="Market price" value={model.marketPrice} suffix="$" help="The estimated current share price used only for comparison with modeled intrinsic value." onChange={(v)=>update("marketPrice",v)} />
         </div>
-        <details><summary>Capital structure inputs</summary><div className="field-grid compact"><NumberField label="Cash" value={model.cash} suffix="$M" onChange={(v)=>update("cash",v)} /><NumberField label="Debt" value={model.debt} suffix="$M" onChange={(v)=>update("debt",v)} /><NumberField label="Diluted shares" value={model.shares} suffix="M" onChange={(v)=>update("shares",v)} /></div></details>
+        <details><summary>Capital structure inputs</summary><div className="field-grid compact"><NumberField label="Cash" value={model.cash} suffix="$M" help="Cash is added to enterprise value because it belongs to investors and is separate from operating assets." onChange={(v)=>update("cash",v)} /><NumberField label="Debt" value={model.debt} suffix="$M" help="Debt is subtracted from enterprise value because lenders have a claim ahead of common shareholders." onChange={(v)=>update("debt",v)} /><NumberField label="Diluted shares" value={model.shares} suffix="M" help="Shares including expected dilution from options and other equity awards. More shares reduce value per share." onChange={(v)=>update("shares",v)} /></div></details>
       </aside>
 
       <article className="results">
