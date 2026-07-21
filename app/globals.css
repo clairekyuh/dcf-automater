@@ -1,6 +1,6 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700&family=Playfair+Display:ital,wght@1,600&display=swap');
 
-:root{--navy:#567064;--navy-dark:#14251e;--teal:#dcff61;--teal-soft:#edf2df;--blue:#315c48;--green:#31805a;--red:#c34b3d;--amber:#b87913;--ink:#14251e;--muted:#66726b;--grid:#d3d7cf;--grid-dark:#9ca99f;--paper:#fbfaf6;--canvas:#f2efe6}
+:root{--navy:#567064;--navy-dark:#14251e;--teal:#c3cfa8;--teal-hover:#afbf8d;--teal-soft:#ecefe5;--blue:#315c48;--green:#31805a;--red:#c34b3d;--amber:#b87913;--ink:#14251e;--muted:#66726b;--grid:#d3d7cf;--grid-dark:#9ca99f;--paper:#fbfaf6;--canvas:#f2efe6}
 *{box-sizing:border-box}
 html{scroll-behavior:smooth;scroll-padding-top:108px}
 body{margin:0;background:var(--canvas);color:var(--ink);font-family:Manrope,Arial,sans-serif}
@@ -21,7 +21,7 @@ button{cursor:pointer}
 .ticker-search label span{font:500 9px DM Mono;color:var(--navy);padding-left:15px;white-space:nowrap}
 .ticker-search input{border:0;outline:0;min-width:0;width:100%;height:54px;padding:0 16px;font:600 21px DM Mono;text-transform:uppercase;color:var(--ink);background:transparent}
 .ticker-search button{border:0;border-left:1px solid var(--navy-dark);background:var(--teal);color:var(--ink);padding:0 22px;font:600 11px DM Mono;letter-spacing:.05em;white-space:nowrap}
-.ticker-search button:hover{background:#c8ed4d}
+.ticker-search button:hover{background:var(--teal-hover)}
 .ticker-search button:disabled{opacity:.55}
 .calculator-header>small{display:block;margin-top:12px;color:#78838d;font:9px DM Mono}
 .api-error{max-width:710px;margin-top:12px;padding:11px 13px;border:1px solid #d99283;background:#fff0ed;font-size:11px;color:#8c3528}
@@ -32,7 +32,7 @@ button{cursor:pointer}
 .company-summary p{font-size:12px;line-height:1.6;color:var(--muted);margin:0;max-width:900px}
 .company-description-label{display:block;margin:14px 0 7px;color:var(--navy);font:500 8px DM Mono;letter-spacing:.09em}
 .deep-analysis-link{display:inline-block;margin-top:16px;padding:9px 11px;background:var(--teal);border:1px solid var(--ink);color:var(--ink);text-decoration:none;font:600 8px DM Mono;text-transform:uppercase}
-.deep-analysis-link:hover{background:#c8ed4d}
+.deep-analysis-link:hover{background:var(--teal-hover)}
 .company-summary dl{display:grid;grid-template-columns:1fr 1fr;margin:0}
 .company-summary dl div{padding:17px;border-right:1px solid var(--grid);border-bottom:1px solid var(--grid);min-width:0}
 .company-summary dl div:nth-child(2n){border-right:0}
