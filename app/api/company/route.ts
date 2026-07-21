@@ -139,6 +139,21 @@ export async function GET(request: NextRequest) {
     });
 
     const latest = historical[0];
+    let monthlyPrices: Record<string, Record<string, string>> = {};
+    try {
+      // Monthly history provides 20+ years in a single free API request and keeps
+      // the interactive chart light enough to render without a chart dependency.
+      await new Promise((resolve) => setTimeout(resolve, 1100));
+      const monthly = await alpha("TIME_SERIES_MONTHLY", symbol, apiKey);
+      monthlyPrices = monthly["Monthly Time Series"] || {};
+    } catch {
+      // Price history is optional: financial statements should still build a DCF
+      // if the free provider limit is reached on the fifth request.
+    }
+    const priceHistory = Object.entries(monthlyPrices)
+      .map(([date, values]) => ({ date, close: n(values["4. close"]) }))
+      .filter((point) => point.close > 0)
+      .sort((a, b) => a.date.localeCompare(b.date));
     const sec = await secCrossCheck(symbol, latest.fiscalDate);
     if (sec?.cash !== undefined) latest.cash = sec.cash;
     if (sec?.debt !== undefined) latest.debt = sec.debt;
@@ -153,6 +168,7 @@ export async function GET(request: NextRequest) {
       usedSec ? "SEC company facts were used for cash and complete funded-debt components where available." : "SEC company-fact cross-check was unavailable or incomplete for this ticker.",
     ];
     if (latest.capexPercentRevenue > 50) qualityNotes.push("Latest capex is unusually high and is shown historically, but the starting forecast normalizes it rather than projecting it unchanged forever.");
+    if (!priceHistory.length) qualityNotes.push("Monthly stock-price history was unavailable, so the price chart could not be populated for this request.");
     if (sec?.cash === undefined) qualityNotes.push("Cash was not independently verified; check whether the provider balance includes restricted cash that is unavailable to common shareholders.");
     if (overview.Country === "USA") qualityNotes.push("The provider share count remains editable because a single SEC fact can miss multiple voting classes and dilution; check the latest filing.");
 
@@ -173,8 +189,9 @@ export async function GET(request: NextRequest) {
       market: {
         marketCap,
         shares,
-        estimatedPrice: shares ? marketCap / shares : 0,
+        estimatedPrice: priceHistory.at(-1)?.close || (shares ? marketCap / shares : 0),
         beta: n(overview.Beta),
+        priceHistory,
       },
       metrics: {
         revenueGrowth,

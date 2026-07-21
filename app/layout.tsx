@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Intrinsic — DCF Valuation",
-  description: "A fast, transparent discounted cash flow calculator.",
+  title: "DCF Calculator — Interactive Valuation Workbook",
+  description: "Build, inspect, and stress-test a complete discounted cash flow valuation from a public-company ticker.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

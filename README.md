@@ -1,6 +1,6 @@
-# Intrinsic — DCF Automater
+# DCF Calculator
 
-A ticker-driven, transparent discounted cash flow and investment-risk workbench built with Next.js and TypeScript.
+A ticker-driven, spreadsheet-style discounted cash flow calculator built with Next.js and TypeScript.
 
 ## Run locally
 
@@ -15,16 +15,18 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## Current features
 
-- Automatic company overview, sector, industry, and five years of financials
+- Automatic company overview, sector, industry, and annual financials
+- Workbook-style navigation that jumps between sections on the same page
+- Complete five-year operating and unlevered free-cash-flow build
+- Perpetual-growth and exit-multiple valuation bridges shown side by side
+- WACC/terminal-growth and WACC/exit-multiple sensitivity tables
+- Monthly stock-price chart with 1Y, 3Y, 5Y, and maximum-period controls
 - Nine-step guided DCF lesson using the currently loaded company's numbers
-- Expandable plain-language explanations for every editable assumption
-- Fully transparent five-year unlevered free-cash-flow build
-- Perpetuity-growth and exit-multiple terminal value methods
 - Editable industry-based starting assumptions
-- Bear, base, and bull scenarios
-- Risk flags for capex, leverage, margins, geopolitics, terminal value, and valuation cushion
+- Expandable plain-language explanations for every editable assumption
+- Potential-risk flags for capex, leverage, margins, geopolitics, terminal value, and valuation cushion
 - Responsive layout
 
-The app uses the official Alpha Vantage fundamental-data endpoints. `IBM` works with demo access; other tickers require a free `ALPHA_VANTAGE_API_KEY`. API responses are cached for one day to conserve the free request allowance.
+The app uses official Alpha Vantage fundamental-data and monthly-price endpoints. `IBM` works with demo access; other tickers require a free `ALPHA_VANTAGE_API_KEY`. A complete analysis uses five provider requests, so the free daily allowance supports approximately five full ticker analyses.
 
 > For educational purposes only. Not investment advice.
