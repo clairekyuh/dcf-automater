@@ -115,6 +115,40 @@ table{border-collapse:collapse;width:100%}
 .model-table tr.total td:first-child{background:#eef0f2}
 .model-table tr.percent-row td{font-style:italic;color:#5d6a74}
 .table-footnote{font:9px/1.5 DM Mono;color:#73808b;margin:11px 0 0}
+.method-audit{margin-bottom:22px;border:1px solid var(--grid-dark);background:#f5f4ee}
+.audit-heading{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:16px 18px;border-bottom:1px solid var(--grid)}
+.audit-heading span{display:block;color:var(--navy);font:500 8px DM Mono;letter-spacing:.09em}
+.audit-heading h3{margin:5px 0 0;color:var(--navy-dark);font-size:17px}
+.audit-heading a{color:var(--navy-dark);font:600 9px DM Mono;text-decoration:none;border-bottom:1px solid var(--navy)}
+.six-step-grid{display:grid;grid-template-columns:repeat(3,1fr)}
+.six-step-grid article{position:relative;min-height:108px;padding:17px 17px 15px 53px;border-right:1px solid var(--grid);border-bottom:1px solid var(--grid)}
+.six-step-grid article:nth-child(3n){border-right:0}
+.six-step-grid article:nth-last-child(-n+3){border-bottom:0}
+.six-step-grid article>span{position:absolute;left:15px;top:15px;width:25px;height:25px;display:grid;place-items:center;background:var(--navy-dark);color:var(--teal);font:500 8px DM Mono}
+.six-step-grid article b{display:block;color:var(--navy-dark);font-size:11px}
+.six-step-grid article code{display:block;margin-top:8px;color:#68746d;font:8px/1.5 DM Mono;white-space:normal}
+.method-audit>p{margin:0;padding:13px 17px;border-top:1px solid var(--grid);background:var(--teal-soft);color:#58655e;font:9px/1.55 DM Mono}
+.workbook-shell{border:1px solid #87938c;background:#e8ebe6;box-shadow:5px 5px 0 #aeb9b0}
+.formula-bar{display:flex;align-items:center;min-height:39px;border-bottom:1px solid #9fa9a2;background:#f5f6f3}
+.formula-bar b{align-self:stretch;width:43px;display:grid;place-items:center;border-right:1px solid #aab3ac;color:var(--navy);font:italic 600 13px Georgia,serif}
+.formula-bar code{padding:8px 12px;color:#35443d;font:9px/1.45 DM Mono;white-space:normal}
+.workbook-panel{min-height:370px;background:var(--paper)}
+.workbook-panel .model-table-wrap{border:0}
+.workbook-table{min-width:720px;font:9px DM Mono}
+.workbook-table th,.workbook-table td{padding:10px 12px;border-right:1px solid var(--grid);border-bottom:1px solid var(--grid);text-align:right;vertical-align:top}
+.workbook-table th{background:var(--navy);color:white;font-weight:500}
+.workbook-table th:first-child,.workbook-table td:first-child{text-align:left}
+.workbook-table th:last-child,.workbook-table td:last-child{border-right:0}
+.workbook-table td:nth-child(3){color:#68756e;text-align:left;white-space:normal;min-width:250px}
+.workbook-table .linked-cell{background:#f1f4e9;color:var(--blue);font-weight:600}
+.workbook-table .workbook-total td{font-weight:700;border-top:2px solid var(--navy-dark);background:#edf0eb}
+.workbook-table .workbook-answer td{font-weight:700;background:var(--teal);color:var(--ink)}
+.valuation-workbook td:nth-child(3){color:var(--ink);text-align:right;white-space:nowrap;min-width:0}
+.workbook-warning{margin:0;padding:12px 14px;border-top:1px solid var(--grid);background:#fff5dc;color:#6e5628;font:8px/1.55 DM Mono}
+.workbook-tabs{display:flex;align-items:flex-end;gap:3px;padding:8px 9px 0;border-top:1px solid #9fa9a2;background:#dde2dc;overflow-x:auto}
+.workbook-tabs button{min-width:112px;padding:9px 13px;border:1px solid #9ca79f;border-bottom:0;background:#cfd6d0;color:#4f5d56;font:500 9px DM Mono;white-space:nowrap}
+.workbook-tabs button.active{padding-top:11px;background:var(--paper);color:var(--navy-dark);font-weight:700;box-shadow:inset 0 3px 0 var(--green)}
+.workbook-sensitivity{margin:0;padding:18px;background:var(--paper)}
 .recommendation{background:var(--teal-soft);border-left:4px solid #78924b;padding:15px 17px;margin-bottom:20px}
 .recommendation b{font:600 10px DM Mono;text-transform:uppercase;color:var(--navy)}
 .recommendation p{font-size:11px;line-height:1.5;margin:7px 0;color:#536371}
@@ -266,6 +300,7 @@ footer{display:flex;justify-content:space-between;padding:23px 5vw;background:va
 .analysis-missing p{font-size:13px;line-height:1.65;color:var(--muted);max-width:650px}.analysis-missing a{display:inline-block;margin-top:15px;padding:10px 12px;background:var(--teal);border:1px solid var(--ink);color:var(--ink);text-decoration:none;font:600 9px DM Mono}
 
 @media(max-width:1050px){
+.six-step-grid{grid-template-columns:repeat(2,1fr)}.six-step-grid article:nth-child(3n){border-right:1px solid var(--grid)}.six-step-grid article:nth-child(2n){border-right:0}.six-step-grid article:nth-last-child(-n+3){border-bottom:1px solid var(--grid)}.six-step-grid article:nth-last-child(-n+2){border-bottom:0}
 .assumption-grid{grid-template-columns:repeat(3,1fr)}
 .risk-grid{grid-template-columns:1fr 1fr}
 .difference-grid{grid-template-columns:1fr 1fr}
@@ -280,6 +315,7 @@ footer{display:flex;justify-content:space-between;padding:23px 5vw;background:va
 .company-summary,.sheet-section{margin-left:20px;margin-right:20px}
 .company-summary{grid-template-columns:1fr}.company-summary>div{border-right:0;border-bottom:1px solid var(--grid)}
 .section-heading{display:block}.section-heading>div+*{margin-top:17px}.section-description{max-width:none}
+.audit-heading{display:block}.audit-heading a{display:inline-block;margin-top:12px}.six-step-grid{grid-template-columns:1fr}.six-step-grid article,.six-step-grid article:nth-child(2n),.six-step-grid article:nth-child(3n),.six-step-grid article:nth-last-child(-n+2){border-right:0;border-bottom:1px solid var(--grid)}.six-step-grid article:last-child{border-bottom:0}.workbook-sensitivity{padding:12px}
 .valuation-cards,.bridge-grid,.sensitivity-grid,.assumption-bottom{grid-template-columns:1fr}
 .valuation-cards>div{border-right:0;border-bottom:1px solid var(--grid)}
 .valuation-cards>div:last-child{border-bottom:0}

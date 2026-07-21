@@ -89,6 +89,7 @@ type Model = {
   valuationDate: string;
 };
 type Method = "perpetuity" | "multiple";
+type WorkbookTab = "dcf" | "assumptions" | "wacc" | "valuation" | "sensitivity";
 
 const demoPrices = Array.from({ length: 67 }, (_, index) => {
   const date = new Date(Date.UTC(2021 + Math.floor(index / 12), index % 12, 1));
@@ -150,6 +151,7 @@ const LARGE_COMPANY_EXAMPLES = [
   { symbol: "WMT", name: "Walmart" },
   { symbol: "XOM", name: "Exxon Mobil" },
 ];
+const WSP_DCF_GUIDE = "https://www.wallstreetprep.com/knowledge/dcf-model-training-6-steps-building-dcf-model-excel/";
 
 const industryRules = [
   { match: /AI-native GPU cloud|data-center ownership|data center/i, multiple: 12, wacc: 11, terminal: 2.5, margin: 22, da: 18, capex: 22, note: "AI infrastructure can grow quickly, but GPU obsolescence, power availability, utilization, customer concentration, and heavy financing needs justify a high discount rate and substantial continuing reinvestment." },
@@ -294,9 +296,10 @@ function generatedBloombergRows(data: CompanyData, model: Model, growthShift = 0
   const forecast = data.forecast;
   const startingGrowth = Math.max(model.terminalGrowth, model.growth + growthShift);
   const secondYearGrowth = forecast ? forecast.year2Growth + (startingGrowth - forecast.year1Growth) * .6 : null;
-  const normalizedGrowth = secondYearGrowth === null
-    ? Math.max(model.terminalGrowth + 2, Math.min(10, startingGrowth * .25))
-    : Math.max(model.terminalGrowth + 2, Math.min(10, Math.max(0, secondYearGrowth) * .25));
+  // A perpetuity cannot begin while the explicit forecast is still in a high-growth phase.
+  // Fade the last forecast year to the selected mature growth rate so Year 5 is a
+  // blend of two near-mature calendar years rather than an abrupt growth cliff.
+  const normalizedGrowth = model.terminalGrowth;
   const latestGrossMargin = latest?.grossMargin ?? (latest?.cogs && latest.revenue ? (latest.revenue - latest.cogs) / latest.revenue * 100 : Math.max(model.margin + 15, 30));
   const startingDaPercent = Math.min(Math.max(model.da, data.metrics.daPercentRevenue || model.da), Math.max(50, model.da));
   const startingCapexPercent = Math.min(Math.max(model.capex, data.metrics.capexPercentRevenue || model.capex), Math.max(80, model.capex));
@@ -324,7 +327,7 @@ function generatedBloombergRows(data: CompanyData, model: Model, growthShift = 0
       revenue,
       costRevenue: revenue - grossProfit,
       operatingExpenses: Math.max(0, grossProfit - ebit),
-      taxOnOperatingIncome: Math.max(0, ebit * model.tax / 100),
+      taxOnOperatingIncome: ebit * model.tax / 100,
       depreciation: revenue * daPercent / 100,
       capex: revenue * capexPercent / 100,
       changeNwc: (revenue - previousRevenue) * model.nwc / 100,
@@ -541,6 +544,9 @@ function ValuationBridge({ title, result, model, method, data }: { title: string
   const industryGrowth = data.comparison?.industryGrowthRate ?? null;
   const peerMultiples = (data.comparison?.peers || []).map((peer) => peer.evToEbitda).filter((value): value is number => value !== null && Number.isFinite(value));
   const medianMultiple = validMedian(peerMultiples);
+  const impliedExitMultiple = result.terminalEbitda > 0 ? result.terminalValue / result.terminalEbitda : null;
+  const terminalFcfYield = result.terminalValue > 0 ? result.terminalFcf / result.terminalValue : null;
+  const impliedGrowth = terminalFcfYield === null ? null : (model.wacc / 100 - terminalFcfYield) / (1 + terminalFcfYield) * 100;
   return <div className="bridge-table">
     <div className="sheet-bar">{title}</div>
     {method === "perpetuity" ? <>
@@ -548,14 +554,16 @@ function ValuationBridge({ title, result, model, method, data }: { title: string
       <div className="reference-row"><span>Observed niche-peer growth</span><b>{industryGrowth === null ? "—" : `${fmt.format(industryGrowth)}%`}</b></div>
       <div><span>Selected perpetual growth</span><b>{fmt.format(model.terminalGrowth)}%</b></div>
       <div><span>Year 5 <DefinedTerm term="ufcf">FCF</DefinedTerm></span><b>{usd0.format(result.terminalFcf)}M</b></div>
-      <p className="bridge-note">Peer growth is median recent year-over-year revenue growth for the selected business niche. It is context—not a perpetual forecast—and the perpetual rate must remain below <DefinedTerm term="wacc">WACC</DefinedTerm>.</p>
+      <div><span>Implied exit <DefinedTerm term="exitMultiple">multiple</DefinedTerm></span><b>{impliedExitMultiple === null ? "—" : `${fmt.format(impliedExitMultiple)}×`}</b></div>
+      <p className="bridge-note">Peer growth is median recent year-over-year revenue growth for the selected business niche. It is context—not a perpetual forecast—and the perpetual rate must remain below <DefinedTerm term="wacc">WACC</DefinedTerm>. The implied exit multiple is the cross-check against the exit-multiple method.</p>
     </> : <>
       <div className="method-explainer"><span>WHAT THIS METHOD DOES</span><p>Following the Bloomberg XDCF convention, the model blends EBITDA at the exact five-year valuation date, applies the selected enterprise-value multiple, and discounts that terminal value back exactly five years.</p><code>{fmt.format(result.terminalEbitda)} × {fmt.format(model.exitMultiple)} = {fmt.format(result.terminalValue)}</code><small>Year-5 <DefinedTerm term="ebitda">EBITDA</DefinedTerm> × selected <DefinedTerm term="exitMultiple">exit multiple</DefinedTerm></small></div>
       <div><span>Year 5 <DefinedTerm term="ebitda">EBITDA</DefinedTerm></span><b>{usd0.format(result.terminalEbitda)}M</b></div>
       <div><span>Selected exit multiple</span><b>{fmt.format(model.exitMultiple)}×</b></div>
       <div className="reference-row"><span>Peer median EV / <DefinedTerm term="ebitda">EBITDA</DefinedTerm></span><b>{medianMultiple === null ? "—" : `${fmt.format(medianMultiple)}×`}</b></div>
       <div><span>Peer EV / <DefinedTerm term="ebitda">EBITDA</DefinedTerm> range</span><b>{peerMultiples.length ? `${fmt.format(Math.min(...peerMultiples))}–${fmt.format(Math.max(...peerMultiples))}×` : "—"}</b></div>
-      <p className="bridge-note">The selected exit multiple stays editable. Compare it with the peer range and explain any premium or discount.</p>
+      <div><span>Implied perpetual growth</span><b>{impliedGrowth === null ? "—" : `${fmt.format(impliedGrowth)}%`}</b></div>
+      <p className="bridge-note">The selected exit multiple stays editable. Compare it with the peer range and explain any premium or discount. The implied perpetual-growth rate is the cross-check against the perpetuity method.</p>
     </>}
     <div><span><DefinedTerm term="pv">PV</DefinedTerm> of forecast <DefinedTerm term="ufcf">UFCF</DefinedTerm></span><b>{usd0.format(result.pvForecast)}M</b></div>
     <div><span><DefinedTerm term="pv">PV</DefinedTerm> of <DefinedTerm term="terminalValue">terminal value</DefinedTerm></span><b>{usd0.format(result.pvTerminal)}M</b></div>
@@ -563,9 +571,9 @@ function ValuationBridge({ title, result, model, method, data }: { title: string
     <div><span>Plus: Cash</span><b>{usd0.format(model.cash)}M</b></div>
     <div><span>Less: Short-term debt</span><b>({usd0.format(model.shortDebt)}M)</b></div>
     <div><span>Less: Long-term debt</span><b>({usd0.format(model.longDebt)}M)</b></div>
-    <div><span>Less: Preferred and minority interest</span><b>({usd0.format(model.preferredInterest)}M)</b></div>
+    <div><span>Less: Leases, preferred and minority interest</span><b>({usd0.format(model.preferredInterest)}M)</b></div>
     <div className="total"><span><DefinedTerm term="equityValue">Equity value</DefinedTerm></span><b>{usd0.format(result.equityValue)}M</b></div>
-    <div><span><DefinedTerm term="dilutedShares">Diluted shares</DefinedTerm></span><b>{fmt.format(model.shares)}M</b></div>
+    <div><span><DefinedTerm term="dilutedShares">Share count used</DefinedTerm></span><b>{fmt.format(model.shares)}M</b></div>
     <div className="answer"><span>Implied price per share</span><b>{usd.format(result.perShare)}</b></div>
   </div>;
 }
@@ -700,6 +708,7 @@ export default function Home() {
   const [companyReady, setCompanyReady] = useState(false);
   const [exampleIndex, setExampleIndex] = useState(0);
   const [startingExample, setStartingExample] = useState(LARGE_COMPANY_EXAMPLES[0]);
+  const [workbookTab, setWorkbookTab] = useState<WorkbookTab>("dcf");
   const [error, setError] = useState("");
   const rec = useMemo(() => recommendations(data), [data]);
   const perpetuity = useMemo(() => calculate(data, model, "perpetuity"), [data, model]);
@@ -814,6 +823,44 @@ export default function Home() {
   const observedCostOfDebt = latest?.interestExpense && averageDebt ? latest.interestExpense / averageDebt * 100 : null;
   const preTaxDebt = observedCostOfDebt && Number.isFinite(observedCostOfDebt) ? clamp(observedCostOfDebt, 3, 20) : 6;
   const referenceWacc = costEquity * equityWeight + preTaxDebt * (1 - model.tax / 100) * debtWeight;
+  const afterTaxDebt = preTaxDebt * (1 - model.tax / 100);
+  const workbookFormula: Record<WorkbookTab, string> = {
+    dcf: "UFCF = EBIT × (1 − Tax Rate) + D&A − Capex − ΔNWC",
+    assumptions: "Blue cells link to the editable inputs below the workbook",
+    wacc: "WACC = E/(D+E) × Cost of Equity + D/(D+E) × Pre-tax Cost of Debt × (1−Tax Rate)",
+    valuation: "Equity Value = Enterprise Value + Cash − Debt − Other Non-Equity Claims",
+    sensitivity: "Implied Share Price = Equity Value ÷ Fully Diluted Shares",
+  };
+  const assumptionSheet = [
+    ["Valuation date", model.valuationDate, "Current date; editable"],
+    ["Year 1 revenue growth", `${fmt.format(result.years[0].growth)}%`, data.forecast ? data.forecast.source : "Historical-growth fallback"],
+    ["Year 2 revenue growth", `${fmt.format(result.years[1].growth)}%`, data.forecast ? data.forecast.source : "Modeled fade"],
+    ["Years 3–6 revenue growth", result.years.slice(2).map((year) => `${fmt.format(year.growth)}%`).join(" · "), "Website maturity fade; editable through starting growth"],
+    ["Target EBIT margin", `${fmt.format(model.margin)}%`, "Industry starting point; editable"],
+    ["Tax rate", `${fmt.format(model.tax)}%`, "Normalized operating tax assumption"],
+    ["Target D&A / revenue", `${fmt.format(model.da)}%`, "Reinvestment assumption; editable"],
+    ["Target capex / revenue", `${fmt.format(model.capex)}%`, "Reinvestment assumption; editable"],
+    ["NWC / incremental revenue", `${fmt.format(model.nwc)}%`, "Operating working-capital assumption"],
+    ["Selected WACC", `${fmt.format(model.wacc)}%`, "Risk-adjusted model input; compare with WACC sheet"],
+    ["Perpetual growth", `${fmt.format(model.terminalGrowth)}%`, "Must remain below WACC"],
+    ["Exit EBITDA multiple", `${fmt.format(model.exitMultiple)}×`, "Compare with niche peers"],
+    ["Cash & included investments", `${usd0.format(model.cash)}M`, "Latest available balance-sheet proxy"],
+    ["Debt", `${usd0.format(model.shortDebt + model.longDebt)}M`, "Short-term plus long-term funded debt"],
+    ["Other non-equity claims", `${usd0.format(model.preferredInterest)}M`, "Preferred stock, leases, and minority interest input"],
+    ["Share count used", `${fmt.format(model.shares)}M`, "Market-cap-derived proxy; verify full dilution"],
+  ];
+  const valuationSheet = [
+    ["Terminal value at Year 5", perpetuity.terminalValue, multiple.terminalValue],
+    ["PV of explicit forecast UFCF", perpetuity.pvForecast, multiple.pvForecast],
+    ["PV of terminal value", perpetuity.pvTerminal, multiple.pvTerminal],
+    ["Enterprise value", perpetuity.enterpriseValue, multiple.enterpriseValue],
+    ["Plus: cash & included investments", model.cash, model.cash],
+    ["Less: short-term debt", -model.shortDebt, -model.shortDebt],
+    ["Less: long-term debt", -model.longDebt, -model.longDebt],
+    ["Less: other non-equity claims", -model.preferredInterest, -model.preferredInterest],
+    ["Equity value", perpetuity.equityValue, multiple.equityValue],
+  ];
+  const workbookMoney = (value: number) => value < 0 ? `(${usd0.format(Math.abs(value))}M)` : `${usd0.format(value)}M`;
   return <main>
     <nav className="top-nav"><a href="#top" className="brand">DCF CALCULATOR</a><span>Interactive valuation workbook</span></nav>
     <header id="top" className="calculator-header">
@@ -836,17 +883,52 @@ export default function Home() {
       <div className="valuation-cards"><div><span>{priceContext.label}</span><strong>{usd.format(model.marketPrice)}</strong><small>{priceContext.detail}</small></div><div><span><DefinedTerm term="perpetualGrowth">Perpetual growth</DefinedTerm> value</span><strong>{usd.format(perpetuity.perShare)}</strong><ValueMove value={perpetuity.perShare} price={model.marketPrice}/></div><div><span><DefinedTerm term="exitMultiple">Exit multiple</DefinedTerm> value</span><strong>{usd.format(multiple.perShare)}</strong><ValueMove value={multiple.perShare} price={model.marketPrice}/></div></div>
       <div className="negative-explainer bloomberg-reference"><b>BLOOMBERG XDCF PROCESS · CURRENT PUBLIC INPUTS</b><p>The model copies the PDF’s six calendar-year forecast layout, exact five-year weighting, mid-year discounting, Year-5 interpolation, terminal formulas, and enterprise-to-equity bridge. It does not copy the PDF’s CRWV forecasts, date, price, WACC, growth rate, multiple, debt, cash, shares, or published answer.</p></div>
       {model.wacc <= model.terminalGrowth && <div className="api-error valuation-warning"><b>Assumption error:</b> WACC must be greater than terminal growth for the perpetual-growth method.</div>}
+      {(model.terminalGrowth < 2 || model.terminalGrowth > 4) && <div className="api-error valuation-warning"><b>Terminal-growth review:</b> Wall Street Prep describes roughly 2%–4% as a typical mature-company range. A value outside that range can be valid, but it needs company-specific support.</div>}
       {(perpetuity.rawEquityValue < 0 || multiple.rawEquityValue < 0) && <div className="negative-explainer"><b>WHY A METHOD CAN SHOW $0 FOR COMMON EQUITY</b><p>Under at least one terminal method, enterprise value plus cash does not cover funded debt. The mathematical bridge is negative, but common stock has limited liability, so the displayed value stops at $0 rather than showing a negative share price.</p></div>}
       <div className="bridge-grid"><ValuationBridge title="Perpetual Growth Method" result={perpetuity} model={model} method="perpetuity" data={data}/><ValuationBridge title="Exit Multiple Method" result={multiple} model={model} method="multiple" data={data}/></div>
-      <div className="sensitivity-grid"><SensitivityTable data={data} model={model} method="perpetuity"/><SensitivityTable data={data} model={model} method="multiple"/></div>
     </section>
 
     <section className="sheet-section" id="build">
-      <div className="section-heading"><div><span className="section-index">02</span><p>MODEL</p><h2>DCF build</h2></div><div className="unit-note">USD IN MILLIONS · BLOOMBERG XDCF CONVENTION</div></div>
-      <div className="model-table-wrap"><table className="model-table"><thead><tr><th>DCF line item</th><th className="actual">{latest?.year || "Latest"} A</th>{result.years.map((year) => <th key={year.year}>DEC {String(year.year).slice(-2)} E</th>)}<th>YEAR 5</th></tr></thead><tbody>
-        {tableRows.map((row) => <tr className={`${row.type === "total" ? "total" : ""} ${row.type === "percent" ? "percent-row" : ""}`} key={row.label}><td><DcfRowLabel label={row.label}/></td><td className="actual">{formatCell(row.actual, row.type)}</td>{row.values.map((value, index) => <td key={index}>{formatCell(value, row.type)}</td>)}<td>{formatCell(row.terminal ?? null, row.type)}</td></tr>)}
-      </tbody></table></div>
-      <p className="table-footnote">The first and sixth calendar-year forecasts are included only for the portions falling inside the exact five-year valuation window. Cash flows use the mid-year convention; terminal value is discounted exactly five years. These are the Bloomberg PDF mechanics—not Bloomberg forecast values.</p>
+      <div className="section-heading"><div><span className="section-index">02</span><p>MODEL</p><h2>DCF workbook</h2></div><div className="unit-note">USD IN MILLIONS · LIVE TICKER-LINKED CELLS</div></div>
+      <div className="method-audit">
+        <div className="audit-heading"><div><span>PROCESS CHECK</span><h3>Wall Street Prep six-step unlevered DCF</h3></div><a href={WSP_DCF_GUIDE} target="_blank" rel="noreferrer">Review source framework ↗</a></div>
+        <div className="six-step-grid">
+          <article><span>01</span><b>Forecast UFCF</b><code>EBIT × (1−T) + D&A − Capex − ΔNWC</code></article>
+          <article><span>02</span><b>Calculate terminal value</b><code>Perpetuity or Exit EBITDA</code></article>
+          <article><span>03</span><b>Discount at WACC</b><code>PV of UFCF + PV of terminal value</code></article>
+          <article><span>04</span><b>Add non-operating assets</b><code>Enterprise value + cash & investments</code></article>
+          <article><span>05</span><b>Subtract non-equity claims</b><code>Debt + leases + preferred + minority</code></article>
+          <article><span>06</span><b>Calculate value per share</b><code>Equity value ÷ fully diluted shares</code></article>
+        </div>
+        <p><b>Scope check:</b> This is an automated quick DCF, not a fully linked three-statement model. Wall Street Prep says high-stakes forecasts should ideally link EBIT, D&A, capex, and working capital through all three statements. Every modeled shortcut remains visible and editable here.</p>
+      </div>
+      <div className="workbook-shell">
+        <div className="formula-bar"><b>fx</b><code>{workbookFormula[workbookTab]}</code></div>
+        <div className="workbook-panel" role="tabpanel" aria-label={`${workbookTab} worksheet`}>
+          {workbookTab === "dcf" && <div className="model-table-wrap"><table className="model-table"><thead><tr><th>DCF line item</th><th className="actual">{latest?.year || "Latest"} A</th>{result.years.map((year) => <th key={year.year}>DEC {String(year.year).slice(-2)} E</th>)}<th>YEAR 5</th></tr></thead><tbody>
+            {tableRows.map((row) => <tr className={`${row.type === "total" ? "total" : ""} ${row.type === "percent" ? "percent-row" : ""}`} key={row.label}><td><DcfRowLabel label={row.label}/></td><td className="actual">{formatCell(row.actual, row.type)}</td>{row.values.map((value, index) => <td key={index}>{formatCell(value, row.type)}</td>)}<td>{formatCell(row.terminal ?? null, row.type)}</td></tr>)}
+          </tbody></table></div>}
+          {workbookTab === "assumptions" && <div className="model-table-wrap"><table className="workbook-table"><thead><tr><th>Assumption</th><th>Linked value</th><th>Source / treatment</th></tr></thead><tbody>{assumptionSheet.map(([label, value, source]) => <tr key={label}><td>{label}</td><td className="linked-cell">{value}</td><td>{source}</td></tr>)}</tbody></table></div>}
+          {workbookTab === "wacc" && <div className="model-table-wrap"><table className="workbook-table"><thead><tr><th>WACC component</th><th>Value</th><th>Formula / source check</th></tr></thead><tbody>
+            <tr><td>Risk-free rate</td><td className="linked-cell">{fmt.format(riskFree)}%</td><td>Illustrative long-term government-bond proxy; refresh manually</td></tr>
+            <tr><td>Beta</td><td className="linked-cell">{fmt.format(beta)}×</td><td>Systematic equity-risk sensitivity</td></tr>
+            <tr><td>Equity risk premium</td><td className="linked-cell">{fmt.format(equityRiskPremium)}%</td><td>Illustrative expected equity return above the risk-free rate; refresh manually</td></tr>
+            <tr><td>Cost of equity</td><td>{fmt.format(costEquity)}%</td><td>Risk-free rate + Beta × ERP</td></tr>
+            <tr><td>Equity weight</td><td>{fmt.format(equityWeight * 100)}%</td><td>Market equity ÷ (market equity + debt)</td></tr>
+            <tr><td>Pre-tax cost of debt proxy</td><td className="linked-cell">{fmt.format(preTaxDebt)}%</td><td>{observedCostOfDebt ? "Trailing interest ÷ average debt proxy" : "Fallback because a forward borrowing rate was unavailable"}</td></tr>
+            <tr><td>After-tax cost of debt</td><td>{fmt.format(afterTaxDebt)}%</td><td>Pre-tax cost of debt × (1 − tax rate)</td></tr>
+            <tr><td>Debt weight</td><td>{fmt.format(debtWeight * 100)}%</td><td>Debt ÷ (market equity + debt)</td></tr>
+            <tr className="workbook-total"><td>Formula WACC cross-check</td><td>{fmt.format(referenceWacc)}%</td><td>Equity-weighted cost + debt-weighted after-tax cost</td></tr>
+            <tr className="workbook-answer"><td>Selected model WACC</td><td className="linked-cell">{fmt.format(model.wacc)}%</td><td>Editable risk-adjusted assumption used to discount UFCF</td></tr>
+          </tbody></table><p className="workbook-warning">For a transaction-grade WACC, replace the debt-cost proxy with forward yield-to-maturity, a current borrowing rate, or a credit-spread estimate. Historical interest expense is only a fallback cross-check.</p></div>}
+          {workbookTab === "valuation" && <div className="model-table-wrap"><table className="workbook-table valuation-workbook"><thead><tr><th>Valuation bridge</th><th>Perpetual growth</th><th>Exit multiple</th></tr></thead><tbody>{valuationSheet.map(([label, perpetuityValue, multipleValue]) => <tr className={["Enterprise value", "Equity value"].includes(String(label)) ? "workbook-total" : ""} key={String(label)}><td>{label}</td><td>{workbookMoney(Number(perpetuityValue))}</td><td>{workbookMoney(Number(multipleValue))}</td></tr>)}<tr><td>Share count used</td><td>{fmt.format(model.shares)}M</td><td>{fmt.format(model.shares)}M</td></tr><tr className="workbook-answer"><td>Implied value per share</td><td>{usd.format(perpetuity.perShare)}</td><td>{usd.format(multiple.perShare)}</td></tr></tbody></table><p className="workbook-warning">The share-count default is a free-data proxy. Wall Street Prep’s Step 6 requires current shares plus options, warrants, restricted stock, convertibles, and other dilutive securities.</p></div>}
+          {workbookTab === "sensitivity" && <div className="sensitivity-grid workbook-sensitivity"><SensitivityTable data={data} model={model} method="perpetuity"/><SensitivityTable data={data} model={model} method="multiple"/></div>}
+        </div>
+        <div className="workbook-tabs" role="tablist" aria-label="DCF workbook sheets">{([
+          ["dcf", "DCF Model"], ["assumptions", "Assumptions"], ["wacc", "WACC"], ["valuation", "Valuation"], ["sensitivity", "Sensitivity"],
+        ] as Array<[WorkbookTab, string]>).map(([tab, label]) => <button type="button" role="tab" aria-selected={workbookTab === tab} className={workbookTab === tab ? "active" : ""} key={tab} onClick={() => setWorkbookTab(tab)}>{label}</button>)}</div>
+      </div>
+      <p className="table-footnote">The workbook follows Wall Street Prep’s six-step unlevered DCF and retains the Bloomberg PDF’s exact five-year, partial-year, mid-year discounting mechanics. The formulas are audited; forecast accuracy still depends on the visible assumptions and data quality.</p>
     </section>
 
     <section className="sheet-section" id="assumptions">
@@ -856,7 +938,7 @@ export default function Home() {
         <DateField value={model.valuationDate} help="Sets the start of the exact five-year valuation window. It changes the partial weighting of the first and sixth calendar-year forecasts, just as in the Bloomberg PDF." onChange={updateValuationDate}/>
         <NumberField label="Starting revenue growth" term="revenueGrowth" value={model.growth} suffix="%" help={data.forecast ? `Year 1 sales growth. The default is the current analyst-consensus estimate; editing it also adjusts the Year 2 anchor before growth fades toward maturity.` : "Year 1 sales growth used to populate the Bloomberg-format forecast rows."} onChange={(value) => update("growth", value)}/>
         <NumberField label="Target EBIT margin" term="ebitMargin" value={model.margin} suffix="%" help="Operating margin reached in the later forecast rows." onChange={(value) => update("margin", value)}/>
-        <NumberField label="Tax rate" term="taxRate" value={model.tax} suffix="%" help="Normalized tax applied to positive operating income." onChange={(value) => update("tax", value)}/>
+        <NumberField label="Tax rate" term="taxRate" value={model.tax} suffix="%" help="Normalized operating tax rate used in NOPAT = EBIT × (1 − tax rate). For loss-making companies, confirm whether tax losses can actually be used before relying on the modeled tax benefit." onChange={(value) => update("tax", value)}/>
         <NumberField label="Target D&A / revenue" term="da" value={model.da} suffix="%" help="Normalized depreciation and amortization as a share of revenue in later forecast rows." onChange={(value) => update("da", value)}/>
         <NumberField label="Target capex / revenue" term="capex" value={model.capex} suffix="%" help="Normalized capital expenditure as a share of revenue in later forecast rows." onChange={(value) => update("capex", value)}/>
         <NumberField label="NWC / new revenue" term="nwc" value={model.nwc} suffix="%" help="Working capital investment applied to incremental revenue in each modeled forecast row." onChange={(value) => update("nwc", value)}/>
@@ -867,10 +949,10 @@ export default function Home() {
         <NumberField label="Cash" term="cash" value={model.cash} suffix="$M" help="Available cash added in the enterprise-to-equity bridge." onChange={(value) => update("cash", value)}/>
         <NumberField label="Short-term debt" term="fundedDebt" value={model.shortDebt} suffix="$M" help="Current borrowings subtracted in the Bloomberg enterprise-to-equity bridge." onChange={(value) => update("shortDebt", value)}/>
         <NumberField label="Long-term debt" term="fundedDebt" value={model.longDebt} suffix="$M" help="Non-current borrowings subtracted in the Bloomberg enterprise-to-equity bridge." onChange={(value) => update("longDebt", value)}/>
-        <NumberField label="Preferred & minority interest" term="fundedDebt" value={model.preferredInterest} suffix="$M" help="Additional senior claims subtracted after net debt, as shown in the Bloomberg template." onChange={(value) => update("preferredInterest", value)}/>
-        <NumberField label="Diluted shares" term="dilutedShares" value={model.shares} suffix="M" help="Current market-cap-implied share count used to calculate value per share. Verify multi-class shares, options, and future dilution before relying on the result." onChange={(value) => update("shares", value)}/>
+        <NumberField label="Leases, preferred & minority" term="fundedDebt" value={model.preferredInterest} suffix="$M" help="Other non-equity claims subtracted after funded debt. Include material capital leases, preferred stock, and non-controlling interests that are not already captured in debt." onChange={(value) => update("preferredInterest", value)}/>
+        <NumberField label="Share count used" term="dilutedShares" value={model.shares} suffix="M" help="The free-data default is market capitalization divided by share price, not a verified fully diluted count. Wall Street Prep's process requires current shares plus options, warrants, restricted stock, and other dilution; replace this proxy when filing-level dilution is available." onChange={(value) => update("shares", value)}/>
       </div>
-      <div className="assumption-bottom"><div className="wacc-table"><div className="sheet-bar"><DefinedTerm term="wacc">WACC</DefinedTerm> reference build</div><div><span><DefinedTerm term="riskFreeRate">Risk-free rate</DefinedTerm></span><b>{fmt.format(riskFree)}%</b></div><div><span><DefinedTerm term="beta">Beta</DefinedTerm></span><b>{fmt.format(beta)}×</b></div><div><span><DefinedTerm term="equityRiskPremium">Equity risk premium</DefinedTerm></span><b>{fmt.format(equityRiskPremium)}%</b></div><div><span><DefinedTerm term="costOfEquity">Implied cost of equity</DefinedTerm></span><b>{fmt.format(costEquity)}%</b></div><div><span><DefinedTerm term="equityWeight">Equity / capital</DefinedTerm></span><b>{fmt.format(equityWeight * 100)}%</b></div><div><span><DefinedTerm term="preTaxCostOfDebt">Pre-tax cost of debt</DefinedTerm></span><b>{fmt.format(preTaxDebt)}%</b></div><div><span><DefinedTerm term="debtWeight">Debt / capital</DefinedTerm></span><b>{fmt.format(debtWeight * 100)}%</b></div><div className="total"><span>Formula reference <DefinedTerm term="wacc">WACC</DefinedTerm></span><b>{fmt.format(referenceWacc)}%</b></div><small>{observedCostOfDebt ? "Pre-tax debt cost uses trailing interest expense divided by average debt. " : "A 6% fallback debt cost is used because a reliable observed rate was unavailable. "}The editable model WACC can include additional size, country, concentration, and execution risk.</small></div>
+      <div className="assumption-bottom"><div className="wacc-table"><div className="sheet-bar"><DefinedTerm term="wacc">WACC</DefinedTerm> formula cross-check</div><div><span><DefinedTerm term="riskFreeRate">Risk-free rate</DefinedTerm></span><b>{fmt.format(riskFree)}%</b></div><div><span><DefinedTerm term="beta">Beta</DefinedTerm></span><b>{fmt.format(beta)}×</b></div><div><span><DefinedTerm term="equityRiskPremium">Equity risk premium</DefinedTerm></span><b>{fmt.format(equityRiskPremium)}%</b></div><div><span><DefinedTerm term="costOfEquity">Implied cost of equity</DefinedTerm></span><b>{fmt.format(costEquity)}%</b></div><div><span><DefinedTerm term="equityWeight">Equity / capital</DefinedTerm></span><b>{fmt.format(equityWeight * 100)}%</b></div><div><span><DefinedTerm term="preTaxCostOfDebt">Pre-tax cost of debt</DefinedTerm></span><b>{fmt.format(preTaxDebt)}%</b></div><div><span><DefinedTerm term="debtWeight">Debt / capital</DefinedTerm></span><b>{fmt.format(debtWeight * 100)}%</b></div><div className="total"><span>Formula reference <DefinedTerm term="wacc">WACC</DefinedTerm></span><b>{fmt.format(referenceWacc)}%</b></div><small>{observedCostOfDebt ? "Pre-tax debt cost uses trailing interest expense divided by average debt as a fallback proxy. " : "A 6% fallback debt cost is used because a reliable observed rate was unavailable. "}For a transaction-grade model, use forward yield-to-maturity, a current borrowing rate, or a credit-spread estimate and refresh the risk-free rate and equity risk premium. The editable model WACC can also include additional size, country, concentration, and execution risk.</small></div>
         <div className="data-check"><div className="sheet-bar">Data checks</div><ul>{(data.qualityNotes?.length ? data.qualityNotes : ["Sample data is active. Enter a ticker to load current public-company data."]).map((note) => <li key={note}>{note}</li>)}</ul></div>
       </div>
     </section>
