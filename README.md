@@ -6,8 +6,6 @@ A ticker-driven, spreadsheet-style discounted cash flow calculator built with Ne
 
 ```bash
 npm install
-cp .env.example .env.local
-# Add a free Alpha Vantage API key to .env.local
 npm run dev
 ```
 
@@ -33,6 +31,6 @@ Open [http://localhost:3000](http://localhost:3000).
 - Potential-risk flags for capex, leverage, margins, geopolitics, terminal value, and valuation cushion
 - Responsive layout
 
-The app uses official Alpha Vantage fundamental-data and monthly-price endpoints. `IBM` works with demo access; other tickers require a free `ALPHA_VANTAGE_API_KEY`. A complete analysis uses up to eight provider requests: four for the focus company, one for price history, and three peer-company overviews. With a 25-request daily allowance, that supports approximately three complete analyses; the main DCF still loads if optional price or peer requests are unavailable.
+The main DCF uses Nasdaq-displayed annual financial statements, company profiles, market summaries, and cached price history without an API key. Alpha Vantage is no longer called, so its 25-request daily quota cannot block ticker loading. Peer requests are optional and cannot prevent the focus-company DCF from loading. The separate company-analysis page continues to use SEC Company Facts and the latest SEC annual filing; unavailable SEC fields are shown honestly rather than replaced with another provider.
 
 > For educational purposes only. Not investment advice.

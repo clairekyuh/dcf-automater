@@ -2,18 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
-const API = "https://www.alphavantage.co/query";
-
-const n = (value: unknown) => {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-};
-
-const millions = (value: unknown) => n(value) / 1_000_000;
-
-const metric = (value: unknown, scale = 1) => {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed * scale : null;
+const NASDAQ_API = "https://api.nasdaq.com/api";
+const NASDAQ_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/126 Safari/537.36",
+  Accept: "application/json, text/plain, */*",
+  Origin: "https://www.nasdaq.com",
+  Referer: "https://www.nasdaq.com/",
 };
 
 const median = (values: Array<number | null>) => {
@@ -23,22 +17,50 @@ const median = (values: Array<number | null>) => {
   return valid.length % 2 ? valid[middle] : (valid[middle - 1] + valid[middle]) / 2;
 };
 
-type Statement = Record<string, string>;
+type NasdaqRow = Record<string, string | null>;
+type NasdaqTable = { headers?: Record<string, string>; rows?: NasdaqRow[] };
 
-function comparableFromOverview(overview: Record<string, unknown>) {
-  return {
-    symbol: String(overview.Symbol || ""),
-    name: String(overview.Name || overview.Symbol || "Unknown company"),
-    description: String(overview.Description || ""),
-    sector: String(overview.Sector || "Unclassified"),
-    industry: String(overview.Industry || "Unclassified"),
-    marketCap: metric(overview.MarketCapitalization, 1 / 1_000_000),
-    revenueGrowth: metric(overview.QuarterlyRevenueGrowthYOY, 100),
-    operatingMargin: metric(overview.OperatingMarginTTM, 100),
-    evToRevenue: metric(overview.EVToRevenue),
-    evToEbitda: metric(overview.EVToEBITDA),
-    pe: metric(overview.PERatio),
-  };
+async function nasdaq(endpoint: string, revalidate = 86400) {
+  const response = await fetch(`${NASDAQ_API}${endpoint}`, { headers: NASDAQ_HEADERS, next: { revalidate } });
+  if (!response.ok) throw new Error(`Nasdaq data request failed (${response.status}).`);
+  const payload = await response.json();
+  if (payload?.status?.rCode && payload.status.rCode !== 200) {
+    throw new Error(payload.status.bCodeMessage?.[0]?.errorMessage || "Nasdaq did not return data for this ticker.");
+  }
+  if (!payload?.data) throw new Error("Ticker not found or Nasdaq data is unavailable.");
+  return payload.data;
+}
+
+function fieldValues(data: Record<string, { value?: unknown } | unknown>) {
+  return Object.fromEntries(Object.entries(data || {}).map(([key, value]) => [key, value && typeof value === "object" && "value" in value ? value.value : value]));
+}
+
+function rawNumber(value: unknown) {
+  const text = String(value ?? "").trim();
+  if (!text || text === "--" || text === "N/A") return null;
+  const negative = text.startsWith("-") || /^\(.*\)$/.test(text);
+  const parsed = Number(text.replace(/[^0-9.]/g, ""));
+  return Number.isFinite(parsed) ? parsed * (negative ? -1 : 1) : null;
+}
+
+// Nasdaq's financial-statement display values are reported in thousands.
+function financialMillions(value: unknown) {
+  const parsed = rawNumber(value);
+  return parsed === null ? null : parsed / 1000;
+}
+
+function isoDate(value: string) {
+  const [month, day, year] = value.split("/").map(Number);
+  return year && month && day ? `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}` : value;
+}
+
+function tableValue(table: NasdaqTable, labels: string[], column: string) {
+  for (const label of labels) {
+    const row = table.rows?.find((item) => item.value1 === label);
+    const value = row ? financialMillions(row[column]) : null;
+    if (value !== null) return value;
+  }
+  return null;
 }
 
 function peerSymbols(symbol: string, sector: string, industry: string, name: string) {
@@ -74,27 +96,6 @@ function peerSymbols(symbol: string, sector: string, industry: string, name: str
   return (group?.symbols || ["MSFT", "ORCL", "IBM", "ACN"]).filter((candidate) => candidate !== symbol).slice(0, 3);
 }
 
-async function alpha(functionName: string, symbol: string, apiKey: string) {
-  const url = new URL(API);
-  url.searchParams.set("function", functionName);
-  url.searchParams.set("symbol", symbol);
-  url.searchParams.set("apikey", apiKey);
-  // Do not cache provider errors; the normalized successful response is cached below.
-  const response = await fetch(url, { cache: "no-store" });
-  if (!response.ok) throw new Error(`Financial-data request failed (${response.status}).`);
-  const data = await response.json();
-  if (data.Note || data.Information) {
-    throw new Error("The financial-data provider's daily limit has been reached. Try again after the limit resets or use a higher-limit API key.");
-  }
-  if (data["Error Message"]) throw new Error("Ticker not found. Check the symbol and try again.");
-  return data;
-}
-
-function nearest(report: Statement[] | undefined, fiscalDate: string) {
-  if (!report?.length) return {} as Statement;
-  return report.find((item) => item.fiscalDateEnding === fiscalDate) || report[0];
-}
-
 function growthRate(values: number[]) {
   const valid = values.filter((value) => value > 0);
   if (valid.length < 2) return 0;
@@ -103,11 +104,110 @@ function growthRate(values: number[]) {
   return (Math.pow(newest / oldest, 1 / (valid.length - 1)) - 1) * 100;
 }
 
-function fundedDebt(balance: Statement) {
-  const current = n(balance.currentDebt) || n(balance.currentLongTermDebt) || n(balance.longTermDebtCurrent);
-  const noncurrent = n(balance.longTermDebtNoncurrent) || n(balance.longTermDebt);
-  const funded = current + noncurrent;
-  return millions(funded || balance.shortLongTermDebtTotal || 0);
+async function nasdaqFundamentals(symbol: string) {
+  const encoded = encodeURIComponent(symbol);
+  const [profilePayload, summaryPayload, financialPayload] = await Promise.all([
+    nasdaq(`/company/${encoded}/company-profile`),
+    nasdaq(`/quote/${encoded}/summary?assetclass=stocks`, 3600),
+    nasdaq(`/company/${encoded}/financials?frequency=1`),
+  ]);
+  const profile = fieldValues(profilePayload) as Record<string, unknown>;
+  const summary = fieldValues(summaryPayload.summaryData || {}) as Record<string, unknown>;
+  const income = financialPayload.incomeStatementTable as NasdaqTable;
+  const balance = financialPayload.balanceSheetTable as NasdaqTable;
+  const cashFlow = financialPayload.cashFlowTable as NasdaqTable;
+  const periodColumns = Object.entries(income.headers || {})
+    .filter(([key]) => /^value[2-9]$/.test(key))
+    .map(([key, date]) => ({ key, date }))
+    .filter((period) => period.date);
+  const historical = periodColumns.map(({ key, date }) => {
+    const revenue = tableValue(income, ["Total Revenue"], key) || 0;
+    const ebit = tableValue(income, ["Operating Income", "Earnings Before Interest and Tax"], key) || 0;
+    const depreciation = Math.abs(tableValue(cashFlow, ["Depreciation"], key) || 0);
+    const capex = Math.abs(tableValue(cashFlow, ["Capital Expenditures"], key) || 0);
+    const operatingCashFlow = tableValue(cashFlow, ["Net Cash Flow-Operating"], key) || 0;
+    const cogs = Math.abs(tableValue(income, ["Cost of Revenue"], key) || 0);
+    const grossProfit = tableValue(income, ["Gross Profit"], key) ?? revenue - cogs;
+    const cash = (tableValue(balance, ["Cash and Cash Equivalents"], key) || 0) + (tableValue(balance, ["Short-Term Investments"], key) || 0);
+    const debt = Math.abs(tableValue(balance, ["Short-Term Debt / Current Portion of Long-Term Debt"], key) || 0) + Math.abs(tableValue(balance, ["Long-Term Debt"], key) || 0);
+    const fiscalDate = isoDate(date);
+    return {
+      year: fiscalDate.slice(0, 4),
+      fiscalDate,
+      revenue,
+      ebit,
+      ebitMargin: revenue ? ebit / revenue * 100 : 0,
+      operatingCashFlow,
+      capex,
+      capexPercentRevenue: revenue ? capex / revenue * 100 : 0,
+      depreciation,
+      freeCashFlow: operatingCashFlow - capex,
+      cogs,
+      grossProfit,
+      grossMargin: revenue ? grossProfit / revenue * 100 : 0,
+      interestExpense: Math.abs(tableValue(income, ["Interest Expense"], key) || 0),
+      cash,
+      debt,
+      currentAssets: tableValue(balance, ["Total Current Assets"], key) || 0,
+      currentLiabilities: tableValue(balance, ["Total Current Liabilities"], key) || 0,
+      totalAssets: tableValue(balance, ["Total Assets"], key) || 0,
+      totalLiabilities: tableValue(balance, ["Total Liabilities"], key) || 0,
+      retainedEarnings: tableValue(balance, ["Retained Earnings"], key) || 0,
+      incomeTax: Math.abs(tableValue(income, ["Income Tax"], key) || 0),
+      earningsBeforeTax: tableValue(income, ["Earnings Before Tax"], key) || 0,
+      netIncome: tableValue(income, ["Net Income", "Net Income Applicable to Common Shareholders"], key) || 0,
+    };
+  }).filter((row) => row.revenue > 0);
+  if (!historical.length) throw new Error("Nasdaq did not return complete annual financial statements for this ticker.");
+  return {
+    symbol,
+    name: String(profile.CompanyName || symbol),
+    description: String(profile.CompanyDescription || ""),
+    sector: String(profile.Sector || summary.Sector || "Unclassified"),
+    industry: String(profile.Industry || summary.Industry || "Unclassified"),
+    country: String(profile.Region || "Unclassified"),
+    exchange: String(summary.Exchange || "US market"),
+    marketCap: (rawNumber(summary.MarketCap) || 0) / 1_000_000,
+    previousClose: rawNumber(summary.PreviousClose) || 0,
+    historical,
+  };
+}
+
+async function nasdaqPriceHistory(symbol: string) {
+  const end = new Date();
+  const start = new Date(end);
+  start.setUTCFullYear(start.getUTCFullYear() - 5);
+  const date = (value: Date) => value.toISOString().slice(0, 10);
+  const data = await nasdaq(`/quote/${encodeURIComponent(symbol)}/historical?assetclass=stocks&fromdate=${date(start)}&todate=${date(end)}&limit=5000`, 3600);
+  const daily = (data.tradesTable?.rows || []) as Array<{ date: string; close: string }>;
+  const monthly = new Map<string, { date: string; close: number }>();
+  for (const row of daily) {
+    const pointDate = isoDate(row.date);
+    const close = rawNumber(row.close) || 0;
+    const month = pointDate.slice(0, 7);
+    if (close > 0 && !monthly.has(month)) monthly.set(month, { date: pointDate, close });
+  }
+  return Array.from(monthly.values()).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function comparableFromNasdaq(company: Awaited<ReturnType<typeof nasdaqFundamentals>>) {
+  const latest = company.historical[0];
+  const prior = company.historical[1];
+  const priceIndependentEv = company.marketCap + latest.debt - latest.cash;
+  const ebitda = latest.ebit + latest.depreciation;
+  return {
+    symbol: company.symbol,
+    name: company.name,
+    description: company.description,
+    sector: company.sector,
+    industry: company.industry,
+    marketCap: company.marketCap || null,
+    revenueGrowth: prior?.revenue ? (latest.revenue / prior.revenue - 1) * 100 : null,
+    operatingMargin: latest.revenue ? latest.ebit / latest.revenue * 100 : null,
+    evToRevenue: latest.revenue ? priceIndependentEv / latest.revenue : null,
+    evToEbitda: ebitda > 0 ? priceIndependentEv / ebitda : null,
+    pe: latest.netIncome > 0 ? company.marketCap / latest.netIncome : null,
+  };
 }
 
 function filingText(html: string) {
@@ -412,96 +512,20 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Enter a valid ticker symbol." }, { status: 400 });
   }
 
-  const apiKey = process.env.ALPHA_VANTAGE_API_KEY || (symbol === "IBM" ? "demo" : "");
-  if (!apiKey) {
-    return NextResponse.json({
-      error: "This deployment needs an Alpha Vantage API key. Add ALPHA_VANTAGE_API_KEY to .env.local. IBM works in demo mode.",
-    }, { status: 503 });
-  }
-
   try {
-    // Pace calls so the free/demo tier's per-second limit is respected.
-    const functions = ["OVERVIEW", "INCOME_STATEMENT", "BALANCE_SHEET", "CASH_FLOW"];
-    const responses = [];
-    for (const functionName of functions) {
-      responses.push(await alpha(functionName, symbol, apiKey));
-      if (functionName !== "CASH_FLOW") await new Promise((resolve) => setTimeout(resolve, 1100));
-    }
-    const [overview, income, balance, cashflow] = responses;
-
-    if (!overview.Symbol || !income.annualReports?.length) throw new Error("No complete company data was returned for this ticker.");
-
-    const historical = (income.annualReports as Statement[]).slice(0, 5).map((inc) => {
-      const bal = nearest(balance.annualReports, inc.fiscalDateEnding);
-      const cf = nearest(cashflow.annualReports, inc.fiscalDateEnding);
-      const revenue = millions(inc.totalRevenue);
-      // Operating income is the correct EBIT starting point for an unlevered DCF.
-      // Provider "ebit" fields may include non-operating income or expense.
-      const ebit = millions(inc.operatingIncome || inc.ebit);
-      const capex = Math.abs(millions(cf.capitalExpenditures));
-      const depreciation = millions(cf.depreciationDepletionAndAmortization || cf.depreciation);
-      const operatingCashFlow = millions(cf.operatingCashflow);
-      const freeCashFlow = operatingCashFlow - capex;
-      const cogs = Math.abs(millions(inc.costOfRevenue || inc.costofGoodsAndServicesSold));
-      const grossProfit = millions(inc.grossProfit) || (revenue - cogs);
-      const interestExpense = Math.abs(millions(inc.interestExpense));
-      return {
-        year: inc.fiscalDateEnding?.slice(0, 4),
-        fiscalDate: inc.fiscalDateEnding,
-        revenue,
-        ebit,
-        ebitMargin: revenue ? (ebit / revenue) * 100 : 0,
-        operatingCashFlow,
-        capex,
-        capexPercentRevenue: revenue ? (capex / revenue) * 100 : 0,
-        depreciation,
-        freeCashFlow,
-        cogs,
-        grossProfit,
-        grossMargin: revenue ? (grossProfit / revenue) * 100 : 0,
-        interestExpense,
-        cash: millions(bal.cashAndCashEquivalentsAtCarryingValue || bal.cashAndShortTermInvestments),
-        debt: fundedDebt(bal),
-        currentAssets: millions(bal.totalCurrentAssets),
-        currentLiabilities: millions(bal.totalCurrentLiabilities),
-        totalAssets: millions(bal.totalAssets),
-        totalLiabilities: millions(bal.totalLiabilities),
-        retainedEarnings: millions(bal.retainedEarnings),
-      };
-    });
-
+    const [primary, priceHistory, sec] = await Promise.all([
+      nasdaqFundamentals(symbol),
+      nasdaqPriceHistory(symbol).catch(() => []),
+      secDataset(symbol),
+    ]);
+    const historical = primary.historical;
     const latest = historical[0];
-    let monthlyPrices: Record<string, Record<string, string>> = {};
-    try {
-      // Monthly history provides 20+ years in a single free API request and keeps
-      // the interactive chart light enough to render without a chart dependency.
-      await new Promise((resolve) => setTimeout(resolve, 1100));
-      const monthly = await alpha("TIME_SERIES_MONTHLY", symbol, apiKey);
-      monthlyPrices = monthly["Monthly Time Series"] || {};
-    } catch {
-      // Price history is optional: financial statements should still build a DCF
-      // if the free provider limit is reached on the fifth request.
-    }
-    const priceHistory = Object.entries(monthlyPrices)
-      .map(([date, values]) => ({ date, close: n(values["4. close"]) }))
-      .filter((point) => point.close > 0)
-      .sort((a, b) => a.date.localeCompare(b.date));
-
-    const selectedPeerSymbols = peerSymbols(symbol, overview.Sector || "", overview.Industry || "", overview.Name || "");
-    const peerOverviews: Record<string, unknown>[] = [];
-    for (const peerSymbol of selectedPeerSymbols) {
-      try {
-        await new Promise((resolve) => setTimeout(resolve, 1100));
-        const peerOverview = await alpha("OVERVIEW", peerSymbol, apiKey);
-        if (peerOverview.Symbol) peerOverviews.push(peerOverview);
-      } catch {
-        // Comparable data is supplemental. Preserve the primary DCF when a peer
-        // symbol is unsupported or the provider allowance ends mid-request.
-      }
-    }
-    const peers = peerOverviews.map(comparableFromOverview);
+    const selectedPeerSymbols = peerSymbols(symbol, primary.sector, primary.industry, primary.name);
+    const peerResults = await Promise.allSettled(selectedPeerSymbols.map((peerSymbol) => nasdaqFundamentals(peerSymbol)));
+    const peers = peerResults
+      .filter((result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof nasdaqFundamentals>>> => result.status === "fulfilled")
+      .map((result) => comparableFromNasdaq(result.value));
     const industryGrowthRate = median(peers.map((peer) => peer.revenueGrowth));
-    const sec = await secDataset(symbol);
     const secMetric = (key: string) => {
       const value = sec?.metrics?.[key];
       return typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -511,10 +535,9 @@ export async function GET(request: NextRequest) {
     if (secCash !== null) latest.cash = secCash;
     if (secDebt !== null) latest.debt = secDebt;
     const revenueGrowth = growthRate(historical.map((row) => row.revenue));
-    // Keep the provider share count editable. A single SEC fact can represent only
-    // one voting class and would understate dilution for multi-class companies.
-    const shares = millions(overview.SharesOutstanding);
-    const marketCap = millions(overview.MarketCapitalization);
+    const marketCap = primary.marketCap;
+    const estimatedPrice = priceHistory.at(-1)?.close || primary.previousClose;
+    const shares = marketCap > 0 && estimatedPrice > 0 ? marketCap / estimatedPrice : 1;
     const ratio = (numerator: number | null, denominator: number | null) => numerator !== null && denominator !== null && denominator !== 0 ? numerator / denominator : null;
     const secRevenue = secMetric("revenue");
     const secOperatingIncome = secMetric("operatingIncome");
@@ -551,37 +574,41 @@ export async function GET(request: NextRequest) {
     }
     const usedSec = Boolean(sec);
     const qualityNotes = [
+      "No Alpha Vantage requests are used. Nasdaq financial statements and cached Nasdaq price history build the DCF without an API key or a 25-request daily quota.",
       "Operating income is used as EBIT; non-operating income and interest are excluded from the EBIT starting point.",
       usedSec ? "The company description, operating analysis, customer concentration, COGS, and default-risk screen use only the latest SEC annual filing and SEC Company Facts." : "SEC annual data was unavailable for this ticker; the separate business-analysis page will show unavailable fields rather than substitute provider estimates.",
     ];
     if (latest.capexPercentRevenue > 50) qualityNotes.push("Latest capex is unusually high and is shown historically, but the starting forecast normalizes it rather than projecting it unchanged forever.");
     if (!priceHistory.length) qualityNotes.push("Monthly stock-price history was unavailable, so the price chart could not be populated for this request.");
-    if (peers.length < selectedPeerSymbols.length) qualityNotes.push(`Comparable-company data is partial: ${peers.length} of ${selectedPeerSymbols.length} selected peers were returned before the provider allowance ended.`);
-    if (industryGrowthRate !== null) qualityNotes.push("Industry growth is represented by median quarterly year-over-year revenue growth for the returned peer group; it is a near-term benchmark, not a perpetual-growth forecast.");
-    if (secCash === null) qualityNotes.push("SEC cash was unavailable; the DCF cash assumption remains sourced from the market-data provider and stays editable.");
-    if (overview.Country === "USA") qualityNotes.push("The provider share count remains editable because a single SEC fact can miss multiple voting classes and dilution; check the latest filing.");
+    if (peers.length < selectedPeerSymbols.length) qualityNotes.push(`Comparable-company data is partial: Nasdaq returned ${peers.length} of ${selectedPeerSymbols.length} selected peers. Peer failures do not block the main DCF.`);
+    if (industryGrowthRate !== null) qualityNotes.push("Industry growth is represented by median latest annual revenue growth for the returned peer group; it is a near-term benchmark, not a perpetual-growth forecast.");
+    if (secCash === null) qualityNotes.push("SEC cash was unavailable; the DCF cash assumption uses Nasdaq's displayed cash and short-term investments and stays editable.");
+    qualityNotes.push("Nasdaq does not return beta in this dataset, so the WACC reference build uses a neutral beta of 1.0; the editable WACC should reflect your risk assessment.");
+    const latestTaxRate = latest.earningsBeforeTax > 0 ? Math.min(40, Math.max(0, latest.incomeTax / latest.earningsBeforeTax * 100)) : 21;
+    const descriptionFromSec = Boolean(sec?.company.description);
 
     const normalizedResponse = NextResponse.json({
-      source: usedSec ? "SEC filings + Alpha Vantage market data" : "Alpha Vantage market data; SEC unavailable",
+      source: usedSec ? "Nasdaq financials and market data + SEC filings" : "Nasdaq financials and market data; SEC unavailable",
       asOf: latest.fiscalDate,
       qualityNotes,
       company: {
-        symbol: overview.Symbol,
-        name: sec?.company.name || overview.Name,
-        description: sec?.company.description || "A concise business description could not be extracted from the latest SEC annual filing.",
-        exchange: overview.Exchange,
-        currency: overview.Currency || "USD",
-        country: overview.Country,
-        sector: overview.Sector || "Unclassified",
-        industry: overview.Industry || "Unclassified",
+        symbol,
+        name: sec?.company.name || primary.name,
+        description: sec?.company.description || primary.description || "A concise business description was unavailable.",
+        descriptionSource: descriptionFromSec ? "SEC filing" : "Nasdaq company profile",
+        exchange: primary.exchange,
+        currency: "USD",
+        country: primary.country,
+        sector: primary.sector,
+        industry: primary.industry,
       },
       market: {
         marketCap,
         shares,
-        estimatedPrice: priceHistory.at(-1)?.close || (shares ? marketCap / shares : 0),
+        estimatedPrice,
         priceDate: priceHistory.at(-1)?.date || null,
-        priceBasis: priceHistory.length ? "Latest available month-end close" : "Market capitalization divided by reported shares",
-        beta: n(overview.Beta),
+        priceBasis: priceHistory.length ? "Latest available Nasdaq closing price" : "Nasdaq previous close",
+        beta: 1,
         priceHistory,
       },
       metrics: {
@@ -592,10 +619,10 @@ export async function GET(request: NextRequest) {
         daPercentRevenue: latest.revenue ? (latest.depreciation / latest.revenue) * 100 : 0,
         cash: latest.cash,
         debt: latest.debt,
-        taxRate: 21,
+        taxRate: latestTaxRate,
       },
       comparison: {
-        company: comparableFromOverview(overview),
+        company: comparableFromNasdaq(primary),
         peers,
         selectedPeerSymbols,
         industryGrowthRate,
@@ -639,11 +666,9 @@ export async function GET(request: NextRequest) {
         },
         filing: sec?.filing ? { form: sec.filing.form, filingDate: sec.filing.filingDate, reportDate: sec.filing.reportDate, url: sec.filing.url } : null,
       },
-      historical: historical.reverse(),
+      historical: [...historical].reverse(),
     });
-    // A stale normalized response can preserve an old accounting mapping after the
-    // model is corrected, so freshness is more important here than browser caching.
-    normalizedResponse.headers.set("Cache-Control", "no-store");
+    normalizedResponse.headers.set("Cache-Control", "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400");
     return normalizedResponse;
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to load company data." }, { status: 502 });

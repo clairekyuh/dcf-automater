@@ -32,7 +32,7 @@ type CompanyData = {
   source: string;
   asOf: string;
   qualityNotes?: string[];
-  company: { symbol: string; name: string; description: string; exchange: string; currency: string; country: string; sector: string; industry: string };
+  company: { symbol: string; name: string; description: string; descriptionSource?: string; exchange: string; currency: string; country: string; sector: string; industry: string };
   market: { marketCap: number; shares: number; estimatedPrice: number; priceDate?: string | null; priceBasis?: string; beta: number; priceHistory?: PricePoint[] };
   metrics: { revenueGrowth: number; revenue: number; ebitMargin: number; capexPercentRevenue: number; daPercentRevenue: number; cash: number; debt: number; taxRate: number };
   comparison?: { company: Comparable; peers: Comparable[]; selectedPeerSymbols: string[]; industryGrowthRate: number | null };
@@ -137,13 +137,13 @@ const peerMedian = (data: CompanyData, key: keyof Pick<Comparable, "marketCap" |
 
 function marketPriceContext(data: CompanyData) {
   if (data.source === "Sample data") return { label: "Sample market price", detail: "Illustrative only—not a live quote" };
-  if (data.market.priceDate) return { label: "Latest available market price", detail: `Month-end close from ${data.market.priceDate}` };
+  if (data.market.priceDate) return { label: "Latest available market price", detail: `Nasdaq close from ${data.market.priceDate}` };
   return { label: "Implied market price", detail: data.market.priceBasis || "Market capitalization divided by reported shares" };
 }
 
 function briefDescription(description: string) {
   const clean = description.trim();
-  if (!clean) return "A concise company description could not be extracted from the latest SEC annual filing.";
+  if (!clean) return "A concise company description was not available from Nasdaq or the latest SEC filing.";
   const sentences = clean.match(/[^.!?]+[.!?]+/g) || [clean];
   const brief = sentences.slice(0, 2).join(" ").trim();
   return brief.length > 360 ? `${brief.slice(0, 357).trimEnd()}…` : brief;
@@ -447,7 +447,7 @@ function StockPriceChart({ points, symbol }: { points: PricePoint[]; symbol: str
     return points.filter((point) => new Date(point.date) >= cutoff);
   }, [period, points]);
 
-  if (filtered.length < 2) return <div className="chart-empty">Price history was not returned by the data provider for this ticker.</div>;
+  if (filtered.length < 2) return <div className="chart-empty">Price history was not returned by Nasdaq for this ticker.</div>;
   const width = 900;
   const height = 330;
   const pad = { left: 68, right: 22, top: 24, bottom: 48 };
@@ -531,10 +531,10 @@ function CompetitorComparison({ data }: { data: CompanyData }) {
       {rows.map((peer, index) => <tr className={index === 0 ? "focus-company" : ""} key={peer.symbol}><td><b>{peer.symbol}</b><span>{peer.name}</span>{index === 0 && <em>FOCUS COMPANY</em>}</td><td className="business-focus-cell">{businessFocus(peer)}</td><td>{formatCap(peer.marketCap)}</td><td>{formatMetric(peer.revenueGrowth, "%")}</td><td>{formatMetric(peer.operatingMargin, "%")}</td><td>{formatMetric(peer.evToRevenue)}</td><td>{formatMetric(peer.evToEbitda)}</td><td>{formatMetric(peer.pe)}</td></tr>)}
       {peers.length > 0 && <tr className="peer-median"><td><b>PEER MEDIAN</b><span>{peers.length} returned companies</span></td><td>—</td><td>{formatCap(metrics.marketCap)}</td><td>{formatMetric(metrics.growth, "%")}</td><td>{formatMetric(metrics.margin, "%")}</td><td>{formatMetric(metrics.revenueMultiple)}</td><td>{formatMetric(metrics.multiple)}</td><td>{formatMetric(metrics.pe)}</td></tr>}
     </tbody></table></div>
-    {!peers.length && <div className="peer-empty">Comparable ratios were not returned—usually because the free provider allowance ended after the main DCF loaded. The valuation still works, but peer benchmarks are unavailable for this request.</div>}
+    {!peers.length && <div className="peer-empty">Comparable ratios were not returned by Nasdaq for this request. The primary DCF still works because peer data is optional.</div>}
     <h3 className="difference-title">How {company.symbol} differs from the peer median</h3>
     <div className="difference-grid">{insights.map((insight) => <article key={insight.label}><span>{insight.label}</span><strong>{insight.value}</strong><p>{insight.detail}</p></article>)}</div>
-    <p className="peer-disclaimer">Revenue growth uses the provider’s latest quarterly year-over-year field. Multiples and margins are trailing metrics and may not be comparable when earnings are negative, fiscal periods differ, or business mixes vary.</p>
+    <p className="peer-disclaimer">Revenue growth compares each company’s latest two annual periods. Multiples and margins use the latest displayed annual financials and may not be comparable when earnings are negative, fiscal periods differ, or business mixes vary.</p>
   </section>;
 }
 
@@ -622,11 +622,11 @@ export default function Home() {
       <div className="instructions"><b>Instructions</b><span>Enter a public-company ticker below. The calculator loads annual financials, builds a five-year forecast, and keeps every assumption editable.</span></div>
       <form className="ticker-search" onSubmit={search}><label><span>TICKER SYMBOL</span><input aria-label="Ticker symbol" value={ticker} onChange={(event) => setTicker(event.target.value.toUpperCase())} placeholder="AAPL" /></label><button disabled={loading}>{loading ? "BUILDING DCF…" : "BUILD DCF →"}</button></form>
       {error && <div className="api-error"><b>Data connection:</b> {error}</div>}
-      <small>Powered by Alpha Vantage. A complete ticker analysis uses up to eight API calls, including price history and three peer-company overviews.</small>
+      <small>DCF financials and prices load from Nasdaq without an API key. SEC filings power the separate company-analysis page.</small>
     </header>
 
     <section className="company-summary">
-      <div><span>{data.company.exchange} · {data.company.symbol}</span><h2>{data.company.name}</h2><b className="company-description-label">{data.source === "Sample data" ? "WHAT THE COMPANY DOES · SAMPLE" : "WHAT THE COMPANY DOES · SEC FILING"}</b><p>{briefDescription(data.company.description)}</p><Link className="deep-analysis-link" href={`/company-analysis?symbol=${encodeURIComponent(data.company.symbol)}`}>{data.source === "Sample data" ? "Open sample supply chain, customer concentration & default-risk analysis →" : "Open SEC supply chain, customer concentration & default-risk analysis →"}</Link></div>
+      <div><span>{data.company.exchange} · {data.company.symbol}</span><h2>{data.company.name}</h2><b className="company-description-label">{data.source === "Sample data" ? "WHAT THE COMPANY DOES · SAMPLE" : `WHAT THE COMPANY DOES · ${data.company.descriptionSource || "COMPANY PROFILE"}`}</b><p>{briefDescription(data.company.description)}</p><Link className="deep-analysis-link" href={`/company-analysis?symbol=${encodeURIComponent(data.company.symbol)}`}>{data.source === "Sample data" ? "Open sample supply chain, customer concentration & default-risk analysis →" : "Open SEC supply chain, customer concentration & default-risk analysis →"}</Link></div>
       <dl><div><dt>{priceContext.label}</dt><dd>{usd.format(model.marketPrice)}<small>{priceContext.detail}</small></dd></div><div><dt>Industry</dt><dd>{data.company.industry}</dd></div><div><dt>Financials through</dt><dd>{data.asOf}</dd></div><div><dt>Data source</dt><dd>{data.source}</dd></div></dl>
     </section>
 
@@ -666,7 +666,7 @@ export default function Home() {
         <NumberField label="Diluted shares" term="dilutedShares" value={model.shares} suffix="M" help="Share count used to calculate value per share; check multi-class shares and dilution." onChange={(value) => update("shares", value)}/>
       </div>
       <div className="assumption-bottom"><div className="wacc-table"><div className="sheet-bar"><DefinedTerm term="wacc">WACC</DefinedTerm> reference build</div><div><span><DefinedTerm term="riskFreeRate">Risk-free rate</DefinedTerm></span><b>{fmt.format(riskFree)}%</b></div><div><span><DefinedTerm term="beta">Beta</DefinedTerm></span><b>{fmt.format(beta)}×</b></div><div><span><DefinedTerm term="equityRiskPremium">Equity risk premium</DefinedTerm></span><b>{fmt.format(equityRiskPremium)}%</b></div><div><span><DefinedTerm term="costOfEquity">Implied cost of equity</DefinedTerm></span><b>{fmt.format(costEquity)}%</b></div><div><span><DefinedTerm term="equityWeight">Equity / capital</DefinedTerm></span><b>{fmt.format(equityWeight * 100)}%</b></div><div><span><DefinedTerm term="preTaxCostOfDebt">Pre-tax cost of debt</DefinedTerm></span><b>{fmt.format(preTaxDebt)}%</b></div><div><span><DefinedTerm term="debtWeight">Debt / capital</DefinedTerm></span><b>{fmt.format(debtWeight * 100)}%</b></div><div className="total"><span>Formula reference <DefinedTerm term="wacc">WACC</DefinedTerm></span><b>{fmt.format(referenceWacc)}%</b></div><small>The editable model WACC can include additional size, country, concentration, and execution risk.</small></div>
-        <div className="data-check"><div className="sheet-bar">Data checks</div><ul>{(data.qualityNotes?.length ? data.qualityNotes : ["Sample data is active. Enter a ticker to load provider financials."]).map((note) => <li key={note}>{note}</li>)}</ul></div>
+        <div className="data-check"><div className="sheet-bar">Data checks</div><ul>{(data.qualityNotes?.length ? data.qualityNotes : ["Sample data is active. Enter a ticker to load Nasdaq financials."]).map((note) => <li key={note}>{note}</li>)}</ul></div>
       </div>
     </section>
 
