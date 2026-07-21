@@ -110,6 +110,107 @@ function fundedDebt(balance: Statement) {
   return millions(funded || balance.shortLongTermDebtTotal || 0);
 }
 
+function filingText(html: string) {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;|&#160;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function customerConcentration(text: string) {
+  const disclosures: Array<{ customer: string; revenuePercent: number; disclosure: string }> = [];
+  const sentences = text.match(/[^.]{0,240}(?:accounted for|accounting for|represented|comprised|constituted)[^.]{0,240}(?:revenue|revenues|sales)[^.]{0,80}\./gi) || [];
+  for (const sentence of sentences.slice(0, 30)) {
+    if (!/(?:total|net)\s+(?:company\s+)?(?:revenue|revenues|sales)|(?:our|company's|company’s)\s+(?:revenue|revenues|sales)/i.test(sentence)) continue;
+    const percentages = Array.from(sentence.matchAll(/(\d{1,2}(?:\.\d+)?)\s*%/g)).map((match) => Number(match[1])).filter((value) => value > 0 && value <= 100);
+    if (!percentages.length) continue;
+    const explicitLabels = Array.from(sentence.matchAll(/(?:Customer\s+[A-Z0-9]+|Walmart(?:\/Sam'?s Club)?)/g)).map((match) => match[0].trim());
+    const namedBeforeVerb = sentence.match(/([A-Z][A-Za-z&'.-]+(?:\s+[A-Z][A-Za-z&'.-]+){0,3})\s+(?:accounted for|represented|comprised|constituted)/)?.[1]?.trim();
+    const namedAfterSales = sentence.match(/(?:sales to|revenue from)\s+([A-Z][A-Za-z&'.-]+(?:\s+[A-Z][A-Za-z&'.-]+){0,3})/i)?.[1]?.trim();
+    const customerLabels = [...explicitLabels, namedAfterSales, namedBeforeVerb]
+      .filter((label): label is string => Boolean(label))
+      .filter((label) => !/^(For|The|Our|Company|One Customer|Two Customers|Three Customers|Net Sales|Total Revenue|Fiscal|During|As Of)$/i.test(label));
+    const reportedPercentages = customerLabels.length > 1 ? percentages.slice(0, customerLabels.length) : percentages.slice(0, 1);
+    reportedPercentages.forEach((revenuePercent, index) => {
+      const customer = customerLabels[index] || customerLabels[0] || (percentages.length > 1 ? `Disclosed customer ${index + 1}` : "Disclosed customer");
+      const key = `${customer}-${revenuePercent}`;
+      if (!disclosures.some((item) => `${item.customer}-${item.revenuePercent}` === key)) {
+        disclosures.push({ customer, revenuePercent, disclosure: "Latest annual filing" });
+      }
+    });
+  }
+  const noMajorCustomer = /no (?:single |individual |other )?customer[^.]{0,100}(?:10|ten)\s*%[^.]{0,100}(?:revenue|revenues|sales)/i.test(text)
+    || /largest customer[^.]{0,100}(?:less than|below)\s*(?:10|ten)\s*%/i.test(text);
+  return { disclosures: disclosures.slice(0, 6), noMajorCustomer };
+}
+
+function supplyChainSignals(text: string) {
+  const signals: Array<{ level: "high" | "medium" | "low"; title: string; detail: string }> = [];
+  if (/sole[- ]source|single[- ]source|single supplier|limited number of suppliers/i.test(text)) {
+    signals.push({ level: "high", title: "Concentrated sourcing", detail: "The annual filing discusses sole-source, single-source, or limited-supplier dependencies. A disruption could be difficult to replace quickly." });
+  }
+  if (/contract manufacturers|third-party manufacturers|outsourc(?:e|ed|ing)[^.]{0,80}manufactur|semiconductor foundr/i.test(text)) {
+    signals.push({ level: "medium", title: "External manufacturing", detail: "The filing indicates reliance on contract manufacturers, third-party manufacturing, or semiconductor foundries, reducing direct control over capacity and delivery." });
+  }
+  if (/third-party cloud|cloud service provider|data center provider|hosting provider/i.test(text)) {
+    signals.push({ level: "medium", title: "Infrastructure-provider dependence", detail: "The filing discusses third-party cloud, hosting, or data-center providers. Outages, price increases, or capacity constraints could affect service delivery." });
+  }
+  if (/(?:supplier|manufactur|foundr|production)[^.]{0,160}(?:Taiwan|China|People's Republic of China)|(?:Taiwan|China|People's Republic of China)[^.]{0,160}(?:supplier|manufactur|foundr|production)/i.test(text)) {
+    signals.push({ level: "medium", title: "Geographic supply exposure", detail: "The filing connects manufacturing or supplier activity with China or Taiwan, which can increase trade, logistics, and geopolitical exposure." });
+  }
+  if (/raw material shortages|component shortages|supply chain disruption|supply constraints/i.test(text)) {
+    signals.push({ level: "medium", title: "Shortage and disruption exposure", detail: "The filing identifies raw-material, component, or broader supply-chain disruption as a business risk." });
+  }
+  return signals.slice(0, 5);
+}
+
+function defaultRiskScreen(values: {
+  debtToRevenue: number | null;
+  netDebtToEbitda: number | null;
+  currentRatio: number | null;
+  interestCoverage: number | null;
+  fcfToDebt: number | null;
+  ebitda: number;
+  freeCashFlow: number;
+}) {
+  let points = 0;
+  const drivers: string[] = [];
+  const add = (condition: boolean, score: number, driver: string) => { if (condition) { points += score; drivers.push(driver); } };
+  if (values.debtToRevenue !== null) {
+    add(values.debtToRevenue > 1.5, 2, "Debt is high relative to revenue.");
+    add(values.debtToRevenue > .75 && values.debtToRevenue <= 1.5, 1, "Debt is elevated relative to revenue.");
+  }
+  if (values.netDebtToEbitda !== null) {
+    add(values.netDebtToEbitda > 4, 2, "Net debt exceeds four times EBITDA.");
+    add(values.netDebtToEbitda > 2.5 && values.netDebtToEbitda <= 4, 1, "Net debt is elevated relative to EBITDA.");
+  }
+  if (values.currentRatio !== null) {
+    add(values.currentRatio < 1, 2, "Current liabilities exceed current assets.");
+    add(values.currentRatio >= 1 && values.currentRatio < 1.5, 1, "Short-term liquidity is limited.");
+  }
+  if (values.interestCoverage !== null) {
+    add(values.interestCoverage < 1.5, 2, "Operating income provides weak interest coverage.");
+    add(values.interestCoverage >= 1.5 && values.interestCoverage < 3, 1, "Interest coverage has a limited cushion.");
+  }
+  if (values.fcfToDebt !== null) {
+    add(values.fcfToDebt < 0, 2, "Free cash flow is negative relative to debt.");
+    add(values.fcfToDebt >= 0 && values.fcfToDebt < .1, 1, "Free cash flow covers less than 10% of funded debt.");
+  }
+  add(values.ebitda <= 0, 2, "EBITDA is non-positive, weakening debt-service capacity.");
+  add(values.freeCashFlow < 0 && (values.fcfToDebt === null || values.fcfToDebt >= 0), 1, "Free cash flow is negative.");
+  return {
+    level: points >= 6 ? "high" : points >= 3 ? "moderate" : "low",
+    points,
+    drivers: drivers.length ? drivers : ["The available leverage, liquidity, coverage, and cash-flow ratios do not show an obvious near-term default warning."],
+  };
+}
+
 async function secCrossCheck(symbol: string, fiscalDate: string) {
   try {
     const headers = { "User-Agent": "DCF-Automater/1.0 github.com/clairekyuh/dcf-automater" };
@@ -136,11 +237,62 @@ async function secCrossCheck(symbol: string, fiscalDate: string) {
     const currentDebt = fact("us-gaap", ["LongTermDebtCurrent", "ShortTermBorrowings"], "USD");
     const noncurrentDebt = fact("us-gaap", ["LongTermDebtNoncurrent"], "USD");
     const shares = fact("dei", ["EntityCommonStockSharesOutstanding"], "shares", false);
+    const secMetrics = {
+      currentAssets: fact("us-gaap", ["AssetsCurrent"], "USD"),
+      currentLiabilities: fact("us-gaap", ["LiabilitiesCurrent"], "USD"),
+      totalAssets: fact("us-gaap", ["Assets"], "USD"),
+      totalLiabilities: fact("us-gaap", ["Liabilities"], "USD"),
+      retainedEarnings: fact("us-gaap", ["RetainedEarningsAccumulatedDeficit"], "USD"),
+      costOfRevenue: fact("us-gaap", ["CostOfRevenue", "CostOfGoodsAndServicesSold", "CostOfGoodsAndServiceExcludingDepreciationDepletionAndAmortization"], "USD"),
+      interestExpense: fact("us-gaap", ["InterestExpenseNonOperating", "InterestExpense"], "USD"),
+    };
+    let filing: null | {
+      form: string;
+      filingDate: string;
+      reportDate: string;
+      url: string;
+      customerConcentration: ReturnType<typeof customerConcentration>;
+      supplyChainSignals: ReturnType<typeof supplyChainSignals>;
+    } = null;
+    try {
+      const submissionsResponse = await fetch(`https://data.sec.gov/submissions/CIK${cik}.json`, { headers, next: { revalidate: 86400 } });
+      if (submissionsResponse.ok) {
+        const submissions = await submissionsResponse.json();
+        const recent = submissions.filings?.recent;
+        const filingIndex = (recent?.form as string[] | undefined)?.findIndex((form) => ["10-K", "20-F"].includes(form)) ?? -1;
+        if (filingIndex >= 0) {
+          const accession = String(recent.accessionNumber[filingIndex]);
+          const primaryDocument = String(recent.primaryDocument[filingIndex]);
+          const accessionPath = accession.replace(/-/g, "");
+          const cikPath = String(match.cik_str);
+          const primaryUrl = `https://www.sec.gov/Archives/edgar/data/${cikPath}/${accessionPath}/${primaryDocument}`;
+          const documentUrl = primaryDocument.toLowerCase().endsWith(".pdf")
+            ? `https://www.sec.gov/Archives/edgar/data/${cikPath}/${accessionPath}/${accession}.txt`
+            : primaryUrl;
+          const filingResponse = await fetch(documentUrl, { headers, next: { revalidate: 86400 } });
+          if (filingResponse.ok) {
+            const text = filingText(await filingResponse.text());
+            filing = {
+              form: recent.form[filingIndex],
+              filingDate: recent.filingDate[filingIndex],
+              reportDate: recent.reportDate[filingIndex],
+              url: primaryUrl,
+              customerConcentration: customerConcentration(text),
+              supplyChainSignals: supplyChainSignals(text),
+            };
+          }
+        }
+      }
+    } catch {
+      // Filing text is supplemental; structured facts should still be returned.
+    }
     return {
       cash: cash === undefined ? undefined : cash / 1_000_000,
       // Only replace provider debt when both sides of the SEC debt bridge are present.
       debt: currentDebt !== undefined && noncurrentDebt !== undefined ? (currentDebt + noncurrentDebt) / 1_000_000 : undefined,
       shares: shares === undefined ? undefined : shares / 1_000_000,
+      metrics: Object.fromEntries(Object.entries(secMetrics).map(([key, value]) => [key, value === undefined ? undefined : value / 1_000_000])),
+      filing,
     };
   } catch {
     return null;
@@ -183,6 +335,9 @@ export async function GET(request: NextRequest) {
       const depreciation = millions(cf.depreciationDepletionAndAmortization || cf.depreciation);
       const operatingCashFlow = millions(cf.operatingCashflow);
       const freeCashFlow = operatingCashFlow - capex;
+      const cogs = Math.abs(millions(inc.costOfRevenue || inc.costofGoodsAndServicesSold));
+      const grossProfit = millions(inc.grossProfit) || (revenue - cogs);
+      const interestExpense = Math.abs(millions(inc.interestExpense));
       return {
         year: inc.fiscalDateEnding?.slice(0, 4),
         fiscalDate: inc.fiscalDateEnding,
@@ -194,8 +349,17 @@ export async function GET(request: NextRequest) {
         capexPercentRevenue: revenue ? (capex / revenue) * 100 : 0,
         depreciation,
         freeCashFlow,
+        cogs,
+        grossProfit,
+        grossMargin: revenue ? (grossProfit / revenue) * 100 : 0,
+        interestExpense,
         cash: millions(bal.cashAndCashEquivalentsAtCarryingValue || bal.cashAndShortTermInvestments),
         debt: fundedDebt(bal),
+        currentAssets: millions(bal.totalCurrentAssets),
+        currentLiabilities: millions(bal.totalCurrentLiabilities),
+        totalAssets: millions(bal.totalAssets),
+        totalLiabilities: millions(bal.totalLiabilities),
+        retainedEarnings: millions(bal.retainedEarnings),
       };
     });
 
@@ -233,11 +397,52 @@ export async function GET(request: NextRequest) {
     const sec = await secCrossCheck(symbol, latest.fiscalDate);
     if (sec?.cash !== undefined) latest.cash = sec.cash;
     if (sec?.debt !== undefined) latest.debt = sec.debt;
+    const secMetric = (key: string) => n(sec?.metrics?.[key]);
+    if (!latest.currentAssets) latest.currentAssets = secMetric("currentAssets");
+    if (!latest.currentLiabilities) latest.currentLiabilities = secMetric("currentLiabilities");
+    if (!latest.totalAssets) latest.totalAssets = secMetric("totalAssets");
+    if (!latest.totalLiabilities) latest.totalLiabilities = secMetric("totalLiabilities");
+    if (!latest.retainedEarnings) latest.retainedEarnings = secMetric("retainedEarnings");
+    if (!latest.cogs) latest.cogs = secMetric("costOfRevenue");
+    if (!latest.interestExpense) latest.interestExpense = secMetric("interestExpense");
     const revenueGrowth = growthRate(historical.map((row) => row.revenue));
     // Keep the provider share count editable. A single SEC fact can represent only
     // one voting class and would understate dilution for multi-class companies.
     const shares = millions(overview.SharesOutstanding);
     const marketCap = millions(overview.MarketCapitalization);
+    const ratio = (numerator: number, denominator: number) => denominator ? numerator / denominator : null;
+    const ebitda = latest.ebit + latest.depreciation;
+    const netDebt = latest.debt - latest.cash;
+    const debtToRevenue = ratio(latest.debt, latest.revenue);
+    const netDebtToEbitda = ebitda > 0 ? ratio(netDebt, ebitda) : null;
+    const currentRatio = ratio(latest.currentAssets, latest.currentLiabilities);
+    const interestCoverage = ratio(latest.ebit, latest.interestExpense);
+    const fcfToDebt = ratio(latest.freeCashFlow, latest.debt);
+    const defaultRisk = defaultRiskScreen({ debtToRevenue, netDebtToEbitda, currentRatio, interestCoverage, fcfToDebt, ebitda, freeCashFlow: latest.freeCashFlow });
+    const altmanApplicable = /manufactur|industrial|automotive|aerospace|semiconductor|hardware|consumer durables/i.test(`${overview.Sector} ${overview.Industry}`)
+      && !/bank|insurance|financial|reit/i.test(`${overview.Sector} ${overview.Industry}`)
+      && latest.totalAssets > 0 && latest.totalLiabilities > 0;
+    const workingCapital = latest.currentAssets - latest.currentLiabilities;
+    const altmanZ = altmanApplicable
+      ? 1.2 * workingCapital / latest.totalAssets
+        + 1.4 * latest.retainedEarnings / latest.totalAssets
+        + 3.3 * latest.ebit / latest.totalAssets
+        + .6 * marketCap / latest.totalLiabilities
+        + latest.revenue / latest.totalAssets
+      : null;
+    const customerData = sec?.filing?.customerConcentration || { disclosures: [], noMajorCustomer: false };
+    const maxCustomerPercent = customerData.disclosures.length ? Math.max(...customerData.disclosures.map((item) => item.revenuePercent)) : null;
+    const supplySignals = [...(sec?.filing?.supplyChainSignals || [])];
+    if (maxCustomerPercent !== null) {
+      supplySignals.unshift({
+        level: maxCustomerPercent >= 20 ? "high" as const : "medium" as const,
+        title: "Customer concentration",
+        detail: `The latest filing discloses at least one customer representing ${maxCustomerPercent}% of revenue. Losing or repricing that relationship could materially affect sales and cash flow.`,
+      });
+    }
+    if (latest.capexPercentRevenue > 10) {
+      supplySignals.push({ level: latest.capexPercentRevenue > 25 ? "high" as const : "medium" as const, title: "Capital-intensive capacity", detail: `Capital spending equals ${latest.capexPercentRevenue.toFixed(1)}% of revenue, increasing execution, utilization, and financing exposure in the operating supply chain.` });
+    }
     const usedSec = sec && (sec.cash !== undefined || sec.debt !== undefined);
     const qualityNotes = [
       "Operating income is used as EBIT; non-operating income and interest are excluded from the EBIT starting point.",
@@ -288,6 +493,40 @@ export async function GET(request: NextRequest) {
         peers,
         selectedPeerSymbols,
         industryGrowthRate,
+      },
+      businessAnalysis: {
+        financials: {
+          revenue: latest.revenue,
+          cogs: latest.cogs,
+          cogsPercentRevenue: latest.revenue ? latest.cogs / latest.revenue * 100 : null,
+          grossProfit: latest.grossProfit || latest.revenue - latest.cogs,
+          grossMargin: latest.revenue ? (latest.grossProfit || latest.revenue - latest.cogs) / latest.revenue * 100 : null,
+          operatingCashFlow: latest.operatingCashFlow,
+          freeCashFlow: latest.freeCashFlow,
+          currentAssets: latest.currentAssets,
+          currentLiabilities: latest.currentLiabilities,
+          interestExpense: latest.interestExpense,
+          ebitda,
+          netDebt,
+        },
+        customerConcentration: {
+          disclosures: customerData.disclosures,
+          noMajorCustomer: customerData.noMajorCustomer,
+          disclosureThreshold: 10,
+        },
+        supplyChain: {
+          signals: supplySignals.slice(0, 6),
+          filingReviewed: Boolean(sec?.filing),
+        },
+        defaultRisk: {
+          ...defaultRisk,
+          ratios: { debtToRevenue, netDebtToEbitda, currentRatio, interestCoverage, fcfToDebt },
+          altmanZ,
+          altmanZone: altmanZ === null ? null : altmanZ < 1.81 ? "distress" : altmanZ > 2.99 ? "lower-risk" : "gray",
+          altmanApplicable,
+          methodology: "Automated historical screen using leverage, liquidity, interest coverage, free-cash-flow coverage, and the original Altman Z-score where broadly applicable. It is not a credit rating or a probability of default.",
+        },
+        filing: sec?.filing ? { form: sec.filing.form, filingDate: sec.filing.filingDate, reportDate: sec.filing.reportDate, url: sec.filing.url } : null,
       },
       historical: historical.reverse(),
     });

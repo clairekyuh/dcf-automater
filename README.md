@@ -22,6 +22,9 @@ Open [http://localhost:3000](http://localhost:3000).
 - Observed peer-industry revenue growth shown beside the long-run perpetual-growth assumption
 - Automatically selected competitor group with revenue growth, margins, EV/revenue, EV/EBITDA, P/E, and focus-company differences
 - Business-focus comparison and a conditional moat assessment with evidence that still needs verification
+- Separate `/company-analysis` page for supply-chain mapping, filing-derived customer concentration, company COGS, and default-risk screening
+- Best-effort annual-filing review for major customers, supplier concentration, external manufacturing, infrastructure providers, and geographic supply exposure
+- Solvency screen using leverage, liquidity, interest coverage, free-cash-flow coverage, and an Altman Z-score cross-check only where the original model is broadly applicable
 - Peer-median EV/EBITDA and trading range shown inside the exit-multiple valuation bridge
 - WACC/terminal-growth and WACC/exit-multiple sensitivity tables
 - Monthly stock-price chart with 1Y, 3Y, 5Y, and maximum-period controls

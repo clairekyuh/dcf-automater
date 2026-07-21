@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import Link from "next/link";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 
 type PricePoint = { date: string; close: number };
 type HistoricalRow = {
@@ -35,6 +36,13 @@ type CompanyData = {
   market: { marketCap: number; shares: number; estimatedPrice: number; priceDate?: string | null; priceBasis?: string; beta: number; priceHistory?: PricePoint[] };
   metrics: { revenueGrowth: number; revenue: number; ebitMargin: number; capexPercentRevenue: number; daPercentRevenue: number; cash: number; debt: number; taxRate: number };
   comparison?: { company: Comparable; peers: Comparable[]; selectedPeerSymbols: string[]; industryGrowthRate: number | null };
+  businessAnalysis?: {
+    financials: Record<string, number | null>;
+    customerConcentration: { disclosures: Array<{ customer: string; revenuePercent: number; disclosure: string }>; noMajorCustomer: boolean; disclosureThreshold: number };
+    supplyChain: { signals: Array<{ level: "high" | "medium" | "low"; title: string; detail: string }>; filingReviewed: boolean };
+    defaultRisk: { level: "high" | "moderate" | "low"; points: number; drivers: string[]; ratios: Record<string, number | null>; altmanZ: number | null; altmanZone: string | null; altmanApplicable: boolean; methodology: string };
+    filing: { form: string; filingDate: string; reportDate: string; url: string } | null;
+  };
   historical: HistoricalRow[];
 };
 type Model = {
@@ -83,6 +91,13 @@ const demo: CompanyData = {
     selectedPeerSymbols: ["ATLS", "MRDN", "VCTR"],
     industryGrowthRate: 11.1,
   },
+  businessAnalysis: {
+    financials: { revenue: 2400, cogs: 960, cogsPercentRevenue: 40, grossProfit: 1440, grossMargin: 60, operatingCashFlow: 506, freeCashFlow: 410, currentAssets: 1800, currentLiabilities: 900, interestExpense: 20, ebitda: 648, netDebt: -330 },
+    customerConcentration: { disclosures: [{ customer: "Customer A", revenuePercent: 14, disclosure: "Illustrative sample" }], noMajorCustomer: false, disclosureThreshold: 10 },
+    supplyChain: { signals: [{ level: "medium", title: "Infrastructure-provider dependence", detail: "This sample software company relies on external data-center and cloud capacity." }, { level: "medium", title: "Customer concentration", detail: "The illustrative largest customer represents 14% of sample revenue." }], filingReviewed: false },
+    defaultRisk: { level: "low", points: 0, drivers: ["The sample leverage, liquidity, coverage, and cash-flow ratios do not show an obvious near-term default warning."], ratios: { debtToRevenue: .133, netDebtToEbitda: -.509, currentRatio: 2, interestCoverage: 28.8, fcfToDebt: 1.28 }, altmanZ: null, altmanZone: null, altmanApplicable: false, methodology: "Illustrative historical screen—not a credit rating or probability of default." },
+    filing: null,
+  },
   historical: [
     { year: "2021", revenue: 1450, ebit: 247, ebitMargin: 17, operatingCashFlow: 242, capex: 62, capexPercentRevenue: 4.3, depreciation: 44, freeCashFlow: 180 },
     { year: "2022", revenue: 1650, ebit: 314, ebitMargin: 19, operatingCashFlow: 300, capex: 70, capexPercentRevenue: 4.2, depreciation: 50, freeCashFlow: 230 },
@@ -118,6 +133,14 @@ function marketPriceContext(data: CompanyData) {
   if (data.source === "Sample data") return { label: "Sample market price", detail: "Illustrative only—not a live quote" };
   if (data.market.priceDate) return { label: "Latest available market price", detail: `Month-end close from ${data.market.priceDate}` };
   return { label: "Implied market price", detail: data.market.priceBasis || "Market capitalization divided by reported shares" };
+}
+
+function briefDescription(description: string) {
+  const clean = description.trim();
+  if (!clean) return "A plain-language company description was not returned by the data provider.";
+  const sentences = clean.match(/[^.!?]+[.!?]+/g) || [clean];
+  const brief = sentences.slice(0, 2).join(" ").trim();
+  return brief.length > 360 ? `${brief.slice(0, 357).trimEnd()}…` : brief;
 }
 
 function businessFocus(company: Pick<Comparable, "description" | "industry" | "sector">) {
@@ -488,6 +511,12 @@ export default function Home() {
   const priceContext = marketPriceContext(data);
   const update = (key: keyof Model, value: number) => setModel((current) => ({ ...current, [key]: value }));
 
+  useEffect(() => {
+    const serialized = JSON.stringify(data);
+    sessionStorage.setItem("dcf:last-company", serialized);
+    localStorage.setItem("dcf:last-company", serialized);
+  }, [data]);
+
   async function search(event: FormEvent) {
     event.preventDefault();
     setLoading(true);
@@ -555,7 +584,7 @@ export default function Home() {
     </header>
 
     <section className="company-summary">
-      <div><span>{data.company.exchange} · {data.company.symbol}</span><h2>{data.company.name}</h2><p>{data.company.description}</p></div>
+      <div><span>{data.company.exchange} · {data.company.symbol}</span><h2>{data.company.name}</h2><b className="company-description-label">WHAT THE COMPANY DOES</b><p>{briefDescription(data.company.description)}</p><Link className="deep-analysis-link" href={`/company-analysis?symbol=${encodeURIComponent(data.company.symbol)}`}>Open supply chain, customer concentration &amp; default-risk analysis →</Link></div>
       <dl><div><dt>{priceContext.label}</dt><dd>{usd.format(model.marketPrice)}<small>{priceContext.detail}</small></dd></div><div><dt>Industry</dt><dd>{data.company.industry}</dd></div><div><dt>Financials through</dt><dd>{data.asOf}</dd></div><div><dt>Data source</dt><dd>{data.source}</dd></div></dl>
     </section>
 
