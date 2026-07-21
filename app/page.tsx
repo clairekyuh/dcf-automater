@@ -177,6 +177,18 @@ const validMedian = (values: Array<number | null>) => {
 };
 const peerMedian = (data: CompanyData, key: keyof Pick<Comparable, "marketCap" | "revenueGrowth" | "operatingMargin" | "evToRevenue" | "evToEbitda" | "pe">) => validMedian((data.comparison?.peers || []).map((peer) => peer[key]));
 
+function hasDailyPriceDensity(points: PricePoint[]) {
+  if (points.length < 8) return false;
+  const recent = points.slice(-24);
+  const gaps = recent.slice(1).map((point, index) => {
+    const current = new Date(`${point.date}T00:00:00Z`).getTime();
+    const previous = new Date(`${recent[index].date}T00:00:00Z`).getTime();
+    return (current - previous) / 86_400_000;
+  });
+  const medianGap = validMedian(gaps);
+  return medianGap !== null && medianGap <= 7;
+}
+
 function marketPriceContext(data: CompanyData) {
   if (data.source === "Sample data") return { label: "Sample market price", detail: "Illustrative only—not a live quote" };
   if (data.market.priceDate) return { label: "Latest available market price", detail: `Nasdaq close from ${data.market.priceDate}` };
@@ -769,6 +781,16 @@ export default function Home() {
     sessionStorage.setItem("dcf:last-company", serialized);
     localStorage.setItem("dcf:last-company", serialized);
   }, [companyReady, data]);
+
+  useEffect(() => {
+    if (!companyReady || data.source === "Sample data") return;
+    const points = data.market.priceHistory || [];
+    if (points.length >= 8 && !hasDailyPriceDensity(points)) {
+      // Fast Refresh can preserve the older monthly-only response after the API
+      // is upgraded. Refresh that ticker once so Daily and Weekly are real data.
+      void loadCompany(data.company.symbol);
+    }
+  }, [companyReady, data.company.symbol, data.market.priceHistory, data.source]);
 
   async function loadCompany(symbol: string) {
     setLoading(true);
