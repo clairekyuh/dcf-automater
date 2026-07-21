@@ -33,7 +33,7 @@ Open [http://localhost:3000](http://localhost:3000).
 - Peer-median EV/EBITDA and trading range shown inside the exit-multiple valuation bridge
 - WACC/terminal-growth and WACC/exit-multiple sensitivity tables
 - Side-by-side terminal-method cross-checks showing the perpetuity method's implied exit multiple and the exit method's implied perpetual growth rate
-- Monthly stock-price chart with 3M, 6M, YTD, 1Y, 3Y, 5Y, and maximum-available-period controls
+- Stock-price chart with independent Daily, Weekly, and Monthly intervals plus 3M, 6M, YTD, 1Y, 3Y, 5Y, and maximum-available-period controls
 - Editable business-niche-based starting assumptions
 - Expandable plain-language explanations for every editable assumption
 - Potential-risk flags for capex, leverage, margins, geopolitics, terminal value, and valuation cushion

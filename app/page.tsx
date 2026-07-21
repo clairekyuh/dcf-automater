@@ -598,17 +598,40 @@ function SensitivityTable({ data, model, method }: { data: CompanyData; model: M
 
 function StockPriceChart({ points, symbol }: { points: PricePoint[]; symbol: string }) {
   type ChartPeriod = "3M" | "6M" | "YTD" | "1Y" | "3Y" | "5Y" | "MAX";
+  type ChartInterval = "1D" | "1W" | "1M";
   const periods: ChartPeriod[] = ["3M", "6M", "YTD", "1Y", "3Y", "5Y", "MAX"];
+  const intervals: Array<{ value: ChartInterval; label: string; heading: string }> = [
+    { value: "1D", label: "Daily", heading: "DAILY" },
+    { value: "1W", label: "Weekly", heading: "WEEKLY" },
+    { value: "1M", label: "Monthly", heading: "MONTHLY" },
+  ];
   const [period, setPeriod] = useState<ChartPeriod>("5Y");
+  const [interval, setInterval] = useState<ChartInterval>("1M");
+  const sampled = useMemo(() => {
+    if (interval === "1D") return points;
+    const buckets = new Map<string, PricePoint>();
+    for (const point of points) {
+      const pointDate = new Date(`${point.date}T00:00:00Z`);
+      let key = point.date.slice(0, 7);
+      if (interval === "1W") {
+        const weekStart = new Date(pointDate);
+        weekStart.setUTCDate(weekStart.getUTCDate() - ((weekStart.getUTCDay() + 6) % 7));
+        key = weekStart.toISOString().slice(0, 10);
+      }
+      // Points arrive oldest to newest, so this retains each period's final close.
+      buckets.set(key, point);
+    }
+    return Array.from(buckets.values());
+  }, [interval, points]);
   const filtered = useMemo(() => {
-    if (!points.length || period === "MAX") return points;
-    const latest = new Date(points[points.length - 1].date);
+    if (!sampled.length || period === "MAX") return sampled;
+    const latest = new Date(`${sampled[sampled.length - 1].date}T00:00:00Z`);
     const cutoff = new Date(latest);
     if (period === "YTD") cutoff.setTime(Date.UTC(latest.getUTCFullYear(), 0, 1));
     else if (period === "3M" || period === "6M") cutoff.setUTCMonth(cutoff.getUTCMonth() - (period === "3M" ? 3 : 6));
     else cutoff.setUTCFullYear(cutoff.getUTCFullYear() - (period === "1Y" ? 1 : period === "3Y" ? 3 : 5));
-    return points.filter((point) => new Date(point.date) >= cutoff);
-  }, [period, points]);
+    return sampled.filter((point) => new Date(`${point.date}T00:00:00Z`) >= cutoff);
+  }, [period, sampled]);
 
   if (filtered.length < 2) return <div className="chart-empty">Price history was not returned by Nasdaq for this ticker.</div>;
   const width = 900;
@@ -628,17 +651,20 @@ function StockPriceChart({ points, symbol }: { points: PricePoint[]; symbol: str
   const first = filtered[0];
   const last = filtered[filtered.length - 1];
   const change = (last.close / first.close - 1) * 100;
-  const dateLabel = (date: string) => new Intl.DateTimeFormat("en-US", { month: "short", year: "2-digit", timeZone: "UTC" }).format(new Date(date));
+  const dateLabel = (date: string) => new Intl.DateTimeFormat("en-US", ["3M", "6M", "YTD"].includes(period)
+    ? { month: "short", day: "numeric", timeZone: "UTC" }
+    : { month: "short", year: "2-digit", timeZone: "UTC" }).format(new Date(`${date}T00:00:00Z`));
+  const selectedInterval = intervals.find((item) => item.value === interval) || intervals[2];
   return <div className="price-chart-card">
-    <div className="chart-head"><div><span>{symbol} MONTHLY CLOSE</span><h3>{usd.format(last.close)} <i className={change >= 0 ? "positive" : "negative"}>{change >= 0 ? "+" : ""}{fmt.format(change)}%</i></h3></div><div className="period-toggle" aria-label="Stock-price time range">{periods.map((item) => <button type="button" aria-pressed={item === period} className={item === period ? "active" : ""} key={item} onClick={() => setPeriod(item)}>{item}</button>)}</div></div>
-    <svg className="price-svg" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${symbol} monthly closing price chart for ${period}`}>
+    <div className="chart-head"><div><span>{symbol} {selectedInterval.heading} CLOSE</span><h3>{usd.format(last.close)} <i className={change >= 0 ? "positive" : "negative"}>{change >= 0 ? "+" : ""}{fmt.format(change)}%</i></h3></div><div className="chart-controls"><div className="chart-control-row"><span>RANGE</span><div className="period-toggle" role="group" aria-label="Stock-price time range">{periods.map((item) => <button type="button" aria-pressed={item === period} className={item === period ? "active" : ""} key={item} onClick={() => setPeriod(item)}>{item}</button>)}</div></div><div className="chart-control-row"><span>INTERVAL</span><div className="period-toggle interval-toggle" role="group" aria-label="Stock-price observation interval">{intervals.map((item) => <button type="button" aria-pressed={item.value === interval} className={item.value === interval ? "active" : ""} key={item.value} onClick={() => setInterval(item.value)}>{item.label}</button>)}</div></div></div></div>
+    <svg className="price-svg" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${symbol} ${selectedInterval.label.toLowerCase()} closing price chart for ${period}`}>
       <defs><linearGradient id="priceFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#78924b" stopOpacity=".28"/><stop offset="1" stopColor="#78924b" stopOpacity="0"/></linearGradient></defs>
       {[0, .25, .5, .75, 1].map((ratio) => { const value = max - (max - min) * ratio; const yPos = y(value); return <g key={ratio}><line x1={pad.left} x2={width - pad.right} y1={yPos} y2={yPos}/><text x={pad.left - 10} y={yPos + 4} textAnchor="end">{usd0.format(value)}</text></g>; })}
       {tickIndexes.map((index) => <text key={index} x={x(index)} y={height - 17} textAnchor={index === 0 ? "start" : index === filtered.length - 1 ? "end" : "middle"}>{dateLabel(filtered[index].date)}</text>)}
       <path className="price-area" d={area}/><path className="price-line" d={line}/>
       <circle cx={x(filtered.length - 1)} cy={y(last.close)} r="4"/>
     </svg>
-    <div className="chart-stats"><span>Period low <b>{usd.format(rawMin)}</b></span><span>Period high <b>{usd.format(rawMax)}</b></span><span>Observations <b>{filtered.length} monthly closes</b></span></div>
+    <div className="chart-stats"><span>Period low <b>{usd.format(rawMin)}</b></span><span>Period high <b>{usd.format(rawMax)}</b></span><span>Observations <b>{filtered.length} {selectedInterval.label.toLowerCase()} closes</b></span></div>
   </div>;
 }
 
@@ -961,7 +987,7 @@ export default function Home() {
     </section>
 
     <section className="sheet-section" id="price-history">
-      <div className="section-heading"><div><span className="section-index">04</span><p>MARKET DATA</p><h2>Stock price history</h2></div><p className="section-description">{data.source === "Sample data" ? "This is an illustrative company, so it does not have a real IPO date." : data.company.ipoDate ? `${data.company.name} first traded publicly on ${longDate(data.company.ipoDate)}.` : `A reliable public-market debut date was not available for ${data.company.name}.`} The chart shows monthly closing prices; select a period to compare performance.</p></div>
+      <div className="section-heading"><div><span className="section-index">04</span><p>MARKET DATA</p><h2>Stock price history</h2></div><p className="section-description">{data.source === "Sample data" ? "This is an illustrative company, so it does not have a real IPO date." : data.company.ipoDate ? `${data.company.name} first traded publicly on ${longDate(data.company.ipoDate)}.` : `A reliable public-market debut date was not available for ${data.company.name}.`} Select a time range and switch between daily, weekly, or monthly closing prices.</p></div>
       <StockPriceChart points={data.market.priceHistory || []} symbol={data.company.symbol}/>
     </section>
 

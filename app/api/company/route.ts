@@ -223,14 +223,10 @@ async function nasdaqPriceHistory(symbol: string) {
   const date = (value: Date) => value.toISOString().slice(0, 10);
   const data = await nasdaq(`/quote/${encodeURIComponent(symbol)}/historical?assetclass=stocks&fromdate=${date(start)}&todate=${date(end)}&limit=5000`, 3600);
   const daily = (data.tradesTable?.rows || []) as Array<{ date: string; close: string }>;
-  const monthly = new Map<string, { date: string; close: number }>();
-  for (const row of daily) {
-    const pointDate = isoDate(row.date);
-    const close = rawNumber(row.close) || 0;
-    const month = pointDate.slice(0, 7);
-    if (close > 0 && !monthly.has(month)) monthly.set(month, { date: pointDate, close });
-  }
-  return Array.from(monthly.values()).sort((a, b) => a.date.localeCompare(b.date));
+  return daily
+    .map((row) => ({ date: isoDate(row.date), close: rawNumber(row.close) || 0 }))
+    .filter((point) => point.close > 0)
+    .sort((a, b) => a.date.localeCompare(b.date));
 }
 
 type RevenueForecast = {
