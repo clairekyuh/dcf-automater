@@ -22,7 +22,9 @@ async function alpha(functionName: string, symbol: string, apiKey: string) {
   const response = await fetch(url, { cache: "no-store" });
   if (!response.ok) throw new Error(`Financial-data request failed (${response.status}).`);
   const data = await response.json();
-  if (data.Note || data.Information) throw new Error(data.Note || data.Information);
+  if (data.Note || data.Information) {
+    throw new Error("The financial-data provider's daily limit has been reached. Try again after the limit resets or use a higher-limit API key.");
+  }
   if (data["Error Message"]) throw new Error("Ticker not found. Check the symbol and try again.");
   return data;
 }
@@ -38,6 +40,50 @@ function growthRate(values: number[]) {
   const newest = valid[0];
   const oldest = valid[valid.length - 1];
   return (Math.pow(newest / oldest, 1 / (valid.length - 1)) - 1) * 100;
+}
+
+function fundedDebt(balance: Statement) {
+  const current = n(balance.currentDebt) || n(balance.currentLongTermDebt) || n(balance.longTermDebtCurrent);
+  const noncurrent = n(balance.longTermDebtNoncurrent) || n(balance.longTermDebt);
+  const funded = current + noncurrent;
+  return millions(funded || balance.shortLongTermDebtTotal || 0);
+}
+
+async function secCrossCheck(symbol: string, fiscalDate: string) {
+  try {
+    const headers = { "User-Agent": "DCF-Automater/1.0 github.com/clairekyuh/dcf-automater" };
+    const tickerResponse = await fetch("https://www.sec.gov/files/company_tickers.json", { headers, next: { revalidate: 604800 } });
+    if (!tickerResponse.ok) return null;
+    const tickers = await tickerResponse.json() as Record<string, { cik_str: number; ticker: string }>;
+    const match = Object.values(tickers).find((company) => company.ticker.toUpperCase() === symbol);
+    if (!match) return null;
+    const cik = String(match.cik_str).padStart(10, "0");
+    const factsResponse = await fetch(`https://data.sec.gov/api/xbrl/companyfacts/CIK${cik}.json`, { headers, next: { revalidate: 86400 } });
+    if (!factsResponse.ok) return null;
+    const facts = await factsResponse.json();
+
+    const fact = (taxonomy: string, concepts: string[], unit: string, exactDate = true) => {
+      for (const concept of concepts) {
+        const entries = facts.facts?.[taxonomy]?.[concept]?.units?.[unit] as Array<{ end: string; val: number; form: string; filed: string }> | undefined;
+        const annual = entries?.filter((entry) => ["10-K", "20-F"].includes(entry.form) && (!exactDate || entry.end === fiscalDate));
+        if (annual?.length) return [...annual].sort((a, b) => b.filed.localeCompare(a.filed))[0].val;
+      }
+      return undefined;
+    };
+
+    const cash = fact("us-gaap", ["CashAndCashEquivalentsAtCarryingValue"], "USD");
+    const currentDebt = fact("us-gaap", ["LongTermDebtCurrent", "ShortTermBorrowings"], "USD");
+    const noncurrentDebt = fact("us-gaap", ["LongTermDebtNoncurrent"], "USD");
+    const shares = fact("dei", ["EntityCommonStockSharesOutstanding"], "shares", false);
+    return {
+      cash: cash === undefined ? undefined : cash / 1_000_000,
+      // Only replace provider debt when both sides of the SEC debt bridge are present.
+      debt: currentDebt !== undefined && noncurrentDebt !== undefined ? (currentDebt + noncurrentDebt) / 1_000_000 : undefined,
+      shares: shares === undefined ? undefined : shares / 1_000_000,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export async function GET(request: NextRequest) {
@@ -69,7 +115,9 @@ export async function GET(request: NextRequest) {
       const bal = nearest(balance.annualReports, inc.fiscalDateEnding);
       const cf = nearest(cashflow.annualReports, inc.fiscalDateEnding);
       const revenue = millions(inc.totalRevenue);
-      const ebit = millions(inc.ebit || inc.operatingIncome);
+      // Operating income is the correct EBIT starting point for an unlevered DCF.
+      // Provider "ebit" fields may include non-operating income or expense.
+      const ebit = millions(inc.operatingIncome || inc.ebit);
       const capex = Math.abs(millions(cf.capitalExpenditures));
       const depreciation = millions(cf.depreciationDepletionAndAmortization || cf.depreciation);
       const operatingCashFlow = millions(cf.operatingCashflow);
@@ -86,18 +134,32 @@ export async function GET(request: NextRequest) {
         depreciation,
         freeCashFlow,
         cash: millions(bal.cashAndCashEquivalentsAtCarryingValue || bal.cashAndShortTermInvestments),
-        debt: millions(bal.shortLongTermDebtTotal || bal.longTermDebt || bal.totalLiabilities),
+        debt: fundedDebt(bal),
       };
     });
 
     const latest = historical[0];
+    const sec = await secCrossCheck(symbol, latest.fiscalDate);
+    if (sec?.cash !== undefined) latest.cash = sec.cash;
+    if (sec?.debt !== undefined) latest.debt = sec.debt;
     const revenueGrowth = growthRate(historical.map((row) => row.revenue));
+    // Keep the provider share count editable. A single SEC fact can represent only
+    // one voting class and would understate dilution for multi-class companies.
     const shares = millions(overview.SharesOutstanding);
     const marketCap = millions(overview.MarketCapitalization);
+    const usedSec = sec && (sec.cash !== undefined || sec.debt !== undefined);
+    const qualityNotes = [
+      "Operating income is used as EBIT; non-operating income and interest are excluded from the EBIT starting point.",
+      usedSec ? "SEC company facts were used for cash and complete funded-debt components where available." : "SEC company-fact cross-check was unavailable or incomplete for this ticker.",
+    ];
+    if (latest.capexPercentRevenue > 50) qualityNotes.push("Latest capex is unusually high and is shown historically, but the starting forecast normalizes it rather than projecting it unchanged forever.");
+    if (sec?.cash === undefined) qualityNotes.push("Cash was not independently verified; check whether the provider balance includes restricted cash that is unavailable to common shareholders.");
+    if (overview.Country === "USA") qualityNotes.push("The provider share count remains editable because a single SEC fact can miss multiple voting classes and dilution; check the latest filing.");
 
     const normalizedResponse = NextResponse.json({
-      source: "Alpha Vantage",
+      source: usedSec ? "Alpha Vantage + SEC company facts" : "Alpha Vantage",
       asOf: latest.fiscalDate,
+      qualityNotes,
       company: {
         symbol: overview.Symbol,
         name: overview.Name,
@@ -119,13 +181,16 @@ export async function GET(request: NextRequest) {
         revenue: latest.revenue,
         ebitMargin: latest.ebitMargin,
         capexPercentRevenue: latest.capexPercentRevenue,
+        daPercentRevenue: latest.revenue ? (latest.depreciation / latest.revenue) * 100 : 0,
         cash: latest.cash,
         debt: latest.debt,
         taxRate: 21,
       },
       historical: historical.reverse(),
     });
-    normalizedResponse.headers.set("Cache-Control", "public, s-maxage=86400, stale-while-revalidate=3600");
+    // A stale normalized response can preserve an old accounting mapping after the
+    // model is corrected, so freshness is more important here than browser caching.
+    normalizedResponse.headers.set("Cache-Control", "no-store");
     return normalizedResponse;
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to load company data." }, { status: 502 });

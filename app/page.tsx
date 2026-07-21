@@ -3,10 +3,10 @@
 import { FormEvent, useMemo, useState } from "react";
 
 type CompanyData = {
-  source: string; asOf: string;
+  source: string; asOf: string; qualityNotes?: string[];
   company: { symbol: string; name: string; description: string; exchange: string; currency: string; country: string; sector: string; industry: string };
   market: { marketCap: number; shares: number; estimatedPrice: number; beta: number };
-  metrics: { revenueGrowth: number; revenue: number; ebitMargin: number; capexPercentRevenue: number; cash: number; debt: number; taxRate: number };
+  metrics: { revenueGrowth: number; revenue: number; ebitMargin: number; capexPercentRevenue: number; daPercentRevenue: number; cash: number; debt: number; taxRate: number };
   historical: Array<{ year: string; revenue: number; ebitMargin: number; capex: number; capexPercentRevenue: number; freeCashFlow: number }>;
 };
 
@@ -16,7 +16,7 @@ const demo: CompanyData = {
   source: "Sample data", asOf: "2025-12-31",
   company: { symbol: "DEMO", name: "Northstar Systems", description: "Sample technology company used to demonstrate the full valuation workflow before an API key is configured.", exchange: "NASDAQ", currency: "USD", country: "USA", sector: "Technology", industry: "Software—Infrastructure" },
   market: { marketCap: 12500, shares: 250, estimatedPrice: 50, beta: 1.15 },
-  metrics: { revenueGrowth: 12, revenue: 2400, ebitMargin: 24, capexPercentRevenue: 4, cash: 650, debt: 320, taxRate: 21 },
+  metrics: { revenueGrowth: 12, revenue: 2400, ebitMargin: 24, capexPercentRevenue: 4, daPercentRevenue: 3, cash: 650, debt: 320, taxRate: 21 },
   historical: [
     { year: "2021", revenue: 1450, ebitMargin: 17, capex: 62, capexPercentRevenue: 4.3, freeCashFlow: 180 },
     { year: "2022", revenue: 1650, ebitMargin: 19, capex: 70, capexPercentRevenue: 4.2, freeCashFlow: 230 },
@@ -27,13 +27,13 @@ const demo: CompanyData = {
 };
 
 const industryRules = [
-  { match: /software|internet|semiconductor|technology/i, multiple: 18, wacc: 9.5, terminal: 3, note: "Asset-light growth businesses often trade on higher EBITDA multiples, but face faster competitive disruption." },
-  { match: /bank|insurance|financial/i, multiple: 11, wacc: 9, terminal: 2.5, note: "Financial companies are usually better valued with sector-specific equity methods; this unlevered DCF is only a directional cross-check." },
-  { match: /biotech|pharma|health/i, multiple: 14, wacc: 10, terminal: 2.5, note: "Pipeline, patent, reimbursement, and regulatory outcomes can dominate historical financial trends." },
-  { match: /oil|gas|energy|mining/i, multiple: 7, wacc: 10, terminal: 1.5, note: "Commodity cycles and reserve replacement make normalized margins more useful than a single recent year." },
-  { match: /utility|telecom/i, multiple: 8, wacc: 7.5, terminal: 2, note: "Stable demand can support lower discount rates, while leverage and capital intensity constrain flexibility." },
-  { match: /retail|consumer|restaurant/i, multiple: 10, wacc: 9, terminal: 2.5, note: "Brand strength, same-store growth, input costs, and consumer cycles are key valuation drivers." },
-  { match: /industrial|manufactur|aerospace|transport/i, multiple: 9, wacc: 9, terminal: 2.25, note: "Backlogs and operating leverage help visibility, but cyclicality and capital spending increase downside risk." },
+  { match: /software|internet|semiconductor|technology/i, multiple: 18, wacc: 9.5, terminal: 3, margin: 22, note: "Technology businesses can support strong margins, but infrastructure-heavy firms require much more reinvestment than asset-light software companies." },
+  { match: /bank|insurance|financial/i, multiple: 11, wacc: 9, terminal: 2.5, margin: 18, note: "Financial companies are usually better valued with sector-specific equity methods; this unlevered DCF is only a directional cross-check." },
+  { match: /biotech|pharma|health/i, multiple: 14, wacc: 10, terminal: 2.5, margin: 18, note: "Pipeline, patent, reimbursement, and regulatory outcomes can dominate historical financial trends." },
+  { match: /oil|gas|energy|mining/i, multiple: 7, wacc: 10, terminal: 1.5, margin: 15, note: "Commodity cycles and reserve replacement make normalized margins more useful than a single recent year." },
+  { match: /utility|telecom/i, multiple: 8, wacc: 7.5, terminal: 2, margin: 18, note: "Stable demand can support lower discount rates, while leverage and capital intensity constrain flexibility." },
+  { match: /retail|consumer|restaurant/i, multiple: 10, wacc: 9, terminal: 2.5, margin: 12, note: "Brand strength, same-store growth, input costs, and consumer cycles are key valuation drivers." },
+  { match: /industrial|manufactur|aerospace|transport/i, multiple: 9, wacc: 9, terminal: 2.25, margin: 15, note: "Backlogs and operating leverage help visibility, but cyclicality and capital spending increase downside risk." },
 ];
 
 const fmt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
@@ -43,15 +43,20 @@ const clamp = (value: number, min: number, max: number) => Math.min(max, Math.ma
 
 function recommendations(data: CompanyData) {
   const text = `${data.company.sector} ${data.company.industry}`;
-  const rule = industryRules.find((item) => item.match.test(text)) || { multiple: 10, wacc: 9.5, terminal: 2.5, note: "Use a conservative market multiple and compare it with mature peers in the same industry." };
-  const growth = clamp(data.metrics.revenueGrowth, -5, 20);
-  return { ...rule, growth: Math.round(clamp(growth * 0.65, 2, 15) * 10) / 10, margin: Math.round(clamp(data.metrics.ebitMargin, 3, 40) * 10) / 10 };
+  const rule = industryRules.find((item) => item.match.test(text)) || { multiple: 10, wacc: 9.5, terminal: 2.5, margin: 15, note: "Use a conservative market multiple and compare it with mature peers in the same industry." };
+  const historicalGrowth = data.metrics.revenueGrowth;
+  const growth = historicalGrowth > 100 ? 40 : historicalGrowth > 50 ? 30 : historicalGrowth > 25 ? 20 : clamp(historicalGrowth * 0.65, 2, 18);
+  const margin = data.metrics.ebitMargin < 3 ? rule.margin : clamp(data.metrics.ebitMargin, 3, 40);
+  const da = clamp(data.metrics.daPercentRevenue || data.metrics.capexPercentRevenue * .75, 1, 50);
+  const capex = data.metrics.capexPercentRevenue > 50 ? clamp(da * 1.05, 20, 50) : clamp(data.metrics.capexPercentRevenue, 1, 30);
+  const riskPremium = (historicalGrowth > 50 ? 1.5 : 0) + (data.metrics.debt > data.metrics.revenue * 2 ? 1.5 : 0);
+  return { ...rule, growth: Math.round(growth * 10) / 10, margin: Math.round(margin * 10) / 10, da: Math.round(da * 10) / 10, capex: Math.round(capex * 10) / 10, wacc: Math.min(13, rule.wacc + riskPremium) };
 }
 
 function buildModel(data: CompanyData): Model {
   const rec = recommendations(data);
   const round1 = (value: number) => Math.round(value * 10) / 10;
-  return { growth: rec.growth, margin: rec.margin, tax: 21, da: round1(Math.max(2, data.metrics.capexPercentRevenue * .75)), capex: round1(Math.max(2, data.metrics.capexPercentRevenue)), nwc: 2, wacc: rec.wacc, terminalGrowth: rec.terminal, exitMultiple: rec.multiple, cash: data.metrics.cash, debt: data.metrics.debt, shares: data.market.shares || 1, marketPrice: Math.round(data.market.estimatedPrice * 100) / 100 };
+  return { growth: rec.growth, margin: rec.margin, tax: 21, da: round1(rec.da), capex: round1(rec.capex), nwc: 2, wacc: rec.wacc, terminalGrowth: rec.terminal, exitMultiple: rec.multiple, cash: data.metrics.cash, debt: data.metrics.debt, shares: data.market.shares || 1, marketPrice: Math.round(data.market.estimatedPrice * 100) / 100 };
 }
 
 function calculate(data: CompanyData, model: Model, method: "perpetuity" | "multiple", growthShift = 0, marginShift = 0) {
@@ -60,10 +65,13 @@ function calculate(data: CompanyData, model: Model, method: "perpetuity" | "mult
   const wacc = model.wacc / 100;
   const years = Array.from({ length: 5 }, (_, index) => {
     const year = index + 1;
-    const fade = 1 - index * .1;
-    const growth = Math.max(model.terminalGrowth, (model.growth + growthShift) * fade) / 100;
+    const fade = 1 - index * .2;
+    const startingGrowth = Math.max(model.terminalGrowth, model.growth + growthShift);
+    const growth = (model.terminalGrowth + (startingGrowth - model.terminalGrowth) * fade) / 100;
     revenue *= 1 + growth;
-    const ebit = revenue * ((model.margin + marginShift) / 100);
+    const targetMargin = model.margin + marginShift;
+    const forecastMargin = data.metrics.ebitMargin + (targetMargin - data.metrics.ebitMargin) * (year / 5);
+    const ebit = revenue * (forecastMargin / 100);
     const tax = Math.max(0, ebit * model.tax / 100);
     const nopat = ebit - tax;
     const depreciation = revenue * model.da / 100;
@@ -72,7 +80,7 @@ function calculate(data: CompanyData, model: Model, method: "perpetuity" | "mult
     const fcf = nopat + depreciation - capex - changeNwc;
     const discountFactor = 1 / Math.pow(1 + wacc, year);
     previousRevenue = revenue;
-    return { year, growth: growth * 100, revenue, ebit, tax, nopat, depreciation, capex, changeNwc, fcf, discountFactor, pv: fcf * discountFactor };
+    return { year, growth: growth * 100, margin: forecastMargin, revenue, ebit, tax, nopat, depreciation, capex, changeNwc, fcf, discountFactor, pv: fcf * discountFactor };
   });
   const last = years[4];
   const terminalValue = method === "perpetuity"
@@ -81,9 +89,11 @@ function calculate(data: CompanyData, model: Model, method: "perpetuity" | "mult
   const pvTerminal = terminalValue * last.discountFactor;
   const pvForecast = years.reduce((sum, year) => sum + year.pv, 0);
   const enterpriseValue = pvForecast + pvTerminal;
-  const equityValue = enterpriseValue + model.cash - model.debt;
+  const rawEquityValue = enterpriseValue + model.cash - model.debt;
+  // Common equity has limited liability: its economic value cannot fall below zero.
+  const equityValue = Math.max(0, rawEquityValue);
   const perShare = equityValue / Math.max(model.shares, 1);
-  return { years, terminalValue, pvTerminal, pvForecast, enterpriseValue, equityValue, perShare, terminalShare: enterpriseValue ? pvTerminal / enterpriseValue * 100 : 0 };
+  return { years, terminalValue, pvTerminal, pvForecast, enterpriseValue, rawEquityValue, equityValue, perShare, terminalShare: enterpriseValue ? pvTerminal / enterpriseValue * 100 : 0 };
 }
 
 function riskAnalysis(data: CompanyData, model: Model, result: ReturnType<typeof calculate>) {
@@ -168,7 +178,7 @@ function LearningWalkthrough({ data, model, result, method }: { data: CompanyDat
       title: "Bridge enterprise value to equity value",
       concept: "The operating assets belong to both debt and equity investors. Add excess cash and subtract debt to isolate the value attributable to common shareholders.",
       formula: "Equity value = Enterprise value + Cash − Debt",
-      example: `${usd0.format(result.enterpriseValue)}M + ${usd0.format(model.cash)}M − ${usd0.format(model.debt)}M = ${usd0.format(result.equityValue)}M.`,
+      example: `${usd0.format(result.enterpriseValue)}M + ${usd0.format(model.cash)}M − ${usd0.format(model.debt)}M = ${usd0.format(result.rawEquityValue)}M before applying the $0 common-equity floor.`,
       question: "Are there leases, pensions, minority interests, options, or other claims that should also be included?",
     },
     {
@@ -211,7 +221,8 @@ export default function Home() {
   async function search(event: FormEvent) {
     event.preventDefault(); setLoading(true); setError("");
     try {
-      const response = await fetch(`/api/company?symbol=${encodeURIComponent(ticker.trim().toUpperCase())}`);
+      // Financial statements and normalization rules must not be served from a stale browser cache.
+      const response = await fetch(`/api/company?symbol=${encodeURIComponent(ticker.trim().toUpperCase())}`, { cache: "no-store" });
       const json = await response.json();
       if (!response.ok) throw new Error(json.error || "Unable to load company.");
       setData(json); setModel(buildModel(json));
@@ -233,11 +244,11 @@ export default function Home() {
       <p>{data.company.description}</p><small>Source: {data.source} · Financials as of {data.asOf} · Values in {data.company.currency} millions</small>
     </section>
 
-    <LearningWalkthrough data={data} model={model} result={result} method={method} />
+    {data.qualityNotes?.length ? <section className="data-quality"><div><span>DATA CHECK</span><h2>What was verified—and what still needs judgment</h2></div><ul>{data.qualityNotes.map((note) => <li key={note}>{note}</li>)}</ul></section> : null}
 
     <section className="model-shell">
       <aside>
-        <div className="section-title"><span>01</span><h2>Editable assumptions</h2></div>
+        <div className="section-title"><span>02</span><h2>Editable assumptions</h2></div>
         <div className="recommendation"><b>INDUSTRY STARTING POINT</b><p>{rec.note}</p><small>Recommendations are heuristics, not observed peer medians. Modify them to match your thesis.</small></div>
         <div className="field-grid">
           <NumberField label="Revenue growth" value={model.growth} suffix="%" help="Expected annual sales growth. The model fades this rate over time as the company matures." onChange={(v)=>update("growth",v)} />
@@ -255,15 +266,17 @@ export default function Home() {
       </aside>
 
       <article className="results">
-        <div className="result-head"><div className="section-title"><span>02</span><h2>DCF valuation</h2></div><div className="method-toggle"><button className={method==="perpetuity"?"active":""} onClick={()=>setMethod("perpetuity")}>Perpetuity growth</button><button className={method==="multiple"?"active":""} onClick={()=>setMethod("multiple")}>Exit multiple</button></div></div>
+        <div className="result-head"><div className="section-title"><span>01</span><h2>DCF valuation</h2></div><div className="method-toggle"><button className={method==="perpetuity"?"active":""} onClick={()=>setMethod("perpetuity")}>Perpetuity growth</button><button className={method==="multiple"?"active":""} onClick={()=>setMethod("multiple")}>Exit multiple</button></div></div>
         {model.wacc <= model.terminalGrowth && method === "perpetuity" ? <div className="api-error">WACC must be greater than terminal growth.</div> : <>
           <div className="hero-value"><div><p>IMPLIED VALUE PER SHARE</p><strong>{usd.format(result.perShare)}</strong></div><div className={result.perShare >= model.marketPrice ? "upside positive" : "upside negative"}><span>VS. EST. PRICE</span><b>{model.marketPrice ? fmt.format((result.perShare/model.marketPrice-1)*100) : "—"}%</b></div></div>
           <div className="metrics"><div><span>Enterprise value</span><b>{usd0.format(result.enterpriseValue)}M</b></div><div><span>Equity value</span><b>{usd0.format(result.equityValue)}M</b></div><div><span>Terminal value share</span><b>{fmt.format(result.terminalShare)}%</b></div></div>
+          {result.rawEquityValue < 0 && <div className="negative-explainer"><span>WHY THE EQUITY VALUE HIT ZERO</span><h3>The model values the operations below net debt.</h3><p>Enterprise value of {usd0.format(result.enterpriseValue)}M plus {usd0.format(model.cash)}M of cash is {usd0.format(Math.abs(result.rawEquityValue))}M short of covering {usd0.format(model.debt)}M of funded debt. The mathematical bridge is negative, but common stock has limited liability, so the website displays a $0 floor—not a negative share price.</p><p>This does not mean the company is literally worth less than zero. It means these growth, margin, reinvestment, and discount-rate assumptions do not create enough operating value for common shareholders. Change them only when you have evidence for a different forecast.</p></div>}
         </>}
 
         <div className="forecast"><div className="table-title"><h3>Five-year cash-flow build</h3><span>USD MILLIONS</span></div><div className="table-scroll"><table><thead><tr><th>DCF step</th>{result.years.map(y=><th key={y.year}>YEAR {y.year}</th>)}</tr></thead><tbody>
           <tr><td>Revenue growth</td>{result.years.map(y=><td key={y.year}>{fmt.format(y.growth)}%</td>)}</tr>
           <tr><td>Revenue</td>{result.years.map(y=><td key={y.year}>{fmt.format(y.revenue)}</td>)}</tr>
+          <tr><td>EBIT margin</td>{result.years.map(y=><td key={y.year}>{fmt.format(y.margin)}%</td>)}</tr>
           <tr><td>EBIT</td>{result.years.map(y=><td key={y.year}>{fmt.format(y.ebit)}</td>)}</tr>
           <tr><td>− Cash taxes</td>{result.years.map(y=><td key={y.year}>({fmt.format(y.tax)})</td>)}</tr>
           <tr><td>= NOPAT</td>{result.years.map(y=><td key={y.year}>{fmt.format(y.nopat)}</td>)}</tr>
@@ -285,6 +298,8 @@ export default function Home() {
     <section className="risk-section"><div className="risk-heading"><div className="section-title"><span>04</span><h2>Decision risk dashboard</h2></div><p>Automated screening flags derived from available financials, domicile, industry, and model outputs. Verify material risks in company filings.</p></div><div className="risk-grid">{risks.map(r=><div key={r.title}><span className={`risk-pill ${r.level}`}>{r.level}</span><h3>{r.title}</h3><p>{r.detail}</p></div>)}</div>
       <div className="decision-checklist"><h3>Before making a decision</h3><ul><li>Read the latest annual report, risk factors, and management guidance.</li><li>Map revenue, suppliers, and manufacturing by country; the API does not provide full geographic exposure.</li><li>Compare assumptions with several direct peers and through a full business cycle.</li><li>Stress-test dilution, acquisitions, regulation, commodity inputs, and refinancing.</li><li>Decide what evidence would invalidate your thesis and demand a margin of safety.</li></ul></div>
     </section>
+
+    <LearningWalkthrough data={data} model={model} result={result} method={method} />
     <footer><span>Educational decision support only—not personalized investment advice.</span><span>DATA MAY BE DELAYED · MODEL V1.0</span></footer>
   </main>;
 }
