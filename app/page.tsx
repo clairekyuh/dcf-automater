@@ -597,13 +597,16 @@ function SensitivityTable({ data, model, method }: { data: CompanyData; model: M
 }
 
 function StockPriceChart({ points, symbol }: { points: PricePoint[]; symbol: string }) {
-  const [period, setPeriod] = useState<"1Y" | "3Y" | "5Y" | "MAX">("5Y");
+  type ChartPeriod = "3M" | "6M" | "YTD" | "1Y" | "3Y" | "5Y" | "MAX";
+  const periods: ChartPeriod[] = ["3M", "6M", "YTD", "1Y", "3Y", "5Y", "MAX"];
+  const [period, setPeriod] = useState<ChartPeriod>("5Y");
   const filtered = useMemo(() => {
     if (!points.length || period === "MAX") return points;
     const latest = new Date(points[points.length - 1].date);
-    const years = period === "1Y" ? 1 : period === "3Y" ? 3 : 5;
     const cutoff = new Date(latest);
-    cutoff.setUTCFullYear(cutoff.getUTCFullYear() - years);
+    if (period === "YTD") cutoff.setTime(Date.UTC(latest.getUTCFullYear(), 0, 1));
+    else if (period === "3M" || period === "6M") cutoff.setUTCMonth(cutoff.getUTCMonth() - (period === "3M" ? 3 : 6));
+    else cutoff.setUTCFullYear(cutoff.getUTCFullYear() - (period === "1Y" ? 1 : period === "3Y" ? 3 : 5));
     return points.filter((point) => new Date(point.date) >= cutoff);
   }, [period, points]);
 
@@ -627,7 +630,7 @@ function StockPriceChart({ points, symbol }: { points: PricePoint[]; symbol: str
   const change = (last.close / first.close - 1) * 100;
   const dateLabel = (date: string) => new Intl.DateTimeFormat("en-US", { month: "short", year: "2-digit", timeZone: "UTC" }).format(new Date(date));
   return <div className="price-chart-card">
-    <div className="chart-head"><div><span>{symbol} MONTHLY CLOSE</span><h3>{usd.format(last.close)} <i className={change >= 0 ? "positive" : "negative"}>{change >= 0 ? "+" : ""}{fmt.format(change)}%</i></h3></div><div className="period-toggle">{(["1Y", "3Y", "5Y", "MAX"] as const).map((item) => <button type="button" className={item === period ? "active" : ""} key={item} onClick={() => setPeriod(item)}>{item}</button>)}</div></div>
+    <div className="chart-head"><div><span>{symbol} MONTHLY CLOSE</span><h3>{usd.format(last.close)} <i className={change >= 0 ? "positive" : "negative"}>{change >= 0 ? "+" : ""}{fmt.format(change)}%</i></h3></div><div className="period-toggle" aria-label="Stock-price time range">{periods.map((item) => <button type="button" aria-pressed={item === period} className={item === period ? "active" : ""} key={item} onClick={() => setPeriod(item)}>{item}</button>)}</div></div>
     <svg className="price-svg" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${symbol} monthly closing price chart for ${period}`}>
       <defs><linearGradient id="priceFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#78924b" stopOpacity=".28"/><stop offset="1" stopColor="#78924b" stopOpacity="0"/></linearGradient></defs>
       {[0, .25, .5, .75, 1].map((ratio) => { const value = max - (max - min) * ratio; const yPos = y(value); return <g key={ratio}><line x1={pad.left} x2={width - pad.right} y1={yPos} y2={yPos}/><text x={pad.left - 10} y={yPos + 4} textAnchor="end">{usd0.format(value)}</text></g>; })}
@@ -635,7 +638,7 @@ function StockPriceChart({ points, symbol }: { points: PricePoint[]; symbol: str
       <path className="price-area" d={area}/><path className="price-line" d={line}/>
       <circle cx={x(filtered.length - 1)} cy={y(last.close)} r="4"/>
     </svg>
-    <div className="chart-stats"><span>Period low <b>{usd.format(rawMin)}</b></span><span>Period high <b>{usd.format(rawMax)}</b></span><span>Observations <b>{filtered.length} months</b></span></div>
+    <div className="chart-stats"><span>Period low <b>{usd.format(rawMin)}</b></span><span>Period high <b>{usd.format(rawMax)}</b></span><span>Observations <b>{filtered.length} monthly closes</b></span></div>
   </div>;
 }
 

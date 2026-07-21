@@ -217,7 +217,9 @@ async function nasdaqFundamentals(symbol: string) {
 async function nasdaqPriceHistory(symbol: string) {
   const end = new Date();
   const start = new Date(end);
-  start.setUTCFullYear(start.getUTCFullYear() - 5);
+  // Nasdaq currently returns at most roughly ten years through this endpoint.
+  // Request that full window so the chart's MAX tab reflects all available data.
+  start.setUTCFullYear(start.getUTCFullYear() - 10);
   const date = (value: Date) => value.toISOString().slice(0, 10);
   const data = await nasdaq(`/quote/${encodeURIComponent(symbol)}/historical?assetclass=stocks&fromdate=${date(start)}&todate=${date(end)}&limit=5000`, 3600);
   const daily = (data.tradesTable?.rows || []) as Array<{ date: string; close: string }>;

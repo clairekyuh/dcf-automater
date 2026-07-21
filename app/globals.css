@@ -173,7 +173,7 @@ table{border-collapse:collapse;width:100%}
 .chart-head i{font:500 11px DM Mono;font-style:normal;margin-left:7px}
 .positive{color:var(--green)}
 .negative{color:var(--red)}
-.period-toggle{display:flex}
+.period-toggle{display:flex;flex-wrap:wrap;justify-content:flex-end}
 .price-svg{display:block;width:100%;height:auto;max-height:390px;margin-top:15px;overflow:visible}
 .price-svg line{stroke:#d8ddd5;stroke-width:1}
 .price-svg text{fill:#71808b;font:9px DM Mono}
