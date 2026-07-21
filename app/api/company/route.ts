@@ -176,12 +176,13 @@ function defaultRiskScreen(values: {
   currentRatio: number | null;
   interestCoverage: number | null;
   fcfToDebt: number | null;
-  ebitda: number;
-  freeCashFlow: number;
+  ebitda: number | null;
+  freeCashFlow: number | null;
 }) {
   let points = 0;
   const drivers: string[] = [];
   const add = (condition: boolean, score: number, driver: string) => { if (condition) { points += score; drivers.push(driver); } };
+  const availableChecks = [values.debtToRevenue, values.netDebtToEbitda, values.currentRatio, values.interestCoverage, values.fcfToDebt].filter((value) => value !== null).length;
   if (values.debtToRevenue !== null) {
     add(values.debtToRevenue > 1.5, 2, "Debt is high relative to revenue.");
     add(values.debtToRevenue > .75 && values.debtToRevenue <= 1.5, 1, "Debt is elevated relative to revenue.");
@@ -202,97 +203,203 @@ function defaultRiskScreen(values: {
     add(values.fcfToDebt < 0, 2, "Free cash flow is negative relative to debt.");
     add(values.fcfToDebt >= 0 && values.fcfToDebt < .1, 1, "Free cash flow covers less than 10% of funded debt.");
   }
-  add(values.ebitda <= 0, 2, "EBITDA is non-positive, weakening debt-service capacity.");
-  add(values.freeCashFlow < 0 && (values.fcfToDebt === null || values.fcfToDebt >= 0), 1, "Free cash flow is negative.");
+  add(values.ebitda !== null && values.ebitda <= 0, 2, "EBITDA is non-positive, weakening debt-service capacity.");
+  add(values.freeCashFlow !== null && values.freeCashFlow < 0 && (values.fcfToDebt === null || values.fcfToDebt >= 0), 1, "Free cash flow is negative.");
+  if (availableChecks < 3) {
+    return {
+      level: "insufficient" as const,
+      points,
+      availableChecks,
+      drivers: ["Fewer than three core solvency ratios could be calculated from the latest SEC annual facts, so the model will not label the company low risk."],
+    };
+  }
   return {
     level: points >= 6 ? "high" : points >= 3 ? "moderate" : "low",
     points,
+    availableChecks,
     drivers: drivers.length ? drivers : ["The available leverage, liquidity, coverage, and cash-flow ratios do not show an obvious near-term default warning."],
   };
 }
 
-async function secCrossCheck(symbol: string, fiscalDate: string) {
+function filingBusinessDescription(text: string) {
+  const markers = [
+    { start: /\bitem\s+1[.\s:–—-]*business\b/gi, end: /\bitem\s+1a[.\s:–—-]*risk factors\b/i },
+    { start: /\bitem\s+4[.\s:–—-]*information on the company\b/gi, end: /\bitem\s+4a\b/i },
+  ];
+  const sections: string[] = [];
+  for (const marker of markers) {
+    for (const match of Array.from(text.matchAll(marker.start))) {
+      const remainder = text.slice((match.index || 0) + match[0].length);
+      const endIndex = remainder.search(marker.end);
+      if (endIndex >= 800 && endIndex <= 180_000) sections.push(remainder.slice(0, endIndex));
+    }
+  }
+  const section = sections.sort((a, b) => b.length - a.length)[0];
+  if (!section) return "";
+  const sentences = section.match(/[^.!?]{35,520}[.!?]/g) || [];
+  const candidates = sentences
+    .map((sentence) => sentence.replace(/\s+/g, " ").trim())
+    .filter((sentence) => !/forward-looking|table of contents|incorporated by reference|available on our website|securities and exchange commission/i.test(sentence));
+  const firstBusinessSentence = candidates.findIndex((sentence) => /\b(?:we|the company)\s+(?:are|is|provide|provides|develop|develops|design|designs|manufacture|manufactures|offer|offers|sell|sells|operate|operates|deliver|delivers|create|creates)\b/i.test(sentence));
+  const selected = candidates.slice(Math.max(firstBusinessSentence, 0), Math.max(firstBusinessSentence, 0) + 3);
+  const description = selected.join(" ").trim();
+  return description.length > 900 ? `${description.slice(0, 897).trimEnd()}…` : description;
+}
+
+function secSupplyChainStages(description: string, filing: string) {
+  const text = `${description} ${filing}`;
+  const profiles = [
+    { match: /electronic design automation|semiconductor intellectual property|semiconductor ip/i, stages: [
+      { name: "Critical inputs", detail: "Engineering talent, proprietary algorithms, semiconductor process data, and licensed technology." },
+      { name: "Operations", detail: "Develops chip-design, verification, testing, or reusable semiconductor-IP products described in the filing." },
+      { name: "Delivery", detail: "Software licenses, subscriptions, support, and IP agreements are delivered to chip and systems designers." },
+      { name: "End customers", detail: "Semiconductor companies, systems companies, foundries, and electronics designers." },
+    ] },
+    { match: /semiconductor|integrated circuit|wafer|foundr/i, stages: [
+      { name: "Critical inputs", detail: "Chip-design tools, intellectual property, wafers, manufacturing equipment, substrates, and specialty materials." },
+      { name: "Operations", detail: "Designs or produces semiconductors and may rely on foundries, assembly providers, and test partners." },
+      { name: "Distribution", detail: "Products move through direct sales, distributors, original-equipment manufacturers, and systems partners." },
+      { name: "End customers", detail: "Device makers, data centers, automakers, industrial users, and consumers, depending on the filing-described product mix." },
+    ] },
+    { match: /cloud|software|subscription|data center|hosted service/i, stages: [
+      { name: "Critical inputs", detail: "Software engineers, intellectual property, data-center capacity, cloud services, and third-party technology." },
+      { name: "Operations", detail: "Develops, hosts, secures, and supports the software or computing services described in the filing." },
+      { name: "Delivery", detail: "Subscriptions, consumption contracts, licenses, direct sales, and channel partners." },
+      { name: "End customers", detail: "Businesses, governments, developers, or consumers identified by the company’s annual filing." },
+    ] },
+    { match: /automotive|automobile|motor vehicle|vehicle production/i, stages: [
+      { name: "Critical inputs", detail: "Steel, aluminum, batteries, semiconductors, electronics, components, and skilled labor." },
+      { name: "Operations", detail: "Vehicle engineering, assembly, quality control, logistics, and financing support." },
+      { name: "Distribution", detail: "Dealers, direct sales, fleets, service centers, and financing channels." },
+      { name: "End customers", detail: "Consumers, commercial fleets, rental companies, and governments." },
+    ] },
+    { match: /retail|restaurant|consumer product|merchandise/i, stages: [
+      { name: "Critical inputs", detail: "Finished goods, ingredients, packaging, private-label manufacturing, labor, and transportation." },
+      { name: "Operations", detail: "Merchandising, inventory planning, stores or fulfillment centers, marketing, and customer service." },
+      { name: "Distribution", detail: "Physical stores, e-commerce, wholesalers, marketplaces, and last-mile delivery." },
+      { name: "End customers", detail: "Consumers and other customer groups described in the annual filing." },
+    ] },
+    { match: /pharmaceutical|biotechnology|therapeutic|clinical trial/i, stages: [
+      { name: "Critical inputs", detail: "Research talent, clinical data, active ingredients, biologic materials, and contract research services." },
+      { name: "Operations", detail: "Discovery, clinical trials, regulatory approval, manufacturing, and quality control." },
+      { name: "Distribution", detail: "Wholesalers, specialty pharmacies, hospitals, physicians, and licensing partners." },
+      { name: "End customers", detail: "Patients and healthcare providers, with payment influenced by insurers and governments." },
+    ] },
+    { match: /industrial|manufactur|aerospace|defense contractor/i, stages: [
+      { name: "Critical inputs", detail: "Raw materials, precision components, electronics, energy, suppliers, and skilled labor." },
+      { name: "Operations", detail: "Engineering, fabrication, assembly, testing, maintenance, and project execution." },
+      { name: "Distribution", detail: "Direct contracts, distributors, service networks, and long-term customer programs." },
+      { name: "End customers", detail: "Industrial companies, transportation operators, defense agencies, infrastructure operators, and governments." },
+    ] },
+  ];
+  return profiles.find((profile) => profile.match.test(text))?.stages || [];
+}
+
+async function secDataset(symbol: string) {
   try {
-    const headers = { "User-Agent": "DCF-Automater/1.0 github.com/clairekyuh/dcf-automater" };
+    const headers = {
+      "User-Agent": "DCF-Automater clairekyuh@users.noreply.github.com",
+      "Accept-Encoding": "gzip, deflate",
+    };
     const tickerResponse = await fetch("https://www.sec.gov/files/company_tickers.json", { headers, next: { revalidate: 604800 } });
     if (!tickerResponse.ok) return null;
     const tickers = await tickerResponse.json() as Record<string, { cik_str: number; ticker: string }>;
     const match = Object.values(tickers).find((company) => company.ticker.toUpperCase() === symbol);
     if (!match) return null;
     const cik = String(match.cik_str).padStart(10, "0");
-    const factsResponse = await fetch(`https://data.sec.gov/api/xbrl/companyfacts/CIK${cik}.json`, { headers, next: { revalidate: 86400 } });
-    if (!factsResponse.ok) return null;
+    const [factsResponse, submissionsResponse] = await Promise.all([
+      fetch(`https://data.sec.gov/api/xbrl/companyfacts/CIK${cik}.json`, { headers, next: { revalidate: 86400 } }),
+      fetch(`https://data.sec.gov/submissions/CIK${cik}.json`, { headers, next: { revalidate: 86400 } }),
+    ]);
+    if (!factsResponse.ok || !submissionsResponse.ok) return null;
     const facts = await factsResponse.json();
+    const submissions = await submissionsResponse.json();
+    const recent = submissions.filings?.recent;
+    const filingIndex = (recent?.form as string[] | undefined)?.findIndex((form) => ["10-K", "20-F"].includes(form)) ?? -1;
+    if (filingIndex < 0) return null;
+    const reportDate = String(recent.reportDate[filingIndex]);
 
-    const fact = (taxonomy: string, concepts: string[], unit: string, exactDate = true) => {
+    type SecFact = { start?: string; end: string; val: number; form: string; filed: string; fp?: string };
+    const fact = (concepts: string[], unit = "USD", duration = false) => {
       for (const concept of concepts) {
-        const entries = facts.facts?.[taxonomy]?.[concept]?.units?.[unit] as Array<{ end: string; val: number; form: string; filed: string }> | undefined;
-        const annual = entries?.filter((entry) => ["10-K", "20-F"].includes(entry.form) && (!exactDate || entry.end === fiscalDate));
+        const entries = facts.facts?.["us-gaap"]?.[concept]?.units?.[unit] as SecFact[] | undefined;
+        const annual = entries?.filter((entry) => {
+          if (!["10-K", "20-F"].includes(entry.form) || entry.end !== reportDate) return false;
+          if (!duration) return !entry.start;
+          if (!entry.start) return false;
+          const days = (Date.parse(entry.end) - Date.parse(entry.start)) / 86_400_000;
+          return days >= 250 && days <= 400;
+        });
         if (annual?.length) return [...annual].sort((a, b) => b.filed.localeCompare(a.filed))[0].val;
       }
       return undefined;
     };
 
-    const cash = fact("us-gaap", ["CashAndCashEquivalentsAtCarryingValue"], "USD");
-    const currentDebt = fact("us-gaap", ["LongTermDebtCurrent", "ShortTermBorrowings"], "USD");
-    const noncurrentDebt = fact("us-gaap", ["LongTermDebtNoncurrent"], "USD");
-    const shares = fact("dei", ["EntityCommonStockSharesOutstanding"], "shares", false);
+    const cash = fact(["CashAndCashEquivalentsAtCarryingValue"]);
+    const currentDebt = fact(["LongTermDebtAndFinanceLeaseObligationsCurrent", "LongTermDebtCurrent", "ShortTermBorrowings"]);
+    const noncurrentDebt = fact(["LongTermDebtAndFinanceLeaseObligationsNoncurrent", "LongTermDebtNoncurrent"]);
+    const totalDebt = fact(["LongTermDebtAndFinanceLeaseObligations", "LongTermDebt"]);
+    const debt = currentDebt !== undefined || noncurrentDebt !== undefined ? (currentDebt || 0) + (noncurrentDebt || 0) : totalDebt;
+    const revenue = fact(["RevenueFromContractWithCustomerExcludingAssessedTax", "SalesRevenueNet", "Revenues"], "USD", true);
+    const operatingIncome = fact(["OperatingIncomeLoss"], "USD", true);
+    const depreciation = fact(["DepreciationDepletionAndAmortization", "DepreciationDepletionAndAmortizationPropertyPlantAndEquipment", "Depreciation"], "USD", true);
+    const operatingCashFlow = fact(["NetCashProvidedByUsedInOperatingActivities"], "USD", true);
+    const capex = fact(["PaymentsToAcquirePropertyPlantAndEquipment", "PaymentsForAdditionsToPropertyPlantAndEquipment"], "USD", true);
+    const costOfRevenue = fact(["CostOfRevenue", "CostOfGoodsAndServicesSold", "CostOfGoodsAndServiceExcludingDepreciationDepletionAndAmortization"], "USD", true);
+    const reportedGrossProfit = fact(["GrossProfit"], "USD", true);
     const secMetrics = {
-      currentAssets: fact("us-gaap", ["AssetsCurrent"], "USD"),
-      currentLiabilities: fact("us-gaap", ["LiabilitiesCurrent"], "USD"),
-      totalAssets: fact("us-gaap", ["Assets"], "USD"),
-      totalLiabilities: fact("us-gaap", ["Liabilities"], "USD"),
-      retainedEarnings: fact("us-gaap", ["RetainedEarningsAccumulatedDeficit"], "USD"),
-      costOfRevenue: fact("us-gaap", ["CostOfRevenue", "CostOfGoodsAndServicesSold", "CostOfGoodsAndServiceExcludingDepreciationDepletionAndAmortization"], "USD"),
-      interestExpense: fact("us-gaap", ["InterestExpenseNonOperating", "InterestExpense"], "USD"),
+      revenue,
+      operatingIncome,
+      depreciation,
+      operatingCashFlow,
+      capex,
+      freeCashFlow: operatingCashFlow !== undefined && capex !== undefined ? operatingCashFlow - Math.abs(capex) : undefined,
+      cash,
+      debt,
+      currentAssets: fact(["AssetsCurrent"]),
+      currentLiabilities: fact(["LiabilitiesCurrent"]),
+      totalAssets: fact(["Assets"]),
+      totalLiabilities: fact(["Liabilities"]),
+      retainedEarnings: fact(["RetainedEarningsAccumulatedDeficit"]),
+      costOfRevenue,
+      grossProfit: reportedGrossProfit ?? (revenue !== undefined && costOfRevenue !== undefined ? revenue - Math.abs(costOfRevenue) : undefined),
+      interestExpense: fact(["InterestExpenseNonOperating", "InterestExpense"], "USD", true),
     };
-    let filing: null | {
-      form: string;
-      filingDate: string;
-      reportDate: string;
-      url: string;
-      customerConcentration: ReturnType<typeof customerConcentration>;
-      supplyChainSignals: ReturnType<typeof supplyChainSignals>;
-    } = null;
+    const accession = String(recent.accessionNumber[filingIndex]);
+    const primaryDocument = String(recent.primaryDocument[filingIndex]);
+    const accessionPath = accession.replace(/-/g, "");
+    const cikPath = String(match.cik_str);
+    const primaryUrl = `https://www.sec.gov/Archives/edgar/data/${cikPath}/${accessionPath}/${primaryDocument}`;
+    const documentUrl = primaryDocument.toLowerCase().endsWith(".pdf")
+      ? `https://www.sec.gov/Archives/edgar/data/${cikPath}/${accessionPath}/${accession}.txt`
+      : primaryUrl;
+    let text = "";
     try {
-      const submissionsResponse = await fetch(`https://data.sec.gov/submissions/CIK${cik}.json`, { headers, next: { revalidate: 86400 } });
-      if (submissionsResponse.ok) {
-        const submissions = await submissionsResponse.json();
-        const recent = submissions.filings?.recent;
-        const filingIndex = (recent?.form as string[] | undefined)?.findIndex((form) => ["10-K", "20-F"].includes(form)) ?? -1;
-        if (filingIndex >= 0) {
-          const accession = String(recent.accessionNumber[filingIndex]);
-          const primaryDocument = String(recent.primaryDocument[filingIndex]);
-          const accessionPath = accession.replace(/-/g, "");
-          const cikPath = String(match.cik_str);
-          const primaryUrl = `https://www.sec.gov/Archives/edgar/data/${cikPath}/${accessionPath}/${primaryDocument}`;
-          const documentUrl = primaryDocument.toLowerCase().endsWith(".pdf")
-            ? `https://www.sec.gov/Archives/edgar/data/${cikPath}/${accessionPath}/${accession}.txt`
-            : primaryUrl;
-          const filingResponse = await fetch(documentUrl, { headers, next: { revalidate: 86400 } });
-          if (filingResponse.ok) {
-            const text = filingText(await filingResponse.text());
-            filing = {
-              form: recent.form[filingIndex],
-              filingDate: recent.filingDate[filingIndex],
-              reportDate: recent.reportDate[filingIndex],
-              url: primaryUrl,
-              customerConcentration: customerConcentration(text),
-              supplyChainSignals: supplyChainSignals(text),
-            };
-          }
-        }
-      }
+      const filingResponse = await fetch(documentUrl, { headers, next: { revalidate: 86400 } });
+      if (filingResponse.ok) text = filingText(await filingResponse.text());
     } catch {
-      // Filing text is supplemental; structured facts should still be returned.
+      // Structured SEC facts remain usable if narrative filing retrieval fails.
     }
+    const businessDescription = text ? filingBusinessDescription(text) : "";
     return {
-      cash: cash === undefined ? undefined : cash / 1_000_000,
-      // Only replace provider debt when both sides of the SEC debt bridge are present.
-      debt: currentDebt !== undefined && noncurrentDebt !== undefined ? (currentDebt + noncurrentDebt) / 1_000_000 : undefined,
-      shares: shares === undefined ? undefined : shares / 1_000_000,
+      company: {
+        name: String(submissions.name || facts.entityName || ""),
+        industry: String(submissions.sicDescription || ""),
+        description: businessDescription,
+      },
+      reportDate,
       metrics: Object.fromEntries(Object.entries(secMetrics).map(([key, value]) => [key, value === undefined ? undefined : value / 1_000_000])),
-      filing,
+      filing: {
+        form: String(recent.form[filingIndex]),
+        filingDate: String(recent.filingDate[filingIndex]),
+        reportDate,
+        url: primaryUrl,
+        textAvailable: Boolean(text),
+        businessDescription,
+        customerConcentration: text ? customerConcentration(text) : { disclosures: [], noMajorCustomer: false },
+        supplyChainSignals: text ? supplyChainSignals(text) : [],
+        supplyChainStages: text ? secSupplyChainStages(businessDescription, text) : [],
+      },
     };
   } catch {
     return null;
@@ -394,45 +501,43 @@ export async function GET(request: NextRequest) {
     }
     const peers = peerOverviews.map(comparableFromOverview);
     const industryGrowthRate = median(peers.map((peer) => peer.revenueGrowth));
-    const sec = await secCrossCheck(symbol, latest.fiscalDate);
-    if (sec?.cash !== undefined) latest.cash = sec.cash;
-    if (sec?.debt !== undefined) latest.debt = sec.debt;
-    const secMetric = (key: string) => n(sec?.metrics?.[key]);
-    if (!latest.currentAssets) latest.currentAssets = secMetric("currentAssets");
-    if (!latest.currentLiabilities) latest.currentLiabilities = secMetric("currentLiabilities");
-    if (!latest.totalAssets) latest.totalAssets = secMetric("totalAssets");
-    if (!latest.totalLiabilities) latest.totalLiabilities = secMetric("totalLiabilities");
-    if (!latest.retainedEarnings) latest.retainedEarnings = secMetric("retainedEarnings");
-    if (!latest.cogs) latest.cogs = secMetric("costOfRevenue");
-    if (!latest.interestExpense) latest.interestExpense = secMetric("interestExpense");
+    const sec = await secDataset(symbol);
+    const secMetric = (key: string) => {
+      const value = sec?.metrics?.[key];
+      return typeof value === "number" && Number.isFinite(value) ? value : null;
+    };
+    const secCash = secMetric("cash");
+    const secDebt = secMetric("debt");
+    if (secCash !== null) latest.cash = secCash;
+    if (secDebt !== null) latest.debt = secDebt;
     const revenueGrowth = growthRate(historical.map((row) => row.revenue));
     // Keep the provider share count editable. A single SEC fact can represent only
     // one voting class and would understate dilution for multi-class companies.
     const shares = millions(overview.SharesOutstanding);
     const marketCap = millions(overview.MarketCapitalization);
-    const ratio = (numerator: number, denominator: number) => denominator ? numerator / denominator : null;
-    const ebitda = latest.ebit + latest.depreciation;
-    const netDebt = latest.debt - latest.cash;
-    const debtToRevenue = ratio(latest.debt, latest.revenue);
-    const netDebtToEbitda = ebitda > 0 ? ratio(netDebt, ebitda) : null;
-    const currentRatio = ratio(latest.currentAssets, latest.currentLiabilities);
-    const interestCoverage = ratio(latest.ebit, latest.interestExpense);
-    const fcfToDebt = ratio(latest.freeCashFlow, latest.debt);
-    const defaultRisk = defaultRiskScreen({ debtToRevenue, netDebtToEbitda, currentRatio, interestCoverage, fcfToDebt, ebitda, freeCashFlow: latest.freeCashFlow });
-    const altmanApplicable = /manufactur|industrial|automotive|aerospace|semiconductor|hardware|consumer durables/i.test(`${overview.Sector} ${overview.Industry}`)
-      && !/bank|insurance|financial|reit/i.test(`${overview.Sector} ${overview.Industry}`)
-      && latest.totalAssets > 0 && latest.totalLiabilities > 0;
-    const workingCapital = latest.currentAssets - latest.currentLiabilities;
-    const altmanZ = altmanApplicable
-      ? 1.2 * workingCapital / latest.totalAssets
-        + 1.4 * latest.retainedEarnings / latest.totalAssets
-        + 3.3 * latest.ebit / latest.totalAssets
-        + .6 * marketCap / latest.totalLiabilities
-        + latest.revenue / latest.totalAssets
-      : null;
-    const customerData = sec?.filing?.customerConcentration || { disclosures: [], noMajorCustomer: false };
+    const ratio = (numerator: number | null, denominator: number | null) => numerator !== null && denominator !== null && denominator !== 0 ? numerator / denominator : null;
+    const secRevenue = secMetric("revenue");
+    const secOperatingIncome = secMetric("operatingIncome");
+    const secDepreciation = secMetric("depreciation");
+    const secOperatingCashFlow = secMetric("operatingCashFlow");
+    const secCapex = secMetric("capex");
+    const secFreeCashFlow = secMetric("freeCashFlow");
+    const secCurrentAssets = secMetric("currentAssets");
+    const secCurrentLiabilities = secMetric("currentLiabilities");
+    const secInterestExpense = secMetric("interestExpense");
+    const secCogs = secMetric("costOfRevenue");
+    const secGrossProfit = secMetric("grossProfit");
+    const secEbitda = secOperatingIncome !== null && secDepreciation !== null ? secOperatingIncome + secDepreciation : null;
+    const secNetDebt = secDebt !== null && secCash !== null ? secDebt - secCash : null;
+    const debtToRevenue = ratio(secDebt, secRevenue);
+    const netDebtToEbitda = secEbitda !== null && secEbitda > 0 ? ratio(secNetDebt, secEbitda) : null;
+    const currentRatio = ratio(secCurrentAssets, secCurrentLiabilities);
+    const interestCoverage = ratio(secOperatingIncome, secInterestExpense);
+    const fcfToDebt = ratio(secFreeCashFlow, secDebt);
+    const defaultRisk = defaultRiskScreen({ debtToRevenue, netDebtToEbitda, currentRatio, interestCoverage, fcfToDebt, ebitda: secEbitda, freeCashFlow: secFreeCashFlow });
+    const customerData = sec?.filing.customerConcentration || { disclosures: [], noMajorCustomer: false };
     const maxCustomerPercent = customerData.disclosures.length ? Math.max(...customerData.disclosures.map((item) => item.revenuePercent)) : null;
-    const supplySignals = [...(sec?.filing?.supplyChainSignals || [])];
+    const supplySignals = [...(sec?.filing.supplyChainSignals || [])];
     if (maxCustomerPercent !== null) {
       supplySignals.unshift({
         level: maxCustomerPercent >= 20 ? "high" as const : "medium" as const,
@@ -440,29 +545,30 @@ export async function GET(request: NextRequest) {
         detail: `The latest filing discloses at least one customer representing ${maxCustomerPercent}% of revenue. Losing or repricing that relationship could materially affect sales and cash flow.`,
       });
     }
-    if (latest.capexPercentRevenue > 10) {
-      supplySignals.push({ level: latest.capexPercentRevenue > 25 ? "high" as const : "medium" as const, title: "Capital-intensive capacity", detail: `Capital spending equals ${latest.capexPercentRevenue.toFixed(1)}% of revenue, increasing execution, utilization, and financing exposure in the operating supply chain.` });
+    const secCapexPercentRevenue = secCapex !== null && secRevenue ? Math.abs(secCapex) / secRevenue * 100 : null;
+    if (secCapexPercentRevenue !== null && secCapexPercentRevenue > 10) {
+      supplySignals.push({ level: secCapexPercentRevenue > 25 ? "high" as const : "medium" as const, title: "Capital-intensive capacity", detail: `SEC-reported capital spending equals ${secCapexPercentRevenue.toFixed(1)}% of revenue, increasing execution, utilization, and financing exposure in the operating supply chain.` });
     }
-    const usedSec = sec && (sec.cash !== undefined || sec.debt !== undefined);
+    const usedSec = Boolean(sec);
     const qualityNotes = [
       "Operating income is used as EBIT; non-operating income and interest are excluded from the EBIT starting point.",
-      usedSec ? "SEC company facts were used for cash and complete funded-debt components where available." : "SEC company-fact cross-check was unavailable or incomplete for this ticker.",
+      usedSec ? "The company description, operating analysis, customer concentration, COGS, and default-risk screen use only the latest SEC annual filing and SEC Company Facts." : "SEC annual data was unavailable for this ticker; the separate business-analysis page will show unavailable fields rather than substitute provider estimates.",
     ];
     if (latest.capexPercentRevenue > 50) qualityNotes.push("Latest capex is unusually high and is shown historically, but the starting forecast normalizes it rather than projecting it unchanged forever.");
     if (!priceHistory.length) qualityNotes.push("Monthly stock-price history was unavailable, so the price chart could not be populated for this request.");
     if (peers.length < selectedPeerSymbols.length) qualityNotes.push(`Comparable-company data is partial: ${peers.length} of ${selectedPeerSymbols.length} selected peers were returned before the provider allowance ended.`);
     if (industryGrowthRate !== null) qualityNotes.push("Industry growth is represented by median quarterly year-over-year revenue growth for the returned peer group; it is a near-term benchmark, not a perpetual-growth forecast.");
-    if (sec?.cash === undefined) qualityNotes.push("Cash was not independently verified; check whether the provider balance includes restricted cash that is unavailable to common shareholders.");
+    if (secCash === null) qualityNotes.push("SEC cash was unavailable; the DCF cash assumption remains sourced from the market-data provider and stays editable.");
     if (overview.Country === "USA") qualityNotes.push("The provider share count remains editable because a single SEC fact can miss multiple voting classes and dilution; check the latest filing.");
 
     const normalizedResponse = NextResponse.json({
-      source: usedSec ? "Alpha Vantage + SEC company facts" : "Alpha Vantage",
+      source: usedSec ? "SEC filings + Alpha Vantage market data" : "Alpha Vantage market data; SEC unavailable",
       asOf: latest.fiscalDate,
       qualityNotes,
       company: {
         symbol: overview.Symbol,
-        name: overview.Name,
-        description: overview.Description,
+        name: sec?.company.name || overview.Name,
+        description: sec?.company.description || "A concise business description could not be extracted from the latest SEC annual filing.",
         exchange: overview.Exchange,
         currency: overview.Currency || "USD",
         country: overview.Country,
@@ -495,19 +601,22 @@ export async function GET(request: NextRequest) {
         industryGrowthRate,
       },
       businessAnalysis: {
+        source: "SEC Company Facts and latest annual filing",
+        asOf: sec?.reportDate || null,
+        companyDescription: sec?.company.description || "A concise business description could not be extracted from the latest SEC annual filing.",
         financials: {
-          revenue: latest.revenue,
-          cogs: latest.cogs,
-          cogsPercentRevenue: latest.revenue ? latest.cogs / latest.revenue * 100 : null,
-          grossProfit: latest.grossProfit || latest.revenue - latest.cogs,
-          grossMargin: latest.revenue ? (latest.grossProfit || latest.revenue - latest.cogs) / latest.revenue * 100 : null,
-          operatingCashFlow: latest.operatingCashFlow,
-          freeCashFlow: latest.freeCashFlow,
-          currentAssets: latest.currentAssets,
-          currentLiabilities: latest.currentLiabilities,
-          interestExpense: latest.interestExpense,
-          ebitda,
-          netDebt,
+          revenue: secRevenue,
+          cogs: secCogs,
+          cogsPercentRevenue: secCogs !== null && secRevenue ? Math.abs(secCogs) / secRevenue * 100 : null,
+          grossProfit: secGrossProfit,
+          grossMargin: secGrossProfit !== null && secRevenue ? secGrossProfit / secRevenue * 100 : null,
+          operatingCashFlow: secOperatingCashFlow,
+          freeCashFlow: secFreeCashFlow,
+          currentAssets: secCurrentAssets,
+          currentLiabilities: secCurrentLiabilities,
+          interestExpense: secInterestExpense,
+          ebitda: secEbitda,
+          netDebt: secNetDebt,
         },
         customerConcentration: {
           disclosures: customerData.disclosures,
@@ -516,15 +625,17 @@ export async function GET(request: NextRequest) {
         },
         supplyChain: {
           signals: supplySignals.slice(0, 6),
-          filingReviewed: Boolean(sec?.filing),
+          stages: sec?.filing.supplyChainStages || [],
+          filingReviewed: Boolean(sec?.filing.textAvailable),
         },
         defaultRisk: {
           ...defaultRisk,
           ratios: { debtToRevenue, netDebtToEbitda, currentRatio, interestCoverage, fcfToDebt },
-          altmanZ,
-          altmanZone: altmanZ === null ? null : altmanZ < 1.81 ? "distress" : altmanZ > 2.99 ? "lower-risk" : "gray",
-          altmanApplicable,
-          methodology: "Automated historical screen using leverage, liquidity, interest coverage, free-cash-flow coverage, and the original Altman Z-score where broadly applicable. It is not a credit rating or a probability of default.",
+          altmanZ: null,
+          altmanZone: null,
+          altmanApplicable: false,
+          altmanReason: "Not calculated in SEC-only mode because the original score requires the market value of equity, which SEC Company Facts does not provide as a current market-data field.",
+          methodology: "Automated historical screen calculated only from the latest SEC annual facts: leverage, liquidity, interest coverage, and free-cash-flow coverage. It is not a credit rating or a probability of default.",
         },
         filing: sec?.filing ? { form: sec.filing.form, filingDate: sec.filing.filingDate, reportDate: sec.filing.reportDate, url: sec.filing.url } : null,
       },

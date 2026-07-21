@@ -259,7 +259,7 @@ footer{display:flex;justify-content:space-between;padding:23px 5vw;background:va
 .default-verdict{min-width:180px;padding:13px 16px;border:1px solid currentColor}
 .default-verdict span,.default-verdict small{display:block;font:8px DM Mono;text-transform:uppercase}
 .default-verdict strong{display:block;margin:6px 0;font-size:19px;text-transform:capitalize}
-.default-verdict.high{color:var(--red);background:#fff0ea}.default-verdict.medium{color:var(--amber);background:#fff5dc}.default-verdict.low{color:var(--green);background:#edf5e9}
+.default-verdict.high{color:var(--red);background:#fff0ea}.default-verdict.medium{color:var(--amber);background:#fff5dc}.default-verdict.low{color:var(--green);background:#edf5e9}.default-verdict.insufficient{color:var(--muted);background:#f2f1eb}
 .default-detail{display:grid;grid-template-columns:1.25fr .75fr;border:1px solid var(--grid-dark);margin-top:20px}
 .default-detail>div{padding:20px}.default-detail>div:first-child{border-right:1px solid var(--grid)}
 .default-detail h3{font-size:14px;margin:0 0 12px}.default-detail ul{margin:0;padding-left:18px;display:grid;gap:8px}.default-detail li,.default-detail p{font-size:10px;line-height:1.55;color:var(--muted)}

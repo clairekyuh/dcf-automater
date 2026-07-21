@@ -37,10 +37,13 @@ type CompanyData = {
   metrics: { revenueGrowth: number; revenue: number; ebitMargin: number; capexPercentRevenue: number; daPercentRevenue: number; cash: number; debt: number; taxRate: number };
   comparison?: { company: Comparable; peers: Comparable[]; selectedPeerSymbols: string[]; industryGrowthRate: number | null };
   businessAnalysis?: {
+    source: string;
+    asOf: string | null;
+    companyDescription: string;
     financials: Record<string, number | null>;
     customerConcentration: { disclosures: Array<{ customer: string; revenuePercent: number; disclosure: string }>; noMajorCustomer: boolean; disclosureThreshold: number };
-    supplyChain: { signals: Array<{ level: "high" | "medium" | "low"; title: string; detail: string }>; filingReviewed: boolean };
-    defaultRisk: { level: "high" | "moderate" | "low"; points: number; drivers: string[]; ratios: Record<string, number | null>; altmanZ: number | null; altmanZone: string | null; altmanApplicable: boolean; methodology: string };
+    supplyChain: { stages: Array<{ name: string; detail: string }>; signals: Array<{ level: "high" | "medium" | "low"; title: string; detail: string }>; filingReviewed: boolean };
+    defaultRisk: { level: "high" | "moderate" | "low" | "insufficient"; points: number; availableChecks?: number; drivers: string[]; ratios: Record<string, number | null>; altmanZ: number | null; altmanZone: string | null; altmanApplicable: boolean; altmanReason?: string; methodology: string };
     filing: { form: string; filingDate: string; reportDate: string; url: string } | null;
   };
   historical: HistoricalRow[];
@@ -92,10 +95,13 @@ const demo: CompanyData = {
     industryGrowthRate: 11.1,
   },
   businessAnalysis: {
+    source: "Illustrative sample",
+    asOf: "2025-12-31",
+    companyDescription: "Sample technology company used to demonstrate the complete DCF workbook before a ticker is loaded.",
     financials: { revenue: 2400, cogs: 960, cogsPercentRevenue: 40, grossProfit: 1440, grossMargin: 60, operatingCashFlow: 506, freeCashFlow: 410, currentAssets: 1800, currentLiabilities: 900, interestExpense: 20, ebitda: 648, netDebt: -330 },
     customerConcentration: { disclosures: [{ customer: "Customer A", revenuePercent: 14, disclosure: "Illustrative sample" }], noMajorCustomer: false, disclosureThreshold: 10 },
-    supplyChain: { signals: [{ level: "medium", title: "Infrastructure-provider dependence", detail: "This sample software company relies on external data-center and cloud capacity." }, { level: "medium", title: "Customer concentration", detail: "The illustrative largest customer represents 14% of sample revenue." }], filingReviewed: false },
-    defaultRisk: { level: "low", points: 0, drivers: ["The sample leverage, liquidity, coverage, and cash-flow ratios do not show an obvious near-term default warning."], ratios: { debtToRevenue: .133, netDebtToEbitda: -.509, currentRatio: 2, interestCoverage: 28.8, fcfToDebt: 1.28 }, altmanZ: null, altmanZone: null, altmanApplicable: false, methodology: "Illustrative historical screen—not a credit rating or probability of default." },
+    supplyChain: { stages: [{ name: "Critical inputs", detail: "Engineering talent, intellectual property, and cloud infrastructure." }, { name: "Operations", detail: "Develops and supports enterprise infrastructure software." }, { name: "Delivery", detail: "Subscriptions and direct enterprise contracts." }, { name: "End customers", detail: "Businesses using workflow and monitoring tools." }], signals: [{ level: "medium", title: "Infrastructure-provider dependence", detail: "This sample software company relies on external data-center and cloud capacity." }, { level: "medium", title: "Customer concentration", detail: "The illustrative largest customer represents 14% of sample revenue." }], filingReviewed: false },
+    defaultRisk: { level: "low", points: 0, drivers: ["The sample leverage, liquidity, coverage, and cash-flow ratios do not show an obvious near-term default warning."], ratios: { debtToRevenue: .133, netDebtToEbitda: -.509, currentRatio: 2, interestCoverage: 28.8, fcfToDebt: 1.28 }, altmanZ: null, altmanZone: null, altmanApplicable: false, altmanReason: "Not calculated for illustrative sample data.", methodology: "Illustrative historical screen—not a credit rating or probability of default." },
     filing: null,
   },
   historical: [
@@ -137,7 +143,7 @@ function marketPriceContext(data: CompanyData) {
 
 function briefDescription(description: string) {
   const clean = description.trim();
-  if (!clean) return "A plain-language company description was not returned by the data provider.";
+  if (!clean) return "A concise company description could not be extracted from the latest SEC annual filing.";
   const sentences = clean.match(/[^.!?]+[.!?]+/g) || [clean];
   const brief = sentences.slice(0, 2).join(" ").trim();
   return brief.length > 360 ? `${brief.slice(0, 357).trimEnd()}…` : brief;
@@ -584,7 +590,7 @@ export default function Home() {
     </header>
 
     <section className="company-summary">
-      <div><span>{data.company.exchange} · {data.company.symbol}</span><h2>{data.company.name}</h2><b className="company-description-label">WHAT THE COMPANY DOES</b><p>{briefDescription(data.company.description)}</p><Link className="deep-analysis-link" href={`/company-analysis?symbol=${encodeURIComponent(data.company.symbol)}`}>Open supply chain, customer concentration &amp; default-risk analysis →</Link></div>
+      <div><span>{data.company.exchange} · {data.company.symbol}</span><h2>{data.company.name}</h2><b className="company-description-label">{data.source === "Sample data" ? "WHAT THE COMPANY DOES · SAMPLE" : "WHAT THE COMPANY DOES · SEC FILING"}</b><p>{briefDescription(data.company.description)}</p><Link className="deep-analysis-link" href={`/company-analysis?symbol=${encodeURIComponent(data.company.symbol)}`}>{data.source === "Sample data" ? "Open sample supply chain, customer concentration & default-risk analysis →" : "Open SEC supply chain, customer concentration & default-risk analysis →"}</Link></div>
       <dl><div><dt>{priceContext.label}</dt><dd>{usd.format(model.marketPrice)}<small>{priceContext.detail}</small></dd></div><div><dt>Industry</dt><dd>{data.company.industry}</dd></div><div><dt>Financials through</dt><dd>{data.asOf}</dd></div><div><dt>Data source</dt><dd>{data.source}</dd></div></dl>
     </section>
 
