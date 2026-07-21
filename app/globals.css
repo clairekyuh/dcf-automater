@@ -71,6 +71,8 @@ button{cursor:pointer}
 .bridge-table>div:last-child,.wacc-table>div:last-of-type{border-bottom:0}
 .bridge-table .total,.wacc-table .total{font-weight:700;border-top:1px solid var(--navy)}
 .bridge-table .answer{background:var(--teal);color:white;font-size:12px;font-weight:700}
+.bridge-table .reference-row{background:#eef8f9;color:var(--navy-dark)}
+.bridge-note{margin:0;padding:10px;border-bottom:1px solid var(--grid);background:#f8fafb;color:#697681;font:8px/1.5 DM Mono}
 .sensitivity-grid{margin-top:22px}
 .table-scroll{overflow:auto}
 table{border-collapse:collapse;width:100%}
@@ -127,6 +129,31 @@ table{border-collapse:collapse;width:100%}
 .chart-stats{display:flex;gap:28px;border-top:1px solid var(--grid);padding-top:13px;font:9px DM Mono;color:#71808b}
 .chart-stats b{color:var(--ink)}
 .chart-empty{border:1px dashed var(--grid-dark);padding:55px;text-align:center;color:#71808b;font:10px DM Mono}
+.peer-summary{display:grid;grid-template-columns:1fr 1fr 1.4fr;border:1px solid var(--grid-dark);margin-bottom:20px}
+.peer-summary>div{padding:18px;border-right:1px solid var(--grid);min-width:0}
+.peer-summary>div:last-child{border-right:0}
+.peer-summary span,.peer-summary small{display:block;font:8px DM Mono;color:#73808b}
+.peer-summary strong{display:block;margin:8px 0 6px;color:var(--navy-dark);font-size:21px;overflow-wrap:anywhere}
+.peer-summary small{line-height:1.45}
+.peer-table-wrap{border:1px solid var(--grid-dark)}
+.peer-table{min-width:900px;font:9px DM Mono}
+.peer-table th,.peer-table td{padding:10px;border-right:1px solid var(--grid);border-bottom:1px solid var(--grid);text-align:right;white-space:nowrap}
+.peer-table th{background:var(--navy);color:white;font-weight:500}
+.peer-table th:first-child,.peer-table td:first-child{text-align:left;white-space:normal;min-width:210px}
+.peer-table td:first-child b,.peer-table td:first-child span{display:block}
+.peer-table td:first-child b{color:var(--navy-dark);font-size:11px}
+.peer-table td:first-child span{margin-top:3px;color:#73808b}
+.peer-table em{display:inline-block;margin-top:5px;padding:3px 5px;background:var(--teal);color:white;font:normal 7px DM Mono}
+.peer-table .focus-company td{background:#e5f8fa;color:var(--navy-dark);font-weight:600}
+.peer-table .peer-median td{background:#eef1f4;font-weight:700;border-top:2px solid var(--navy-dark)}
+.peer-empty{margin-top:14px;padding:16px;border:1px dashed var(--grid-dark);background:#f8fafb;color:#66737e;font:9px/1.55 DM Mono}
+.difference-title{font-size:15px;color:var(--navy-dark);margin:25px 0 12px}
+.difference-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.difference-grid article{padding:16px;border:1px solid var(--grid-dark);border-top:4px solid var(--teal)}
+.difference-grid span{font:500 8px DM Mono;color:#74818c;text-transform:uppercase}
+.difference-grid strong{display:block;margin:8px 0;font-size:20px;color:var(--navy-dark)}
+.difference-grid p{margin:0;color:#596772;font-size:9px;line-height:1.55}
+.peer-disclaimer{margin:13px 0 0;color:#77838d;font:8px/1.5 DM Mono}
 .risk-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
 .risk-grid article{border:1px solid var(--grid-dark);padding:18px;min-height:165px}
 .risk-pill{display:inline-block;padding:4px 7px;color:white;text-transform:uppercase;font:500 8px DM Mono}
@@ -171,6 +198,7 @@ footer{display:flex;justify-content:space-between;padding:23px 5vw;background:wh
 @media(max-width:1050px){
 .assumption-grid{grid-template-columns:repeat(3,1fr)}
 .risk-grid{grid-template-columns:1fr 1fr}
+.difference-grid{grid-template-columns:1fr 1fr}
 .valuation-cards strong{font-size:31px}
 }
 @media(max-width:780px){
@@ -186,6 +214,7 @@ footer{display:flex;justify-content:space-between;padding:23px 5vw;background:wh
 .valuation-cards>div,.valuation-cards>button{border-right:0;border-bottom:1px solid var(--grid)}
 .valuation-cards>button:last-child{border-bottom:0}
 .assumption-grid{grid-template-columns:repeat(2,1fr)}
+.peer-summary{grid-template-columns:1fr}.peer-summary>div{border-right:0;border-bottom:1px solid var(--grid)}.peer-summary>div:last-child{border-bottom:0}
 .risk-grid{grid-template-columns:1fr}
 .lesson-main{border-right:0;border-bottom:1px solid var(--grid-dark)}
 }
@@ -194,6 +223,7 @@ footer{display:flex;justify-content:space-between;padding:23px 5vw;background:wh
 .company-summary dl{grid-template-columns:1fr}.company-summary dl div{border-right:0!important;border-bottom:1px solid var(--grid)!important}.company-summary dl div:last-child{border-bottom:0!important}
 .sheet-section{padding:20px 15px}.section-heading>div:first-child{padding-left:44px}.section-heading h2{font-size:25px}
 .assumption-grid{grid-template-columns:1fr}
+.difference-grid{grid-template-columns:1fr}
 .chart-head{display:block}.period-toggle{margin-top:15px}.chart-stats{display:grid;gap:8px}
 .decision-checklist ul{grid-template-columns:1fr}
 .lesson-controls{grid-template-columns:1fr 1fr}.lesson-controls>span{display:none}

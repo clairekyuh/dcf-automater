@@ -11,7 +11,65 @@ const n = (value: unknown) => {
 
 const millions = (value: unknown) => n(value) / 1_000_000;
 
+const metric = (value: unknown, scale = 1) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed * scale : null;
+};
+
+const median = (values: Array<number | null>) => {
+  const valid = values.filter((value): value is number => value !== null && Number.isFinite(value)).sort((a, b) => a - b);
+  if (!valid.length) return null;
+  const middle = Math.floor(valid.length / 2);
+  return valid.length % 2 ? valid[middle] : (valid[middle - 1] + valid[middle]) / 2;
+};
+
 type Statement = Record<string, string>;
+
+function comparableFromOverview(overview: Record<string, unknown>) {
+  return {
+    symbol: String(overview.Symbol || ""),
+    name: String(overview.Name || overview.Symbol || "Unknown company"),
+    marketCap: metric(overview.MarketCapitalization, 1 / 1_000_000),
+    revenueGrowth: metric(overview.QuarterlyRevenueGrowthYOY, 100),
+    operatingMargin: metric(overview.OperatingMarginTTM, 100),
+    evToRevenue: metric(overview.EVToRevenue),
+    evToEbitda: metric(overview.EVToEBITDA),
+    pe: metric(overview.PERatio),
+  };
+}
+
+function peerSymbols(symbol: string, sector: string, industry: string, name: string) {
+  const text = `${symbol} ${sector} ${industry} ${name}`;
+  const exact: Record<string, string[]> = {
+    SNPS: ["CDNS", "ADSK", "PTC"],
+    CDNS: ["SNPS", "ADSK", "PTC"],
+    CRWV: ["MSFT", "ORCL", "AMZN"],
+    IBM: ["ORCL", "ACN", "MSFT"],
+    AAPL: ["MSFT", "GOOGL", "SONY"],
+    NVDA: ["AMD", "AVGO", "INTC"],
+    TSLA: ["GM", "F", "TM"],
+  };
+  if (exact[symbol]) return exact[symbol];
+
+  const groups = [
+    { match: /electronic design automation|engineering.*software/i, symbols: ["SNPS", "CDNS", "ADSK", "PTC"] },
+    { match: /semiconductor/i, symbols: ["NVDA", "AMD", "AVGO", "INTC"] },
+    { match: /software|cloud|information technology|internet/i, symbols: ["MSFT", "ORCL", "CRM", "NOW"] },
+    { match: /bank/i, symbols: ["JPM", "BAC", "WFC", "C"] },
+    { match: /insurance/i, symbols: ["CB", "PGR", "ALL", "TRV"] },
+    { match: /biotech/i, symbols: ["AMGN", "GILD", "REGN", "VRTX"] },
+    { match: /pharma|health/i, symbols: ["MRK", "PFE", "ABBV", "BMY"] },
+    { match: /automotive|auto manufacturer/i, symbols: ["GM", "F", "TM", "HMC"] },
+    { match: /oil|gas|energy/i, symbols: ["XOM", "CVX", "COP", "EOG"] },
+    { match: /utility/i, symbols: ["NEE", "DUK", "SO", "AEP"] },
+    { match: /telecom/i, symbols: ["VZ", "T", "TMUS", "CHTR"] },
+    { match: /retail/i, symbols: ["WMT", "COST", "TGT", "AMZN"] },
+    { match: /aerospace|defense/i, symbols: ["RTX", "LMT", "NOC", "GD"] },
+    { match: /industrial|manufactur/i, symbols: ["HON", "ETN", "MMM", "EMR"] },
+  ];
+  const group = groups.find((item) => item.match.test(text));
+  return (group?.symbols || ["MSFT", "ORCL", "IBM", "ACN"]).filter((candidate) => candidate !== symbol).slice(0, 3);
+}
 
 async function alpha(functionName: string, symbol: string, apiKey: string) {
   const url = new URL(API);
@@ -154,6 +212,21 @@ export async function GET(request: NextRequest) {
       .map(([date, values]) => ({ date, close: n(values["4. close"]) }))
       .filter((point) => point.close > 0)
       .sort((a, b) => a.date.localeCompare(b.date));
+
+    const selectedPeerSymbols = peerSymbols(symbol, overview.Sector || "", overview.Industry || "", overview.Name || "");
+    const peerOverviews: Record<string, unknown>[] = [];
+    for (const peerSymbol of selectedPeerSymbols) {
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 1100));
+        const peerOverview = await alpha("OVERVIEW", peerSymbol, apiKey);
+        if (peerOverview.Symbol) peerOverviews.push(peerOverview);
+      } catch {
+        // Comparable data is supplemental. Preserve the primary DCF when a peer
+        // symbol is unsupported or the provider allowance ends mid-request.
+      }
+    }
+    const peers = peerOverviews.map(comparableFromOverview);
+    const industryGrowthRate = median(peers.map((peer) => peer.revenueGrowth));
     const sec = await secCrossCheck(symbol, latest.fiscalDate);
     if (sec?.cash !== undefined) latest.cash = sec.cash;
     if (sec?.debt !== undefined) latest.debt = sec.debt;
@@ -169,6 +242,8 @@ export async function GET(request: NextRequest) {
     ];
     if (latest.capexPercentRevenue > 50) qualityNotes.push("Latest capex is unusually high and is shown historically, but the starting forecast normalizes it rather than projecting it unchanged forever.");
     if (!priceHistory.length) qualityNotes.push("Monthly stock-price history was unavailable, so the price chart could not be populated for this request.");
+    if (peers.length < selectedPeerSymbols.length) qualityNotes.push(`Comparable-company data is partial: ${peers.length} of ${selectedPeerSymbols.length} selected peers were returned before the provider allowance ended.`);
+    if (industryGrowthRate !== null) qualityNotes.push("Industry growth is represented by median quarterly year-over-year revenue growth for the returned peer group; it is a near-term benchmark, not a perpetual-growth forecast.");
     if (sec?.cash === undefined) qualityNotes.push("Cash was not independently verified; check whether the provider balance includes restricted cash that is unavailable to common shareholders.");
     if (overview.Country === "USA") qualityNotes.push("The provider share count remains editable because a single SEC fact can miss multiple voting classes and dilution; check the latest filing.");
 
@@ -202,6 +277,12 @@ export async function GET(request: NextRequest) {
         cash: latest.cash,
         debt: latest.debt,
         taxRate: 21,
+      },
+      comparison: {
+        company: comparableFromOverview(overview),
+        peers,
+        selectedPeerSymbols,
+        industryGrowthRate,
       },
       historical: historical.reverse(),
     });

@@ -14,6 +14,16 @@ type HistoricalRow = {
   depreciation: number;
   freeCashFlow: number;
 };
+type Comparable = {
+  symbol: string;
+  name: string;
+  marketCap: number | null;
+  revenueGrowth: number | null;
+  operatingMargin: number | null;
+  evToRevenue: number | null;
+  evToEbitda: number | null;
+  pe: number | null;
+};
 type CompanyData = {
   source: string;
   asOf: string;
@@ -21,6 +31,7 @@ type CompanyData = {
   company: { symbol: string; name: string; description: string; exchange: string; currency: string; country: string; sector: string; industry: string };
   market: { marketCap: number; shares: number; estimatedPrice: number; beta: number; priceHistory?: PricePoint[] };
   metrics: { revenueGrowth: number; revenue: number; ebitMargin: number; capexPercentRevenue: number; daPercentRevenue: number; cash: number; debt: number; taxRate: number };
+  comparison?: { company: Comparable; peers: Comparable[]; selectedPeerSymbols: string[]; industryGrowthRate: number | null };
   historical: HistoricalRow[];
 };
 type Model = {
@@ -59,6 +70,16 @@ const demo: CompanyData = {
   },
   market: { marketCap: 12500, shares: 250, estimatedPrice: 50, beta: 1.15, priceHistory: demoPrices },
   metrics: { revenueGrowth: 12, revenue: 2400, ebitMargin: 24, capexPercentRevenue: 4, daPercentRevenue: 3, cash: 650, debt: 320, taxRate: 21 },
+  comparison: {
+    company: { symbol: "DEMO", name: "Northstar Systems", marketCap: 12500, revenueGrowth: 12, operatingMargin: 24, evToRevenue: 4.8, evToEbitda: 17.6, pe: 28.4 },
+    peers: [
+      { symbol: "ATLS", name: "Atlas Cloud", marketCap: 18400, revenueGrowth: 15.5, operatingMargin: 21.2, evToRevenue: 5.6, evToEbitda: 20.4, pe: 31.8 },
+      { symbol: "MRDN", name: "Meridian Software", marketCap: 9700, revenueGrowth: 9.3, operatingMargin: 26.8, evToRevenue: 4.1, evToEbitda: 15.2, pe: 24.9 },
+      { symbol: "VCTR", name: "Vector Systems", marketCap: 15100, revenueGrowth: 11.1, operatingMargin: 22.5, evToRevenue: 4.7, evToEbitda: 18.1, pe: 27.5 },
+    ],
+    selectedPeerSymbols: ["ATLS", "MRDN", "VCTR"],
+    industryGrowthRate: 11.1,
+  },
   historical: [
     { year: "2021", revenue: 1450, ebit: 247, ebitMargin: 17, operatingCashFlow: 242, capex: 62, capexPercentRevenue: 4.3, depreciation: 44, freeCashFlow: 180 },
     { year: "2022", revenue: 1650, ebit: 314, ebitMargin: 19, operatingCashFlow: 300, capex: 70, capexPercentRevenue: 4.2, depreciation: 50, freeCashFlow: 230 },
@@ -82,6 +103,13 @@ const fmt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
 const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
 const usd0 = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+const validMedian = (values: Array<number | null>) => {
+  const sorted = values.filter((value): value is number => value !== null && Number.isFinite(value)).sort((a, b) => a - b);
+  if (!sorted.length) return null;
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+};
+const peerMedian = (data: CompanyData, key: keyof Pick<Comparable, "marketCap" | "revenueGrowth" | "operatingMargin" | "evToRevenue" | "evToEbitda" | "pe">) => validMedian((data.comparison?.peers || []).map((peer) => peer[key]));
 
 function recommendations(data: CompanyData) {
   const text = `${data.company.sector} ${data.company.industry}`;
@@ -198,9 +226,25 @@ function ValueMove({ value, price }: { value: number; price: number }) {
   return <span className={move.change >= 0 ? "move positive" : "move negative"}>{move.label} {fmt.format(Math.abs(move.change))}%</span>;
 }
 
-function ValuationBridge({ title, result, model }: { title: string; result: ReturnType<typeof calculate>; model: Model }) {
+function ValuationBridge({ title, result, model, method, data }: { title: string; result: ReturnType<typeof calculate>; model: Model; method: Method; data: CompanyData }) {
+  const industryGrowth = data.comparison?.industryGrowthRate ?? null;
+  const peerMultiples = (data.comparison?.peers || []).map((peer) => peer.evToEbitda).filter((value): value is number => value !== null && Number.isFinite(value));
+  const medianMultiple = validMedian(peerMultiples);
+  const yearFive = result.years[4];
   return <div className="bridge-table">
     <div className="sheet-bar">{title}</div>
+    {method === "perpetuity" ? <>
+      <div className="reference-row"><span>Observed peer industry growth</span><b>{industryGrowth === null ? "—" : `${fmt.format(industryGrowth)}%`}</b></div>
+      <div><span>Selected perpetual growth</span><b>{fmt.format(model.terminalGrowth)}%</b></div>
+      <div><span>Year 5 UFCF</span><b>{usd0.format(yearFive.fcf)}M</b></div>
+      <p className="bridge-note">Peer growth is median recent year-over-year revenue growth. It provides industry context, but the perpetual rate is a separate long-run assumption and must remain below WACC.</p>
+    </> : <>
+      <div><span>Year 5 EBITDA</span><b>{usd0.format(yearFive.ebit + yearFive.depreciation)}M</b></div>
+      <div><span>Selected exit multiple</span><b>{fmt.format(model.exitMultiple)}×</b></div>
+      <div className="reference-row"><span>Peer median EV / EBITDA</span><b>{medianMultiple === null ? "—" : `${fmt.format(medianMultiple)}×`}</b></div>
+      <div><span>Peer EV / EBITDA range</span><b>{peerMultiples.length ? `${fmt.format(Math.min(...peerMultiples))}–${fmt.format(Math.max(...peerMultiples))}×` : "—"}</b></div>
+      <p className="bridge-note">The selected exit multiple stays editable. Compare it with the peer range and explain any premium or discount.</p>
+    </>}
     <div><span>PV of forecast UFCF</span><b>{usd0.format(result.pvForecast)}M</b></div>
     <div><span>PV of terminal value</span><b>{usd0.format(result.pvTerminal)}M</b></div>
     <div className="total"><span>Enterprise value</span><b>{usd0.format(result.enterpriseValue)}M</b></div>
@@ -273,6 +317,56 @@ function StockPriceChart({ points, symbol }: { points: PricePoint[]; symbol: str
   </div>;
 }
 
+function CompetitorComparison({ data }: { data: CompanyData }) {
+  const comparison = data.comparison;
+  const company: Comparable = comparison?.company || {
+    symbol: data.company.symbol,
+    name: data.company.name,
+    marketCap: data.market.marketCap,
+    revenueGrowth: data.metrics.revenueGrowth,
+    operatingMargin: data.metrics.ebitMargin,
+    evToRevenue: null,
+    evToEbitda: null,
+    pe: null,
+  };
+  const peers = comparison?.peers || [];
+  const formatMetric = (value: number | null, suffix = "×") => value === null || !Number.isFinite(value) ? "—" : `${fmt.format(value)}${suffix}`;
+  const formatCap = (value: number | null) => value === null || !Number.isFinite(value) ? "—" : value >= 1000 ? `$${fmt.format(value / 1000)}B` : `$${fmt.format(value)}M`;
+  const metrics = {
+    growth: peerMedian(data, "revenueGrowth"),
+    margin: peerMedian(data, "operatingMargin"),
+    marketCap: peerMedian(data, "marketCap"),
+    multiple: peerMedian(data, "evToEbitda"),
+    revenueMultiple: peerMedian(data, "evToRevenue"),
+    pe: peerMedian(data, "pe"),
+  };
+  const difference = (value: number | null, benchmark: number | null, positive: string, negative: string, gapUnit: string, benchmarkUnit = gapUnit) => {
+    if (value === null || benchmark === null) return "Not enough provider data to calculate this comparison.";
+    const gap = value - benchmark;
+    if (Math.abs(gap) < .05) return `Approximately in line with the peer median of ${fmt.format(benchmark)}${benchmarkUnit}.`;
+    return `${fmt.format(Math.abs(gap))}${gapUnit} ${gap > 0 ? positive : negative} the peer median of ${fmt.format(benchmark)}${benchmarkUnit}.`;
+  };
+  const insights = [
+    { label: "Growth", value: formatMetric(company.revenueGrowth, "%"), detail: difference(company.revenueGrowth, metrics.growth, "above", "below", " percentage points", "%") },
+    { label: "Operating margin", value: formatMetric(company.operatingMargin, "%"), detail: difference(company.operatingMargin, metrics.margin, "above", "below", " percentage points", "%") },
+    { label: "Company scale", value: formatCap(company.marketCap), detail: difference(company.marketCap, metrics.marketCap, "larger than", "smaller than", "M") },
+    { label: "EV / EBITDA", value: formatMetric(company.evToEbitda), detail: difference(company.evToEbitda, metrics.multiple, "above", "below", "×") },
+  ];
+  const rows = peers.length ? [company, ...peers] : [company];
+  return <section className="sheet-section" id="competitors">
+    <div className="section-heading"><div><span className="section-index">05</span><p>RELATIVE VALUATION</p><h2>Competitor companies</h2></div><p className="section-description">Peers are selected automatically from the reported industry. Review the group before relying on its growth rates or trading multiples.</p></div>
+    <div className="peer-summary"><div><span>INDUSTRY GROWTH BENCHMARK</span><strong>{comparison?.industryGrowthRate === null || comparison?.industryGrowthRate === undefined ? "—" : `${fmt.format(comparison.industryGrowthRate)}%`}</strong><small>Median recent peer revenue growth</small></div><div><span>PEER MEDIAN EV / EBITDA</span><strong>{metrics.multiple === null ? "—" : `${fmt.format(metrics.multiple)}×`}</strong><small>Reference for the exit-multiple method</small></div><div><span>AUTOMATIC PEER GROUP</span><strong>{(comparison?.selectedPeerSymbols || peers.map((peer) => peer.symbol)).join(" · ") || "Unavailable"}</strong><small>Verify business-model and geographic comparability</small></div></div>
+    <div className="peer-table-wrap table-scroll"><table className="peer-table"><thead><tr><th>Company</th><th>Market cap</th><th>Revenue growth</th><th>Operating margin</th><th>EV / Revenue</th><th>EV / EBITDA</th><th>P / E</th></tr></thead><tbody>
+      {rows.map((peer, index) => <tr className={index === 0 ? "focus-company" : ""} key={peer.symbol}><td><b>{peer.symbol}</b><span>{peer.name}</span>{index === 0 && <em>FOCUS COMPANY</em>}</td><td>{formatCap(peer.marketCap)}</td><td>{formatMetric(peer.revenueGrowth, "%")}</td><td>{formatMetric(peer.operatingMargin, "%")}</td><td>{formatMetric(peer.evToRevenue)}</td><td>{formatMetric(peer.evToEbitda)}</td><td>{formatMetric(peer.pe)}</td></tr>)}
+      {peers.length > 0 && <tr className="peer-median"><td><b>PEER MEDIAN</b><span>{peers.length} returned companies</span></td><td>{formatCap(metrics.marketCap)}</td><td>{formatMetric(metrics.growth, "%")}</td><td>{formatMetric(metrics.margin, "%")}</td><td>{formatMetric(metrics.revenueMultiple)}</td><td>{formatMetric(metrics.multiple)}</td><td>{formatMetric(metrics.pe)}</td></tr>}
+    </tbody></table></div>
+    {!peers.length && <div className="peer-empty">Comparable ratios were not returned—usually because the free provider allowance ended after the main DCF loaded. The valuation still works, but peer benchmarks are unavailable for this request.</div>}
+    <h3 className="difference-title">How {company.symbol} differs from the peer median</h3>
+    <div className="difference-grid">{insights.map((insight) => <article key={insight.label}><span>{insight.label}</span><strong>{insight.value}</strong><p>{insight.detail}</p></article>)}</div>
+    <p className="peer-disclaimer">Revenue growth uses the provider’s latest quarterly year-over-year field. Multiples and margins are trailing metrics and may not be comparable when earnings are negative, fiscal periods differ, or business mixes vary.</p>
+  </section>;
+}
+
 function LearningWalkthrough({ data, model, result, method }: { data: CompanyData; model: Model; result: ReturnType<typeof calculate>; method: Method }) {
   const [step, setStep] = useState(0);
   const first = result.years[0];
@@ -290,7 +384,7 @@ function LearningWalkthrough({ data, model, result, method }: { data: CompanyDat
   ];
   const active = steps[step];
   return <section className="learning-section sheet-section" id="learn">
-    <div className="section-heading"><div><span className="section-index">06</span><p>GUIDED LEARNING</p><h2>Learn the model one row at a time</h2></div><div className="lesson-count"><strong>{String(step + 1).padStart(2, "0")}</strong><span>OF {String(steps.length).padStart(2, "0")}</span></div></div>
+    <div className="section-heading"><div><span className="section-index">07</span><p>GUIDED LEARNING</p><h2>Learn the model one row at a time</h2></div><div className="lesson-count"><strong>{String(step + 1).padStart(2, "0")}</strong><span>OF {String(steps.length).padStart(2, "0")}</span></div></div>
     <div className="lesson-progress" aria-label="DCF learning steps">{steps.map((item, index) => <button type="button" key={item.title} className={index === step ? "active" : index < step ? "complete" : ""} aria-label={`Step ${index + 1}: ${item.title}`} onClick={() => setStep(index)}><span>{index + 1}</span></button>)}</div>
     <div className="lesson-card"><div className="lesson-main"><span>STEP {step + 1}</span><h3>{active.title}</h3><p>{active.concept}</p><div className="formula"><b>FORMULA</b><code>{active.formula}</code></div></div><div className="lesson-side"><div><span>WITH THIS COMPANY</span><p>{active.example}</p></div><div><span>QUESTION TO ASK</span><p>{active.question}</p></div></div></div>
     <div className="lesson-controls"><button type="button" disabled={step === 0} onClick={() => setStep((current) => current - 1)}>← Previous</button><span>{active.title}</span><button type="button" disabled={step === steps.length - 1} onClick={() => setStep((current) => current + 1)}>Next →</button></div>
@@ -373,7 +467,7 @@ export default function Home() {
       <div className="instructions"><b>Instructions</b><span>Enter a public-company ticker below. The calculator loads annual financials, builds a five-year forecast, and keeps every assumption editable.</span></div>
       <form className="ticker-search" onSubmit={search}><label><span>TICKER SYMBOL</span><input aria-label="Ticker symbol" value={ticker} onChange={(event) => setTicker(event.target.value.toUpperCase())} placeholder="AAPL" /></label><button disabled={loading}>{loading ? "BUILDING DCF…" : "BUILD DCF →"}</button></form>
       {error && <div className="api-error"><b>Data connection:</b> {error}</div>}
-      <small>Powered by Alpha Vantage. A complete ticker analysis uses five API calls, including monthly price history.</small>
+      <small>Powered by Alpha Vantage. A complete ticker analysis uses up to eight API calls, including price history and three peer-company overviews.</small>
     </header>
 
     <section className="company-summary">
@@ -382,7 +476,7 @@ export default function Home() {
     </section>
 
     <nav className="sheet-tabs" aria-label="DCF workbook sections">
-      <a href="#valuation">Valuation</a><a href="#build">DCF Build</a><a href="#assumptions">Assumptions</a><a href="#price-history">Price History</a><a href="#risks">Potential Risks</a><a href="#learn">Learn DCF</a>
+      <a href="#valuation">Valuation</a><a href="#build">DCF Build</a><a href="#assumptions">Assumptions</a><a href="#price-history">Price History</a><a href="#competitors">Competitors</a><a href="#risks">Potential Risks</a><a href="#learn">Learn DCF</a>
     </nav>
 
     <section className="sheet-section" id="valuation">
@@ -390,7 +484,7 @@ export default function Home() {
       <div className="valuation-cards"><div><span>Current share price</span><strong>{usd.format(model.marketPrice)}</strong><small>Reference only</small></div><button className={method === "perpetuity" ? "selected" : ""} onClick={() => setMethod("perpetuity")}><span>Perpetual growth value</span><strong>{usd.format(perpetuity.perShare)}</strong><ValueMove value={perpetuity.perShare} price={model.marketPrice}/></button><button className={method === "multiple" ? "selected" : ""} onClick={() => setMethod("multiple")}><span>Exit multiple value</span><strong>{usd.format(multiple.perShare)}</strong><ValueMove value={multiple.perShare} price={model.marketPrice}/></button></div>
       {model.wacc <= model.terminalGrowth && <div className="api-error valuation-warning"><b>Assumption error:</b> WACC must be greater than terminal growth for the perpetual-growth method.</div>}
       {result.rawEquityValue < 0 && <div className="negative-explainer"><b>WHY COMMON EQUITY IS $0</b><p>Enterprise value plus cash is {usd0.format(Math.abs(result.rawEquityValue))}M short of funded debt under the selected assumptions. The mathematical bridge is negative, but common stock has limited liability, so the displayed value stops at $0 rather than showing a negative share price.</p></div>}
-      <div className="bridge-grid"><ValuationBridge title="Perpetual Growth Method" result={perpetuity} model={model}/><ValuationBridge title="Exit Multiple Method" result={multiple} model={model}/></div>
+      <div className="bridge-grid"><ValuationBridge title="Perpetual Growth Method" result={perpetuity} model={model} method="perpetuity" data={data}/><ValuationBridge title="Exit Multiple Method" result={multiple} model={model} method="multiple" data={data}/></div>
       <div className="sensitivity-grid"><SensitivityTable data={data} model={model} method="perpetuity"/><SensitivityTable data={data} model={model} method="multiple"/></div>
     </section>
 
@@ -404,7 +498,7 @@ export default function Home() {
 
     <section className="sheet-section" id="assumptions">
       <div className="section-heading"><div><span className="section-index">03</span><p>INPUTS</p><h2>Editable assumptions</h2></div><div className="unit-note">BLUE CELLS ARE EDITABLE</div></div>
-      <div className="recommendation"><b>{data.company.industry} starting point</b><p>{rec.note}</p><span>Recommendations are heuristics, not observed peer medians. Modify them to match your evidence.</span></div>
+      <div className="recommendation"><b>{data.company.industry} starting point</b><p>{rec.note}</p><span>{data.comparison?.industryGrowthRate === null || data.comparison?.industryGrowthRate === undefined ? "Peer industry growth was unavailable. " : `Observed peer industry revenue growth: ${fmt.format(data.comparison.industryGrowthRate)}%. `}This near-term benchmark is separate from the editable long-run terminal growth rate.</span></div>
       <div className="assumption-grid">
         <NumberField label="Starting revenue growth" value={model.growth} suffix="%" help="Year 1 sales growth. The model fades it toward terminal growth over five years." onChange={(value) => update("growth", value)}/>
         <NumberField label="Target EBIT margin" value={model.margin} suffix="%" help="Year 5 operating margin before interest and tax." onChange={(value) => update("margin", value)}/>
@@ -430,8 +524,10 @@ export default function Home() {
       <StockPriceChart points={data.market.priceHistory || []} symbol={data.company.symbol}/>
     </section>
 
+    <CompetitorComparison data={data}/>
+
     <section className="sheet-section" id="risks">
-      <div className="section-heading"><div><span className="section-index">05</span><p>DECISION REVIEW</p><h2>Potential risks</h2></div><p className="section-description">Automated screening flags based on available financials, domicile, industry, and the selected DCF method. Verify material risks in company filings.</p></div>
+      <div className="section-heading"><div><span className="section-index">06</span><p>DECISION REVIEW</p><h2>Potential risks</h2></div><p className="section-description">Automated screening flags based on available financials, domicile, industry, and the selected DCF method. Verify material risks in company filings.</p></div>
       <div className="risk-grid">{risks.map((risk) => <article key={risk.title}><span className={`risk-pill ${risk.level}`}>{risk.level}</span><h3>{risk.title}</h3><p>{risk.detail}</p></article>)}</div>
       <div className="decision-checklist"><h3>Investment-decision checklist</h3><ul><li>Read the latest annual report, risk factors, and management guidance.</li><li>Map revenue, suppliers, and operations by country.</li><li>Compare assumptions with direct peers and a full business cycle.</li><li>Stress-test dilution, acquisitions, regulation, and refinancing.</li><li>Define the evidence that would invalidate the thesis.</li><li>Require a margin of safety appropriate for forecast uncertainty.</li></ul></div>
     </section>
