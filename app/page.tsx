@@ -17,6 +17,9 @@ type HistoricalRow = {
 type Comparable = {
   symbol: string;
   name: string;
+  description: string;
+  sector: string;
+  industry: string;
   marketCap: number | null;
   revenueGrowth: number | null;
   operatingMargin: number | null;
@@ -29,7 +32,7 @@ type CompanyData = {
   asOf: string;
   qualityNotes?: string[];
   company: { symbol: string; name: string; description: string; exchange: string; currency: string; country: string; sector: string; industry: string };
-  market: { marketCap: number; shares: number; estimatedPrice: number; beta: number; priceHistory?: PricePoint[] };
+  market: { marketCap: number; shares: number; estimatedPrice: number; priceDate?: string | null; priceBasis?: string; beta: number; priceHistory?: PricePoint[] };
   metrics: { revenueGrowth: number; revenue: number; ebitMargin: number; capexPercentRevenue: number; daPercentRevenue: number; cash: number; debt: number; taxRate: number };
   comparison?: { company: Comparable; peers: Comparable[]; selectedPeerSymbols: string[]; industryGrowthRate: number | null };
   historical: HistoricalRow[];
@@ -68,14 +71,14 @@ const demo: CompanyData = {
     sector: "Technology",
     industry: "Software—Infrastructure",
   },
-  market: { marketCap: 12500, shares: 250, estimatedPrice: 50, beta: 1.15, priceHistory: demoPrices },
+  market: { marketCap: 12500, shares: 250, estimatedPrice: 50, priceDate: null, priceBasis: "Illustrative sample price—not a live quote", beta: 1.15, priceHistory: demoPrices },
   metrics: { revenueGrowth: 12, revenue: 2400, ebitMargin: 24, capexPercentRevenue: 4, daPercentRevenue: 3, cash: 650, debt: 320, taxRate: 21 },
   comparison: {
-    company: { symbol: "DEMO", name: "Northstar Systems", marketCap: 12500, revenueGrowth: 12, operatingMargin: 24, evToRevenue: 4.8, evToEbitda: 17.6, pe: 28.4 },
+    company: { symbol: "DEMO", name: "Northstar Systems", description: "Sample enterprise infrastructure software company with workflow and monitoring tools.", sector: "Technology", industry: "Software—Infrastructure", marketCap: 12500, revenueGrowth: 12, operatingMargin: 24, evToRevenue: 4.8, evToEbitda: 17.6, pe: 28.4 },
     peers: [
-      { symbol: "ATLS", name: "Atlas Cloud", marketCap: 18400, revenueGrowth: 15.5, operatingMargin: 21.2, evToRevenue: 5.6, evToEbitda: 20.4, pe: 31.8 },
-      { symbol: "MRDN", name: "Meridian Software", marketCap: 9700, revenueGrowth: 9.3, operatingMargin: 26.8, evToRevenue: 4.1, evToEbitda: 15.2, pe: 24.9 },
-      { symbol: "VCTR", name: "Vector Systems", marketCap: 15100, revenueGrowth: 11.1, operatingMargin: 22.5, evToRevenue: 4.7, evToEbitda: 18.1, pe: 27.5 },
+      { symbol: "ATLS", name: "Atlas Cloud", description: "Sample provider of cloud compute and storage infrastructure.", sector: "Technology", industry: "Cloud Infrastructure", marketCap: 18400, revenueGrowth: 15.5, operatingMargin: 21.2, evToRevenue: 5.6, evToEbitda: 20.4, pe: 31.8 },
+      { symbol: "MRDN", name: "Meridian Software", description: "Sample subscription workflow software vendor for large enterprises.", sector: "Technology", industry: "Software—Application", marketCap: 9700, revenueGrowth: 9.3, operatingMargin: 26.8, evToRevenue: 4.1, evToEbitda: 15.2, pe: 24.9 },
+      { symbol: "VCTR", name: "Vector Systems", description: "Sample cybersecurity and network monitoring software company.", sector: "Technology", industry: "Software—Infrastructure", marketCap: 15100, revenueGrowth: 11.1, operatingMargin: 22.5, evToRevenue: 4.7, evToEbitda: 18.1, pe: 27.5 },
     ],
     selectedPeerSymbols: ["ATLS", "MRDN", "VCTR"],
     industryGrowthRate: 11.1,
@@ -110,6 +113,70 @@ const validMedian = (values: Array<number | null>) => {
   return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 };
 const peerMedian = (data: CompanyData, key: keyof Pick<Comparable, "marketCap" | "revenueGrowth" | "operatingMargin" | "evToRevenue" | "evToEbitda" | "pe">) => validMedian((data.comparison?.peers || []).map((peer) => peer[key]));
+
+function marketPriceContext(data: CompanyData) {
+  if (data.source === "Sample data") return { label: "Sample market price", detail: "Illustrative only—not a live quote" };
+  if (data.market.priceDate) return { label: "Latest available market price", detail: `Month-end close from ${data.market.priceDate}` };
+  return { label: "Implied market price", detail: data.market.priceBasis || "Market capitalization divided by reported shares" };
+}
+
+function businessFocus(company: Pick<Comparable, "description" | "industry" | "sector">) {
+  const text = `${company.industry} ${company.sector} ${company.description}`;
+  const rules = [
+    { match: /electronic design automation|semiconductor ip/i, label: "Chip-design software and IP" },
+    { match: /cybersecurity|security software|network security/i, label: "Cybersecurity software" },
+    { match: /cloud infrastructure|data center|compute.*cloud|cloud.*compute/i, label: "Cloud and compute infrastructure" },
+    { match: /semiconductor/i, label: "Semiconductor products and IP" },
+    { match: /software|saas|application/i, label: "Enterprise software and workflows" },
+    { match: /bank|financial services/i, label: "Banking and financial services" },
+    { match: /insurance/i, label: "Insurance underwriting" },
+    { match: /biotech|pharma|therapeutic/i, label: "Medicines and life-science innovation" },
+    { match: /automotive|vehicle|automobile/i, label: "Vehicles and mobility" },
+    { match: /retail|consumer|restaurant/i, label: "Consumer products and distribution" },
+    { match: /oil|gas|energy/i, label: "Energy production and infrastructure" },
+    { match: /utility/i, label: "Regulated utility services" },
+    { match: /industrial|manufactur|aerospace|defense/i, label: "Industrial products and services" },
+  ];
+  return rules.find((rule) => rule.match.test(text))?.label || company.industry || company.sector || "Diversified operations";
+}
+
+function businessAssessment(data: CompanyData, company: Comparable) {
+  const text = `${company.industry} ${company.description}`;
+  const moatRules = [
+    { match: /electronic design automation|semiconductor ip/i, score: 2, mechanism: "Specialized design tools can become embedded in customer workflows, creating switching costs and valuable technical IP.", verify: "customer retention, design-win duration, interoperability, and competitive tool performance" },
+    { match: /semiconductor/i, score: 2, mechanism: "Proprietary architectures, engineering know-how, software ecosystems, and long design cycles can create durable advantages.", verify: "market share, performance leadership, customer concentration, and product-cycle durability" },
+    { match: /software|saas|application/i, score: 1, mechanism: "Software may develop switching costs when it is deeply integrated into daily workflows, data, and customer systems.", verify: "retention, recurring revenue, pricing power, implementation cost, and credible substitutes" },
+    { match: /cloud infrastructure|data center|compute/i, score: 1, mechanism: "Scale, scarce infrastructure access, and engineering execution can help, although capital intensity and customer concentration can weaken the advantage.", verify: "utilization, unit economics, supplier access, customer concentration, and returns on invested capital" },
+    { match: /consumer|retail|restaurant/i, score: 1, mechanism: "Brand, distribution, customer habits, or purchasing scale can support an advantage, but those benefits are not automatic.", verify: "repeat purchasing, price premiums, store economics, and market-share stability" },
+    { match: /bank|financial|payment/i, score: 1, mechanism: "Low-cost funding, trusted distribution, network effects, or regulatory scale may provide an advantage.", verify: "funding costs, customer retention, credit performance, and incremental returns on capital" },
+    { match: /biotech|pharma|therapeutic/i, score: 1, mechanism: "Patents and clinical differentiation can create temporary exclusivity, but the advantage may expire or fail with the pipeline.", verify: "patent life, clinical outcomes, reimbursement, pipeline depth, and competing treatments" },
+  ];
+  const rule = moatRules.find((item) => item.match.test(text));
+  const medianMargin = peerMedian(data, "operatingMargin");
+  const medianScale = peerMedian(data, "marketCap");
+  const marginPremium = company.operatingMargin !== null && medianMargin !== null ? company.operatingMargin - medianMargin : null;
+  const scaleRatio = company.marketCap !== null && medianScale ? company.marketCap / medianScale : null;
+  const evidenceScore = (rule?.score || 0) + (marginPremium !== null && marginPremium > 3 ? 1 : 0) + (scaleRatio !== null && scaleRatio > 1.5 ? 1 : 0);
+  const verdict = evidenceScore >= 3 ? "Possible moat—evidence is suggestive" : evidenceScore >= 1 ? "Some moat signals, not established" : "No clear moat established";
+  const financialSignal = marginPremium === null
+    ? "Peer margin evidence was unavailable."
+    : marginPremium > 3
+      ? `Its operating margin is ${fmt.format(marginPremium)} percentage points above the peer median, which may indicate pricing power or efficiency.`
+      : marginPremium < -3
+        ? `Its operating margin is ${fmt.format(Math.abs(marginPremium))} percentage points below the peer median, so the current numbers do not show peer-leading economics.`
+        : "Its operating margin is close to the peer median, so the current numbers alone do not establish pricing power.";
+  const peerFocuses = Array.from(new Set((data.comparison?.peers || []).map(businessFocus))).filter((focus) => focus !== businessFocus(company));
+  const difference = peerFocuses.length
+    ? `${company.symbol} is categorized as ${businessFocus(company)}. The automatic peer set also includes ${peerFocuses.slice(0, 3).join(", ")}, so differences in capital intensity and revenue model matter when comparing multiples.`
+    : `${company.symbol} and the returned peers share a broadly similar ${businessFocus(company).toLowerCase()} focus; product depth, customer mix, geography, and execution may still differ materially.`;
+  return {
+    verdict,
+    mechanism: rule?.mechanism || "The provider description and financial ratios do not reveal a specific durable competitive advantage.",
+    verify: rule?.verify || "customer retention, pricing power, market share, returns on invested capital, and credible substitutes",
+    financialSignal,
+    difference,
+  };
+}
 
 function recommendations(data: CompanyData) {
   const text = `${data.company.sector} ${data.company.industry}`;
@@ -193,13 +260,14 @@ function moveFromPrice(value: number, price: number) {
   return { change, label: change >= 0 ? "Upside" : "Downside" };
 }
 
-function riskAnalysis(data: CompanyData, model: Model, result: ReturnType<typeof calculate>) {
+function riskAnalysis(data: CompanyData, model: Model, perpetuity: ReturnType<typeof calculate>, multiple: ReturnType<typeof calculate>) {
   const risks: Array<{ level: "high" | "medium" | "low"; title: string; detail: string }> = [];
   const capex = data.metrics.capexPercentRevenue;
   risks.push({ level: capex > 12 ? "high" : capex > 6 ? "medium" : "low", title: "Capital intensity", detail: `${fmt.format(capex)}% of latest revenue was spent on capex. High reinvestment can prevent accounting profit from becoming distributable cash.` });
   const leverage = data.metrics.debt / Math.max(data.metrics.revenue, 1);
   risks.push({ level: leverage > 1 ? "high" : leverage > .45 ? "medium" : "low", title: "Balance-sheet leverage", detail: `Debt equals ${fmt.format(leverage * 100)}% of annual revenue. Refinancing risk rises if rates increase or earnings deteriorate.` });
-  risks.push({ level: result.terminalShare > 80 ? "high" : result.terminalShare > 65 ? "medium" : "low", title: "Terminal-value dependence", detail: `${fmt.format(result.terminalShare)}% of enterprise value comes from cash flows beyond Year 5.` });
+  const terminalShare = Math.max(perpetuity.terminalShare, multiple.terminalShare);
+  risks.push({ level: terminalShare > 80 ? "high" : terminalShare > 65 ? "medium" : "low", title: "Terminal-value dependence", detail: `${fmt.format(perpetuity.terminalShare)}% of perpetual-growth enterprise value and ${fmt.format(multiple.terminalShare)}% of exit-multiple enterprise value come from value beyond Year 5.` });
   const country = data.company.country || "Unknown";
   const geoHigh = /china|russia|taiwan|ukraine|israel/i.test(country);
   const geoMedium = /semiconductor|aerospace|defense|energy|mining|shipping|telecom/i.test(`${data.company.industry} ${data.company.sector}`);
@@ -207,8 +275,10 @@ function riskAnalysis(data: CompanyData, model: Model, result: ReturnType<typeof
   const margins = data.historical.map((row) => row.ebitMargin).filter(Number.isFinite);
   const spread = margins.length ? Math.max(...margins) - Math.min(...margins) : 0;
   risks.push({ level: spread > 15 ? "high" : spread > 7 ? "medium" : "low", title: "Margin stability", detail: `Historical EBIT margin range is ${fmt.format(spread)} percentage points. Wide swings reduce forecast reliability.` });
-  const valuation = moveFromPrice(result.perShare, model.marketPrice);
-  risks.push({ level: valuation.change < 10 ? "high" : valuation.change < 25 ? "medium" : "low", title: "Valuation cushion", detail: `The selected DCF method implies ${fmt.format(Math.abs(valuation.change))}% ${valuation.label.toLowerCase()}. A small cushion leaves little room for forecasting error.` });
+  const lowValue = Math.min(perpetuity.perShare, multiple.perShare);
+  const highValue = Math.max(perpetuity.perShare, multiple.perShare);
+  const conservativeMove = moveFromPrice(lowValue, model.marketPrice);
+  risks.push({ level: conservativeMove.change < 10 ? "high" : conservativeMove.change < 25 ? "medium" : "low", title: "Valuation cushion", detail: `The two methods imply ${usd.format(lowValue)}–${usd.format(highValue)} per share versus the market-price input. A narrow or negative cushion leaves little room for forecast error.` });
   return risks;
 }
 
@@ -231,15 +301,18 @@ function ValuationBridge({ title, result, model, method, data }: { title: string
   const peerMultiples = (data.comparison?.peers || []).map((peer) => peer.evToEbitda).filter((value): value is number => value !== null && Number.isFinite(value));
   const medianMultiple = validMedian(peerMultiples);
   const yearFive = result.years[4];
+  const yearFiveEbitda = yearFive.ebit + yearFive.depreciation;
   return <div className="bridge-table">
     <div className="sheet-bar">{title}</div>
     {method === "perpetuity" ? <>
+      <div className="method-explainer"><span>WHAT THIS METHOD DOES</span><p>Assumes Year 5 unlevered free cash flow grows at a stable rate forever. It converts that continuing stream into one terminal value, then discounts it back five years.</p><code>{fmt.format(yearFive.fcf)} × (1 + {fmt.format(model.terminalGrowth)}%) ÷ ({fmt.format(model.wacc)}% − {fmt.format(model.terminalGrowth)}%) = {fmt.format(result.terminalValue)}</code><small>Year 5 UFCF × growth adjustment ÷ (WACC − perpetual growth)</small></div>
       <div className="reference-row"><span>Observed peer industry growth</span><b>{industryGrowth === null ? "—" : `${fmt.format(industryGrowth)}%`}</b></div>
       <div><span>Selected perpetual growth</span><b>{fmt.format(model.terminalGrowth)}%</b></div>
       <div><span>Year 5 UFCF</span><b>{usd0.format(yearFive.fcf)}M</b></div>
       <p className="bridge-note">Peer growth is median recent year-over-year revenue growth. It provides industry context, but the perpetual rate is a separate long-run assumption and must remain below WACC.</p>
     </> : <>
-      <div><span>Year 5 EBITDA</span><b>{usd0.format(yearFive.ebit + yearFive.depreciation)}M</b></div>
+      <div className="method-explainer"><span>WHAT THIS METHOD DOES</span><p>Assumes the company could be valued in Year 5 at a market multiple of EBITDA. It multiplies Year 5 EBITDA by the selected multiple, then discounts that value back five years.</p><code>{fmt.format(yearFiveEbitda)} × {fmt.format(model.exitMultiple)} = {fmt.format(result.terminalValue)}</code><small>Year 5 EBITDA × selected exit multiple</small></div>
+      <div><span>Year 5 EBITDA</span><b>{usd0.format(yearFiveEbitda)}M</b></div>
       <div><span>Selected exit multiple</span><b>{fmt.format(model.exitMultiple)}×</b></div>
       <div className="reference-row"><span>Peer median EV / EBITDA</span><b>{medianMultiple === null ? "—" : `${fmt.format(medianMultiple)}×`}</b></div>
       <div><span>Peer EV / EBITDA range</span><b>{peerMultiples.length ? `${fmt.format(Math.min(...peerMultiples))}–${fmt.format(Math.max(...peerMultiples))}×` : "—"}</b></div>
@@ -307,7 +380,7 @@ function StockPriceChart({ points, symbol }: { points: PricePoint[]; symbol: str
   return <div className="price-chart-card">
     <div className="chart-head"><div><span>{symbol} MONTHLY CLOSE</span><h3>{usd.format(last.close)} <i className={change >= 0 ? "positive" : "negative"}>{change >= 0 ? "+" : ""}{fmt.format(change)}%</i></h3></div><div className="period-toggle">{(["1Y", "3Y", "5Y", "MAX"] as const).map((item) => <button type="button" className={item === period ? "active" : ""} key={item} onClick={() => setPeriod(item)}>{item}</button>)}</div></div>
     <svg className="price-svg" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${symbol} monthly closing price chart for ${period}`}>
-      <defs><linearGradient id="priceFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#18b9c8" stopOpacity=".28"/><stop offset="1" stopColor="#18b9c8" stopOpacity="0"/></linearGradient></defs>
+      <defs><linearGradient id="priceFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#78924b" stopOpacity=".28"/><stop offset="1" stopColor="#78924b" stopOpacity="0"/></linearGradient></defs>
       {[0, .25, .5, .75, 1].map((ratio) => { const value = max - (max - min) * ratio; const yPos = y(value); return <g key={ratio}><line x1={pad.left} x2={width - pad.right} y1={yPos} y2={yPos}/><text x={pad.left - 10} y={yPos + 4} textAnchor="end">{usd0.format(value)}</text></g>; })}
       {tickIndexes.map((index) => <text key={index} x={x(index)} y={height - 17} textAnchor={index === 0 ? "start" : index === filtered.length - 1 ? "end" : "middle"}>{dateLabel(filtered[index].date)}</text>)}
       <path className="price-area" d={area}/><path className="price-line" d={line}/>
@@ -322,6 +395,9 @@ function CompetitorComparison({ data }: { data: CompanyData }) {
   const company: Comparable = comparison?.company || {
     symbol: data.company.symbol,
     name: data.company.name,
+    description: data.company.description,
+    sector: data.company.sector,
+    industry: data.company.industry,
     marketCap: data.market.marketCap,
     revenueGrowth: data.metrics.revenueGrowth,
     operatingMargin: data.metrics.ebitMargin,
@@ -352,13 +428,19 @@ function CompetitorComparison({ data }: { data: CompanyData }) {
     { label: "Company scale", value: formatCap(company.marketCap), detail: difference(company.marketCap, metrics.marketCap, "larger than", "smaller than", "M") },
     { label: "EV / EBITDA", value: formatMetric(company.evToEbitda), detail: difference(company.evToEbitda, metrics.multiple, "above", "below", "×") },
   ];
+  const assessment = businessAssessment(data, company);
   const rows = peers.length ? [company, ...peers] : [company];
   return <section className="sheet-section" id="competitors">
-    <div className="section-heading"><div><span className="section-index">05</span><p>RELATIVE VALUATION</p><h2>Competitor companies</h2></div><p className="section-description">Peers are selected automatically from the reported industry. Review the group before relying on its growth rates or trading multiples.</p></div>
+    <div className="section-heading"><div><span className="section-index">05</span><p>BUSINESS + RELATIVE VALUATION</p><h2>Competitor companies</h2></div><p className="section-description">Peers are selected automatically from the reported industry. Review the group before relying on its business comparisons, growth rates, or trading multiples.</p></div>
+    <div className="business-review">
+      <article><span>WHAT THE COMPANY DOES</span><h3>{businessFocus(company)}</h3><p>{company.description || data.company.description}</p></article>
+      <article className="moat-card"><span>DOES IT HAVE A MOAT?</span><h3>{assessment.verdict}</h3><p>{assessment.mechanism} {assessment.financialSignal}</p><small>Verify: {assessment.verify}.</small></article>
+      <article><span>HOW THE BUSINESS DIFFERS</span><h3>Business mix matters</h3><p>{assessment.difference}</p></article>
+    </div>
     <div className="peer-summary"><div><span>INDUSTRY GROWTH BENCHMARK</span><strong>{comparison?.industryGrowthRate === null || comparison?.industryGrowthRate === undefined ? "—" : `${fmt.format(comparison.industryGrowthRate)}%`}</strong><small>Median recent peer revenue growth</small></div><div><span>PEER MEDIAN EV / EBITDA</span><strong>{metrics.multiple === null ? "—" : `${fmt.format(metrics.multiple)}×`}</strong><small>Reference for the exit-multiple method</small></div><div><span>AUTOMATIC PEER GROUP</span><strong>{(comparison?.selectedPeerSymbols || peers.map((peer) => peer.symbol)).join(" · ") || "Unavailable"}</strong><small>Verify business-model and geographic comparability</small></div></div>
-    <div className="peer-table-wrap table-scroll"><table className="peer-table"><thead><tr><th>Company</th><th>Market cap</th><th>Revenue growth</th><th>Operating margin</th><th>EV / Revenue</th><th>EV / EBITDA</th><th>P / E</th></tr></thead><tbody>
-      {rows.map((peer, index) => <tr className={index === 0 ? "focus-company" : ""} key={peer.symbol}><td><b>{peer.symbol}</b><span>{peer.name}</span>{index === 0 && <em>FOCUS COMPANY</em>}</td><td>{formatCap(peer.marketCap)}</td><td>{formatMetric(peer.revenueGrowth, "%")}</td><td>{formatMetric(peer.operatingMargin, "%")}</td><td>{formatMetric(peer.evToRevenue)}</td><td>{formatMetric(peer.evToEbitda)}</td><td>{formatMetric(peer.pe)}</td></tr>)}
-      {peers.length > 0 && <tr className="peer-median"><td><b>PEER MEDIAN</b><span>{peers.length} returned companies</span></td><td>{formatCap(metrics.marketCap)}</td><td>{formatMetric(metrics.growth, "%")}</td><td>{formatMetric(metrics.margin, "%")}</td><td>{formatMetric(metrics.revenueMultiple)}</td><td>{formatMetric(metrics.multiple)}</td><td>{formatMetric(metrics.pe)}</td></tr>}
+    <div className="peer-table-wrap table-scroll"><table className="peer-table"><thead><tr><th>Company</th><th>Business focus</th><th>Market cap</th><th>Revenue growth</th><th>Operating margin</th><th>EV / Revenue</th><th>EV / EBITDA</th><th>P / E</th></tr></thead><tbody>
+      {rows.map((peer, index) => <tr className={index === 0 ? "focus-company" : ""} key={peer.symbol}><td><b>{peer.symbol}</b><span>{peer.name}</span>{index === 0 && <em>FOCUS COMPANY</em>}</td><td className="business-focus-cell">{businessFocus(peer)}</td><td>{formatCap(peer.marketCap)}</td><td>{formatMetric(peer.revenueGrowth, "%")}</td><td>{formatMetric(peer.operatingMargin, "%")}</td><td>{formatMetric(peer.evToRevenue)}</td><td>{formatMetric(peer.evToEbitda)}</td><td>{formatMetric(peer.pe)}</td></tr>)}
+      {peers.length > 0 && <tr className="peer-median"><td><b>PEER MEDIAN</b><span>{peers.length} returned companies</span></td><td>—</td><td>{formatCap(metrics.marketCap)}</td><td>{formatMetric(metrics.growth, "%")}</td><td>{formatMetric(metrics.margin, "%")}</td><td>{formatMetric(metrics.revenueMultiple)}</td><td>{formatMetric(metrics.multiple)}</td><td>{formatMetric(metrics.pe)}</td></tr>}
     </tbody></table></div>
     {!peers.length && <div className="peer-empty">Comparable ratios were not returned—usually because the free provider allowance ended after the main DCF loaded. The valuation still works, but peer benchmarks are unavailable for this request.</div>}
     <h3 className="difference-title">How {company.symbol} differs from the peer median</h3>
@@ -367,20 +449,20 @@ function CompetitorComparison({ data }: { data: CompanyData }) {
   </section>;
 }
 
-function LearningWalkthrough({ data, model, result, method }: { data: CompanyData; model: Model; result: ReturnType<typeof calculate>; method: Method }) {
+function LearningWalkthrough({ data, model, perpetuity, multiple }: { data: CompanyData; model: Model; perpetuity: ReturnType<typeof calculate>; multiple: ReturnType<typeof calculate> }) {
   const [step, setStep] = useState(0);
-  const first = result.years[0];
-  const last = result.years[4];
+  const first = perpetuity.years[0];
+  const last = perpetuity.years[4];
   const steps = [
     { title: "Start with the business", concept: "A DCF estimates what a company is worth today by forecasting the cash its operations can generate.", formula: "Value today = PV of forecast cash flow + PV of terminal value", example: `${data.company.name} begins with ${usd0.format(data.metrics.revenue)}M of latest annual revenue.`, question: "Do you understand how the company makes money and what could permanently impair it?" },
     { title: "Forecast revenue", concept: "Revenue is the top line. Growth normally slows as a company becomes larger, so the model fades the starting rate.", formula: "Revenue₁ = Revenue₀ × (1 + growth)", example: `${usd0.format(data.metrics.revenue)}M × (1 + ${fmt.format(first.growth)}%) = ${usd0.format(first.revenue)}M.`, question: `Is ${fmt.format(model.growth)}% consistent with industry demand and competition?` },
     { title: "Estimate operating profit", concept: "EBIT measures operating profit before interest and tax. The forecast gradually moves from the latest margin to your target.", formula: "EBIT = Revenue × EBIT margin", example: `${usd0.format(first.revenue)}M × ${fmt.format(first.margin)}% = ${usd0.format(first.ebit)}M.`, question: "What evidence supports the target margin?" },
     { title: "Calculate NOPAT", concept: "NOPAT keeps operations separate from financing by applying a normalized tax rate to EBIT.", formula: "NOPAT = EBIT − cash taxes", example: `${usd0.format(first.ebit)}M − ${usd0.format(first.tax)}M = ${usd0.format(first.nopat)}M.`, question: "Are recent tax benefits or charges temporary?" },
-    { title: "Account for reinvestment", concept: "Add back non-cash D&A, then subtract capex and working capital required to support growth.", formula: "UFCF = NOPAT + D&A − Capex − ΔNWC", example: `${usd0.format(first.nopat)}M + ${usd0.format(first.depreciation)}M − ${usd0.format(first.capex)}M − ${usd0.format(first.changeNwc)}M = ${usd0.format(first.fcf)}M.`, question: "Does this growth require more physical investment than the model assumes?" },
+    { title: "Calculate unlevered free cash flow", concept: "UFCF means Unlevered Free Cash Flow: cash generated by the operations after tax and reinvestment, but before interest or debt payments. It belongs to both lenders and shareholders.", formula: "UFCF = NOPAT + D&A − Capex − ΔNWC", example: `${usd0.format(first.nopat)}M + ${usd0.format(first.depreciation)}M − ${usd0.format(first.capex)}M − ${usd0.format(first.changeNwc)}M = ${usd0.format(first.fcf)}M.`, question: "Does this growth require more physical investment than the model assumes?" },
     { title: "Discount the cash flow", concept: "Future cash is worth less than cash today. WACC represents the return required by debt and equity investors.", formula: "PV = Future UFCF ÷ (1 + WACC)ⁿ", example: `Year 5 UFCF of ${usd0.format(last.fcf)}M × ${last.discountFactor.toFixed(3)} = ${usd0.format(last.pv)}M.`, question: `Does ${fmt.format(model.wacc)}% capture the company’s risk?` },
-    { title: "Estimate terminal value", concept: method === "perpetuity" ? "Gordon Growth assumes cash flow grows forever at a stable rate." : "Exit Multiple assumes the business is valued at a selected EBITDA multiple in Year 5.", formula: method === "perpetuity" ? "TV = UFCF₅ × (1 + g) ÷ (WACC − g)" : "TV = EBITDA₅ × exit multiple", example: `${usd0.format(result.terminalValue)}M before discounting.`, question: `Terminal value is ${fmt.format(result.terminalShare)}% of enterprise value. Is that dependence acceptable?` },
-    { title: "Bridge to equity value", concept: "Enterprise value belongs to all capital providers. Add available cash and subtract funded debt to reach common equity.", formula: "Equity value = Enterprise value + Cash − Debt", example: `${usd0.format(result.enterpriseValue)}M + ${usd0.format(model.cash)}M − ${usd0.format(model.debt)}M = ${usd0.format(result.rawEquityValue)}M before the $0 floor.`, question: "Are there leases, pensions, minority interests, or other claims to include?" },
-    { title: "Calculate value per share", concept: "Divide equity value by diluted shares. The difference from market price is a scenario result, not proof.", formula: "Value per share = Equity value ÷ diluted shares", example: `${usd0.format(result.equityValue)}M ÷ ${fmt.format(model.shares)}M = ${usd.format(result.perShare)}.`, question: "Is the upside large enough to absorb forecasting mistakes?" },
+    { title: "Estimate terminal value two ways", concept: "Perpetual growth values all cash flows after Year 5 as a forever-growing stream. Exit multiple values the company in Year 5 using a market EBITDA multiple. They answer the same question with different assumptions.", formula: "Perpetuity: UFCF₅ × (1 + g) ÷ (WACC − g)  |  Exit: EBITDA₅ × multiple", example: `${usd0.format(perpetuity.terminalValue)}M by perpetual growth versus ${usd0.format(multiple.terminalValue)}M by exit multiple, both before discounting.`, question: `Why should this company deserve ${fmt.format(model.exitMultiple)}× EBITDA, and is ${fmt.format(model.terminalGrowth)}% realistic forever?` },
+    { title: "Bridge to equity value", concept: "Enterprise value belongs to all capital providers. Add available cash and subtract funded debt to reach common equity.", formula: "Equity value = Enterprise value + Cash − Debt", example: `Perpetual method: ${usd0.format(perpetuity.enterpriseValue)}M + ${usd0.format(model.cash)}M − ${usd0.format(model.debt)}M = ${usd0.format(perpetuity.rawEquityValue)}M before the $0 floor.`, question: "Are there leases, pensions, minority interests, or other claims to include?" },
+    { title: "Calculate value per share", concept: "Divide equity value by diluted shares. The two methods create a valuation range; neither result is proof that the stock is cheap or expensive.", formula: "Value per share = Equity value ÷ diluted shares", example: `${usd.format(perpetuity.perShare)} by perpetual growth and ${usd.format(multiple.perShare)} by exit multiple.`, question: "Is the valuation range wide enough to show that the terminal assumptions need more work?" },
   ];
   const active = steps[step];
   return <section className="learning-section sheet-section" id="learn">
@@ -395,15 +477,15 @@ export default function Home() {
   const [ticker, setTicker] = useState("IBM");
   const [data, setData] = useState<CompanyData>(demo);
   const [model, setModel] = useState<Model>(() => buildModel(demo));
-  const [method, setMethod] = useState<Method>("perpetuity");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const rec = useMemo(() => recommendations(data), [data]);
   const perpetuity = useMemo(() => calculate(data, model, "perpetuity"), [data, model]);
   const multiple = useMemo(() => calculate(data, model, "multiple"), [data, model]);
-  const result = method === "perpetuity" ? perpetuity : multiple;
-  const risks = useMemo(() => riskAnalysis(data, model, result), [data, model, result]);
+  const result = perpetuity;
+  const risks = useMemo(() => riskAnalysis(data, model, perpetuity, multiple), [data, model, perpetuity, multiple]);
   const latest = data.historical[data.historical.length - 1];
+  const priceContext = marketPriceContext(data);
   const update = (key: keyof Model, value: number) => setModel((current) => ({ ...current, [key]: value }));
 
   async function search(event: FormEvent) {
@@ -433,12 +515,14 @@ export default function Home() {
     { label: "Plus: D&A", actual: latest?.depreciation ?? data.metrics.revenue * data.metrics.daPercentRevenue / 100, values: result.years.map((year) => year.depreciation) },
     { label: "Less: Capex", actual: latest?.capex ?? data.metrics.revenue * data.metrics.capexPercentRevenue / 100, values: result.years.map((year) => year.capex), type: "negative" },
     { label: "Less: Increase in NWC", actual: null, values: result.years.map((year) => year.changeNwc), type: "negative" },
-    { label: "Unlevered Free Cash Flow", actual: latest?.freeCashFlow ?? null, values: result.years.map((year) => year.fcf), type: "total" },
+    { label: "Unlevered Free Cash Flow (UFCF)", actual: latest?.freeCashFlow ?? null, values: result.years.map((year) => year.fcf), type: "total" },
     { label: "Discount period", actual: null, values: result.years.map((year) => year.year), type: "factor" },
     { label: "Discount factor", actual: null, values: result.years.map((year) => year.discountFactor), type: "factor" },
     { label: "PV of UFCF", actual: null, values: result.years.map((year) => year.pv), type: "total" },
-    { label: "Terminal value", actual: null, values: [null, null, null, null, null], type: "total" },
-    { label: "PV of terminal value", actual: null, values: [null, null, null, null, null], type: "total" },
+    { label: "Perpetual-growth terminal value", actual: null, values: [null, null, null, null, null], type: "total" },
+    { label: "PV of perpetual terminal value", actual: null, values: [null, null, null, null, null], type: "total" },
+    { label: "Exit-multiple terminal value", actual: null, values: [null, null, null, null, null], type: "total" },
+    { label: "PV of exit-multiple terminal value", actual: null, values: [null, null, null, null, null], type: "total" },
   ];
   const formatCell = (value: number | null, type?: string) => {
     if (value === null || !Number.isFinite(value)) return "—";
@@ -472,32 +556,29 @@ export default function Home() {
 
     <section className="company-summary">
       <div><span>{data.company.exchange} · {data.company.symbol}</span><h2>{data.company.name}</h2><p>{data.company.description}</p></div>
-      <dl><div><dt>Reference price</dt><dd>{usd.format(model.marketPrice)}</dd></div><div><dt>Industry</dt><dd>{data.company.industry}</dd></div><div><dt>Financials through</dt><dd>{data.asOf}</dd></div><div><dt>Data source</dt><dd>{data.source}</dd></div></dl>
+      <dl><div><dt>{priceContext.label}</dt><dd>{usd.format(model.marketPrice)}<small>{priceContext.detail}</small></dd></div><div><dt>Industry</dt><dd>{data.company.industry}</dd></div><div><dt>Financials through</dt><dd>{data.asOf}</dd></div><div><dt>Data source</dt><dd>{data.source}</dd></div></dl>
     </section>
 
-    <nav className="sheet-tabs" aria-label="DCF workbook sections">
-      <a href="#valuation">Valuation</a><a href="#build">DCF Build</a><a href="#assumptions">Assumptions</a><a href="#price-history">Price History</a><a href="#competitors">Competitors</a><a href="#risks">Potential Risks</a><a href="#learn">Learn DCF</a>
-    </nav>
-
     <section className="sheet-section" id="valuation">
-      <div className="section-heading"><div><span className="section-index">01</span><p>OUTPUT</p><h2>DCF valuation</h2></div><div className="method-selector"><span>PRIMARY METHOD</span><button className={method === "perpetuity" ? "active" : ""} onClick={() => setMethod("perpetuity")}>Perpetual growth</button><button className={method === "multiple" ? "active" : ""} onClick={() => setMethod("multiple")}>Exit multiple</button></div></div>
-      <div className="valuation-cards"><div><span>Current share price</span><strong>{usd.format(model.marketPrice)}</strong><small>Reference only</small></div><button className={method === "perpetuity" ? "selected" : ""} onClick={() => setMethod("perpetuity")}><span>Perpetual growth value</span><strong>{usd.format(perpetuity.perShare)}</strong><ValueMove value={perpetuity.perShare} price={model.marketPrice}/></button><button className={method === "multiple" ? "selected" : ""} onClick={() => setMethod("multiple")}><span>Exit multiple value</span><strong>{usd.format(multiple.perShare)}</strong><ValueMove value={multiple.perShare} price={model.marketPrice}/></button></div>
+      <div className="section-heading"><div><span className="section-index">01</span><p>OUTPUT</p><h2>DCF valuation</h2></div><div className="unit-note">BOTH TERMINAL METHODS SHOWN TOGETHER</div></div>
+      <div className="valuation-cards"><div><span>{priceContext.label}</span><strong>{usd.format(model.marketPrice)}</strong><small>{priceContext.detail}</small></div><div><span>Perpetual growth value</span><strong>{usd.format(perpetuity.perShare)}</strong><ValueMove value={perpetuity.perShare} price={model.marketPrice}/></div><div><span>Exit multiple value</span><strong>{usd.format(multiple.perShare)}</strong><ValueMove value={multiple.perShare} price={model.marketPrice}/></div></div>
       {model.wacc <= model.terminalGrowth && <div className="api-error valuation-warning"><b>Assumption error:</b> WACC must be greater than terminal growth for the perpetual-growth method.</div>}
-      {result.rawEquityValue < 0 && <div className="negative-explainer"><b>WHY COMMON EQUITY IS $0</b><p>Enterprise value plus cash is {usd0.format(Math.abs(result.rawEquityValue))}M short of funded debt under the selected assumptions. The mathematical bridge is negative, but common stock has limited liability, so the displayed value stops at $0 rather than showing a negative share price.</p></div>}
+      {(perpetuity.rawEquityValue < 0 || multiple.rawEquityValue < 0) && <div className="negative-explainer"><b>WHY A METHOD CAN SHOW $0 FOR COMMON EQUITY</b><p>Under at least one terminal method, enterprise value plus cash does not cover funded debt. The mathematical bridge is negative, but common stock has limited liability, so the displayed value stops at $0 rather than showing a negative share price.</p></div>}
+      <div className="ufcf-definition"><b>UFCF = Unlevered Free Cash Flow</b><p>Cash generated by the company’s operations after taxes and required reinvestment, but before interest or debt payments. Because it belongs to both lenders and shareholders, the model discounts UFCF to calculate enterprise value.</p><code>NOPAT + D&amp;A − Capital expenditures − Change in working capital</code></div>
       <div className="bridge-grid"><ValuationBridge title="Perpetual Growth Method" result={perpetuity} model={model} method="perpetuity" data={data}/><ValuationBridge title="Exit Multiple Method" result={multiple} model={model} method="multiple" data={data}/></div>
       <div className="sensitivity-grid"><SensitivityTable data={data} model={model} method="perpetuity"/><SensitivityTable data={data} model={model} method="multiple"/></div>
     </section>
 
     <section className="sheet-section" id="build">
-      <div className="section-heading"><div><span className="section-index">02</span><p>MODEL</p><h2>DCF build</h2></div><div className="unit-note">USD IN MILLIONS · BLUE = FORECAST</div></div>
+      <div className="section-heading"><div><span className="section-index">02</span><p>MODEL</p><h2>DCF build</h2></div><div className="unit-note">USD IN MILLIONS · GREEN = FORECAST</div></div>
       <div className="model-table-wrap"><table className="model-table"><thead><tr><th>DCF line item</th><th className="actual">{latest?.year || "Latest"}A</th>{result.years.map((year) => <th key={year.year}>YEAR {year.year}E</th>)}<th>Terminal</th></tr></thead><tbody>
-        {tableRows.map((row) => <tr className={`${row.type === "total" ? "total" : ""} ${row.type === "percent" ? "percent-row" : ""}`} key={row.label}><td>{row.label}</td><td className="actual">{formatCell(row.actual, row.type)}</td>{row.values.map((value, index) => <td key={index}>{formatCell(value, row.type)}</td>)}<td>{row.label === "Unlevered Free Cash Flow" ? fmt.format(result.years[4].fcf) : row.label === "Terminal value" ? fmt.format(result.terminalValue) : row.label === "PV of terminal value" ? fmt.format(result.pvTerminal) : "—"}</td></tr>)}
+        {tableRows.map((row) => <tr className={`${row.type === "total" ? "total" : ""} ${row.type === "percent" ? "percent-row" : ""}`} key={row.label}><td>{row.label}</td><td className="actual">{formatCell(row.actual, row.type)}</td>{row.values.map((value, index) => <td key={index}>{formatCell(value, row.type)}</td>)}<td>{row.label === "Unlevered Free Cash Flow (UFCF)" ? fmt.format(result.years[4].fcf) : row.label === "Perpetual-growth terminal value" ? fmt.format(perpetuity.terminalValue) : row.label === "PV of perpetual terminal value" ? fmt.format(perpetuity.pvTerminal) : row.label === "Exit-multiple terminal value" ? fmt.format(multiple.terminalValue) : row.label === "PV of exit-multiple terminal value" ? fmt.format(multiple.pvTerminal) : "—"}</td></tr>)}
       </tbody></table></div>
-      <p className="table-footnote">Latest historical FCF is operating cash flow less capex. Forecast UFCF is calculated from NOPAT + D&A − capex − change in working capital.</p>
+      <p className="table-footnote">Latest historical FCF is operating cash flow less capex. Forecast UFCF means unlevered free cash flow and is calculated from NOPAT + D&amp;A − capex − change in working capital.</p>
     </section>
 
     <section className="sheet-section" id="assumptions">
-      <div className="section-heading"><div><span className="section-index">03</span><p>INPUTS</p><h2>Editable assumptions</h2></div><div className="unit-note">BLUE CELLS ARE EDITABLE</div></div>
+      <div className="section-heading"><div><span className="section-index">03</span><p>INPUTS</p><h2>Editable assumptions</h2></div><div className="unit-note">GREEN CELLS ARE EDITABLE</div></div>
       <div className="recommendation"><b>{data.company.industry} starting point</b><p>{rec.note}</p><span>{data.comparison?.industryGrowthRate === null || data.comparison?.industryGrowthRate === undefined ? "Peer industry growth was unavailable. " : `Observed peer industry revenue growth: ${fmt.format(data.comparison.industryGrowthRate)}%. `}This near-term benchmark is separate from the editable long-run terminal growth rate.</span></div>
       <div className="assumption-grid">
         <NumberField label="Starting revenue growth" value={model.growth} suffix="%" help="Year 1 sales growth. The model fades it toward terminal growth over five years." onChange={(value) => update("growth", value)}/>
@@ -509,7 +590,7 @@ export default function Home() {
         <NumberField label="WACC" value={model.wacc} suffix="%" help="Required return for debt and equity capital. It discounts forecast cash flows." onChange={(value) => update("wacc", value)}/>
         <NumberField label="Terminal growth" value={model.terminalGrowth} suffix="%" help="Long-run growth after Year 5. It must remain below WACC." onChange={(value) => update("terminalGrowth", value)}/>
         <NumberField label="Exit EBITDA multiple" value={model.exitMultiple} suffix="×" help="Year 5 EBITDA valuation multiple used in the exit-multiple method." onChange={(value) => update("exitMultiple", value)}/>
-        <NumberField label="Reference market price" value={model.marketPrice} suffix="$" help="Market price used to calculate upside or downside." onChange={(value) => update("marketPrice", value)}/>
+        <NumberField label="Market price used for comparison" value={model.marketPrice} suffix="$" help={`${priceContext.detail}. This input only calculates upside or downside; it does not change intrinsic value.`} onChange={(value) => update("marketPrice", value)}/>
         <NumberField label="Cash" value={model.cash} suffix="$M" help="Available cash added in the enterprise-to-equity bridge." onChange={(value) => update("cash", value)}/>
         <NumberField label="Funded debt" value={model.debt} suffix="$M" help="Debt subtracted from enterprise value. Review leases and other claims separately." onChange={(value) => update("debt", value)}/>
         <NumberField label="Diluted shares" value={model.shares} suffix="M" help="Share count used to calculate value per share; check multi-class shares and dilution." onChange={(value) => update("shares", value)}/>
@@ -527,12 +608,12 @@ export default function Home() {
     <CompetitorComparison data={data}/>
 
     <section className="sheet-section" id="risks">
-      <div className="section-heading"><div><span className="section-index">06</span><p>DECISION REVIEW</p><h2>Potential risks</h2></div><p className="section-description">Automated screening flags based on available financials, domicile, industry, and the selected DCF method. Verify material risks in company filings.</p></div>
+      <div className="section-heading"><div><span className="section-index">06</span><p>DECISION REVIEW</p><h2>Potential risks</h2></div><p className="section-description">Automated screening flags based on available financials, domicile, industry, and both DCF methods. Verify material risks in company filings.</p></div>
       <div className="risk-grid">{risks.map((risk) => <article key={risk.title}><span className={`risk-pill ${risk.level}`}>{risk.level}</span><h3>{risk.title}</h3><p>{risk.detail}</p></article>)}</div>
       <div className="decision-checklist"><h3>Investment-decision checklist</h3><ul><li>Read the latest annual report, risk factors, and management guidance.</li><li>Map revenue, suppliers, and operations by country.</li><li>Compare assumptions with direct peers and a full business cycle.</li><li>Stress-test dilution, acquisitions, regulation, and refinancing.</li><li>Define the evidence that would invalidate the thesis.</li><li>Require a margin of safety appropriate for forecast uncertainty.</li></ul></div>
     </section>
 
-    <LearningWalkthrough data={data} model={model} result={result} method={method}/>
+    <LearningWalkthrough data={data} model={model} perpetuity={perpetuity} multiple={multiple}/>
     <footer><span>Educational decision support only—not personalized investment advice.</span><span>MODEL V2 · DATA MAY BE DELAYED</span></footer>
   </main>;
 }

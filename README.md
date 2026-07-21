@@ -16,11 +16,12 @@ Open [http://localhost:3000](http://localhost:3000).
 ## Current features
 
 - Automatic company overview, sector, industry, and annual financials
-- Workbook-style navigation that jumps between sections on the same page
 - Complete five-year operating and unlevered free-cash-flow build
 - Perpetual-growth and exit-multiple valuation bridges shown side by side
+- Plain-language UFCF definition plus formulas with the loaded company’s numbers substituted into both terminal-value methods
 - Observed peer-industry revenue growth shown beside the long-run perpetual-growth assumption
 - Automatically selected competitor group with revenue growth, margins, EV/revenue, EV/EBITDA, P/E, and focus-company differences
+- Business-focus comparison and a conditional moat assessment with evidence that still needs verification
 - Peer-median EV/EBITDA and trading range shown inside the exit-multiple valuation bridge
 - WACC/terminal-growth and WACC/exit-multiple sensitivity tables
 - Monthly stock-price chart with 1Y, 3Y, 5Y, and maximum-period controls

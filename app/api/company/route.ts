@@ -29,6 +29,9 @@ function comparableFromOverview(overview: Record<string, unknown>) {
   return {
     symbol: String(overview.Symbol || ""),
     name: String(overview.Name || overview.Symbol || "Unknown company"),
+    description: String(overview.Description || ""),
+    sector: String(overview.Sector || "Unclassified"),
+    industry: String(overview.Industry || "Unclassified"),
     marketCap: metric(overview.MarketCapitalization, 1 / 1_000_000),
     revenueGrowth: metric(overview.QuarterlyRevenueGrowthYOY, 100),
     operatingMargin: metric(overview.OperatingMarginTTM, 100),
@@ -265,6 +268,8 @@ export async function GET(request: NextRequest) {
         marketCap,
         shares,
         estimatedPrice: priceHistory.at(-1)?.close || (shares ? marketCap / shares : 0),
+        priceDate: priceHistory.at(-1)?.date || null,
+        priceBasis: priceHistory.length ? "Latest available month-end close" : "Market capitalization divided by reported shares",
         beta: n(overview.Beta),
         priceHistory,
       },
