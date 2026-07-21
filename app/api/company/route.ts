@@ -165,7 +165,9 @@ async function nasdaqFundamentals(symbol: string) {
     const cogs = Math.abs(tableValue(income, ["Cost of Revenue"], key) || 0);
     const grossProfit = tableValue(income, ["Gross Profit"], key) ?? revenue - cogs;
     const cash = (tableValue(balance, ["Cash and Cash Equivalents"], key) || 0) + (tableValue(balance, ["Short-Term Investments"], key) || 0);
-    const debt = Math.abs(tableValue(balance, ["Short-Term Debt / Current Portion of Long-Term Debt"], key) || 0) + Math.abs(tableValue(balance, ["Long-Term Debt"], key) || 0);
+    const shortDebt = Math.abs(tableValue(balance, ["Short-Term Debt / Current Portion of Long-Term Debt"], key) || 0);
+    const longDebt = Math.abs(tableValue(balance, ["Long-Term Debt"], key) || 0);
+    const debt = shortDebt + longDebt;
     const fiscalDate = isoDate(date);
     return {
       year: fiscalDate.slice(0, 4),
@@ -184,6 +186,8 @@ async function nasdaqFundamentals(symbol: string) {
       interestExpense: Math.abs(tableValue(income, ["Interest Expense"], key) || 0),
       cash,
       debt,
+      shortDebt,
+      longDebt,
       currentAssets: tableValue(balance, ["Total Current Assets"], key) || 0,
       currentLiabilities: tableValue(balance, ["Total Current Liabilities"], key) || 0,
       totalAssets: tableValue(balance, ["Total Assets"], key) || 0,
@@ -233,6 +237,7 @@ type RevenueForecast = {
   year2Growth: number;
   source: string;
   sourceUrl: string;
+  asOf: string;
 };
 
 async function analystRevenueForecast(symbol: string, latestRevenue: number): Promise<RevenueForecast | null> {
@@ -264,6 +269,7 @@ async function analystRevenueForecast(symbol: string, latestRevenue: number): Pr
       year2Growth: year2.growth,
       source: "S&P Global consensus via Stock Analysis",
       sourceUrl,
+      asOf: new Date().toISOString().slice(0, 10),
     };
   } catch {
     return null;
@@ -554,6 +560,8 @@ async function secDataset(symbol: string) {
       freeCashFlow: operatingCashFlow !== undefined && capex !== undefined ? operatingCashFlow - Math.abs(capex) : undefined,
       cash,
       debt,
+      currentDebt,
+      noncurrentDebt,
       currentAssets: fact(["AssetsCurrent"]),
       currentLiabilities: fact(["LiabilitiesCurrent"]),
       totalAssets: fact(["Assets"]),
@@ -646,8 +654,15 @@ export async function GET(request: NextRequest) {
     };
     const secCash = secMetric("cash");
     const secDebt = secMetric("debt");
+    const secCurrentDebt = secMetric("currentDebt");
+    const secNoncurrentDebt = secMetric("noncurrentDebt");
     if (secCash !== null) latest.cash = secCash;
     if (secDebt !== null) latest.debt = secDebt;
+    if (secCurrentDebt !== null || secNoncurrentDebt !== null) {
+      latest.shortDebt = secCurrentDebt || 0;
+      latest.longDebt = secNoncurrentDebt ?? Math.max(0, (secDebt || 0) - latest.shortDebt);
+      latest.debt = latest.shortDebt + latest.longDebt;
+    }
     const revenueGrowth = growthRate(historical.map((row) => row.revenue));
     const marketCap = primary.marketCap;
     const estimatedPrice = priceHistory.at(-1)?.close || primary.previousClose;
@@ -696,8 +711,8 @@ export async function GET(request: NextRequest) {
     if (!priceHistory.length) qualityNotes.push("Monthly stock-price history was unavailable, so the price chart could not be populated for this request.");
     if (peers.length < selectedPeerSymbols.length) qualityNotes.push(`Comparable-company data is partial: Nasdaq returned ${peers.length} of ${selectedPeerSymbols.length} selected peers. Peer failures do not block the main DCF.`);
     if (industryGrowthRate !== null) qualityNotes.push(`Niche growth is represented by median latest annual revenue growth for the returned ${peerSet.label.toLowerCase()} peer group; it is a near-term benchmark, not a perpetual-growth forecast.`);
-    if (revenueForecast) qualityNotes.push(`Years 1 and 2 revenue use current S&P Global analyst consensus surfaced by Stock Analysis; later growth fades toward a normalized Year 5 rate. Consensus is a forecast, not a fact, and remains stress-testable.`);
-    else qualityNotes.push("A validated two-year analyst revenue forecast was unavailable, so the five-year revenue path uses the historical-growth fallback and fades toward maturity.");
+    if (revenueForecast) qualityNotes.push(`Years 1 and 2 revenue use current S&P Global analyst consensus surfaced by Stock Analysis; Years 3 through 6 are explicitly modeled to fade toward mature growth. Consensus is a forecast, not a fact, and remains stress-testable.`);
+    else qualityNotes.push("A validated two-year analyst revenue forecast was unavailable, so all six revenue forecast rows use a clearly labeled historical-growth fallback that fades toward maturity.");
     if (secCash === null) qualityNotes.push("SEC cash was unavailable; the DCF cash assumption uses Nasdaq's displayed cash and short-term investments and stays editable.");
     qualityNotes.push("Nasdaq does not return beta in this dataset, so the WACC reference build uses a neutral beta of 1.0; the editable WACC should reflect your risk assessment.");
     const latestTaxRate = latest.earningsBeforeTax > 0 ? Math.min(40, Math.max(0, latest.incomeTax / latest.earningsBeforeTax * 100)) : 21;
@@ -736,6 +751,8 @@ export async function GET(request: NextRequest) {
         daPercentRevenue: latest.revenue ? (latest.depreciation / latest.revenue) * 100 : 0,
         cash: latest.cash,
         debt: latest.debt,
+        shortDebt: latest.shortDebt || 0,
+        longDebt: latest.longDebt ?? latest.debt,
         taxRate: latestTaxRate,
       },
       forecast: revenueForecast,
