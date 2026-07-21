@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { conciseBusinessDescription } from "@/lib/company-description";
 
 export const runtime = "nodejs";
 
@@ -717,6 +718,17 @@ export async function GET(request: NextRequest) {
     qualityNotes.push("Nasdaq does not return beta in this dataset, so the WACC reference build uses a neutral beta of 1.0; the editable WACC should reflect your risk assessment.");
     const latestTaxRate = latest.earningsBeforeTax > 0 ? Math.min(40, Math.max(0, latest.incomeTax / latest.earningsBeforeTax * 100)) : 21;
     const descriptionFromSec = Boolean(sec?.company.description);
+    const companyName = sec?.company.name || primary.name;
+    const companyDescription = conciseBusinessDescription({
+      symbol,
+      name: companyName,
+      description: sec?.company.description || primary.description,
+      sector: primary.sector,
+      industry: primary.industry,
+    });
+    const secCompanyDescription = sec?.company.description
+      ? conciseBusinessDescription({ symbol, name: companyName, description: sec.company.description, sector: primary.sector, industry: primary.industry })
+      : "A factual business description could not be extracted from the latest SEC annual filing.";
 
     const normalizedResponse = NextResponse.json({
       source: usedSec ? "Nasdaq financials and market data + SEC filings" : "Nasdaq financials and market data; SEC unavailable",
@@ -724,8 +736,8 @@ export async function GET(request: NextRequest) {
       qualityNotes,
       company: {
         symbol,
-        name: sec?.company.name || primary.name,
-        description: sec?.company.description || primary.description || "A concise business description was unavailable.",
+        name: companyName,
+        description: companyDescription,
         descriptionSource: descriptionFromSec ? "SEC filing" : "Nasdaq company profile",
         ipoDate,
         exchange: primary.exchange,
@@ -757,7 +769,7 @@ export async function GET(request: NextRequest) {
       },
       forecast: revenueForecast,
       comparison: {
-        company: { ...comparableFromNasdaq(primary), peerFit: "focus", businessModel: peerSet.rationales?.[symbol]?.businessModel || peerSet.label, peerRationale: `Focus company classified as ${peerSet.label.toLowerCase()}.` },
+        company: { ...comparableFromNasdaq(primary), description: companyDescription, peerFit: "focus", businessModel: peerSet.rationales?.[symbol]?.businessModel || peerSet.label, peerRationale: `Focus company classified as ${peerSet.label.toLowerCase()}.` },
         peers,
         selectedPeerSymbols,
         industryGrowthRate,
@@ -769,7 +781,7 @@ export async function GET(request: NextRequest) {
       businessAnalysis: {
         source: "SEC Company Facts and latest annual filing",
         asOf: sec?.reportDate || null,
-        companyDescription: sec?.company.description || "A concise business description could not be extracted from the latest SEC annual filing.",
+        companyDescription: secCompanyDescription,
         financials: {
           revenue: secRevenue,
           cogs: secCogs,

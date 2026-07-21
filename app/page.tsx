@@ -185,10 +185,10 @@ function marketPriceContext(data: CompanyData) {
 
 function briefDescription(description: string) {
   const clean = description.trim();
-  if (!clean) return "A concise company description was not available from Nasdaq or the latest SEC filing.";
+  if (!clean) return "A factual company description was not available from Nasdaq or the latest SEC filing.";
   const sentences = clean.match(/[^.!?]+[.!?]+/g) || [clean];
   const brief = sentences.slice(0, 2).join(" ").trim();
-  return brief.length > 360 ? `${brief.slice(0, 357).trimEnd()}…` : brief;
+  return brief.length > 420 ? `${brief.slice(0, 417).trimEnd()}…` : brief;
 }
 
 function businessFocus(company: Pick<Comparable, "description" | "industry" | "sector" | "businessModel">) {
