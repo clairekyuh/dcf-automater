@@ -20,11 +20,16 @@ button{cursor:pointer}
 .ticker-search label{display:flex;align-items:center;flex:1;min-width:0}
 .ticker-search label span{font:500 9px DM Mono;color:var(--navy);padding-left:15px;white-space:nowrap}
 .ticker-search input{border:0;outline:0;min-width:0;width:100%;height:54px;padding:0 16px;font:600 21px DM Mono;text-transform:uppercase;color:var(--ink);background:transparent}
+.ticker-search input::placeholder{text-transform:none;color:#89938d;font-size:15px;opacity:1}
 .ticker-search button{border:0;border-left:1px solid var(--navy-dark);background:var(--teal);color:var(--ink);padding:0 22px;font:600 11px DM Mono;letter-spacing:.05em;white-space:nowrap}
 .ticker-search button:hover{background:var(--teal-hover)}
 .ticker-search button:disabled{opacity:.55}
 .calculator-header>small{display:block;margin-top:12px;color:#78838d;font:9px DM Mono}
 .api-error{max-width:710px;margin-top:12px;padding:11px 13px;border:1px solid #d99283;background:#fff0ed;font-size:11px;color:#8c3528}
+.example-loader{margin:34px 5vw;min-height:260px;display:flex;flex-direction:column;justify-content:center;padding:38px;background:var(--paper);border:1px solid var(--ink);box-shadow:6px 6px 0 #b9c5b7}
+.example-loader span{font:500 9px DM Mono;letter-spacing:.09em;color:var(--navy)}
+.example-loader h2{margin:10px 0 8px;font-size:clamp(28px,4vw,45px);letter-spacing:-.045em;color:var(--navy-dark)}
+.example-loader p{max-width:650px;margin:0;color:var(--muted);font-size:12px;line-height:1.6}
 .company-summary{margin:34px 5vw;display:grid;grid-template-columns:1.25fr .75fr;background:var(--paper);border:1px solid var(--ink);box-shadow:6px 6px 0 #b9c5b7}
 .company-summary>div{padding:27px;border-right:1px solid var(--grid)}
 .company-summary>div>span{font:500 9px DM Mono;color:var(--green);letter-spacing:.08em}

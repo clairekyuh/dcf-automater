@@ -14,6 +14,7 @@ Open [http://localhost:3000](http://localhost:3000).
 ## Current features
 
 - Automatic company overview, sector, industry, and annual financials
+- A real-company starting example that cycles across Apple, Google, Microsoft, JPMorgan, Walmart, and Exxon Mobil; the ticker input starts empty with rotating suggestions
 - Bloomberg XDCF-shaped build with six calendar-year forecast columns, a five-year valuation window, partial first and sixth years, and mid-year discounting
 - Perpetual-growth and exit-multiple valuation bridges shown side by side
 - The supplied Bloomberg XDCF is used strictly as a process template: six forecast columns, exact five-year weighting, mid-year discounting, Year-5 interpolation, both terminal formulas, and the enterprise-to-equity bridge

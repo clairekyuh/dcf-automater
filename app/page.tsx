@@ -142,6 +142,15 @@ const demo: CompanyData = {
   ],
 };
 
+const LARGE_COMPANY_EXAMPLES = [
+  { symbol: "AAPL", name: "Apple" },
+  { symbol: "GOOGL", name: "Google" },
+  { symbol: "MSFT", name: "Microsoft" },
+  { symbol: "JPM", name: "JPMorgan" },
+  { symbol: "WMT", name: "Walmart" },
+  { symbol: "XOM", name: "Exxon Mobil" },
+];
+
 const industryRules = [
   { match: /AI-native GPU cloud|data-center ownership|data center/i, multiple: 12, wacc: 11, terminal: 2.5, margin: 22, da: 18, capex: 22, note: "AI infrastructure can grow quickly, but GPU obsolescence, power availability, utilization, customer concentration, and heavy financing needs justify a high discount rate and substantial continuing reinvestment." },
   { match: /software|internet|semiconductor|technology/i, multiple: 18, wacc: 9.5, terminal: 3, margin: 22, note: "Technology can support strong margins, but infrastructure-heavy companies require more reinvestment than asset-light software." },
@@ -684,10 +693,13 @@ function CompetitorComparison({ data }: { data: CompanyData }) {
 }
 
 export default function Home() {
-  const [ticker, setTicker] = useState("IBM");
+  const [ticker, setTicker] = useState("");
   const [data, setData] = useState<CompanyData>(demo);
   const [model, setModel] = useState<Model>(() => buildModel(demo));
   const [loading, setLoading] = useState(false);
+  const [companyReady, setCompanyReady] = useState(false);
+  const [exampleIndex, setExampleIndex] = useState(0);
+  const [startingExample, setStartingExample] = useState(LARGE_COMPANY_EXAMPLES[0]);
   const [error, setError] = useState("");
   const rec = useMemo(() => recommendations(data), [data]);
   const perpetuity = useMemo(() => calculate(data, model, "perpetuity"), [data, model]);
@@ -696,30 +708,55 @@ export default function Home() {
   const risks = useMemo(() => riskAnalysis(data, model, perpetuity, multiple), [data, model, perpetuity, multiple]);
   const latest = data.historical[data.historical.length - 1];
   const priceContext = marketPriceContext(data);
+  const rotatingExample = LARGE_COMPANY_EXAMPLES[exampleIndex];
   const update = (key: Exclude<keyof Model, "valuationDate">, value: number) => setModel((current) => ({ ...current, [key]: value }));
   const updateValuationDate = (value: string) => setModel((current) => ({ ...current, valuationDate: value }));
 
   useEffect(() => {
+    const previousIndex = sessionStorage.getItem("dcf:example-index");
+    const initialIndex = previousIndex === null ? 0 : (Number(previousIndex) + 1) % LARGE_COMPANY_EXAMPLES.length;
+    sessionStorage.setItem("dcf:example-index", String(initialIndex));
+    setExampleIndex(initialIndex);
+    setStartingExample(LARGE_COMPANY_EXAMPLES[initialIndex]);
+    void loadCompany(LARGE_COMPANY_EXAMPLES[initialIndex].symbol);
+    const rotation = window.setInterval(() => {
+      setExampleIndex((current) => (current + 1) % LARGE_COMPANY_EXAMPLES.length);
+    }, 3200);
+    return () => window.clearInterval(rotation);
+  }, []);
+
+  useEffect(() => {
+    if (!companyReady) return;
     const serialized = JSON.stringify(data);
     sessionStorage.setItem("dcf:last-company", serialized);
     localStorage.setItem("dcf:last-company", serialized);
-  }, [data]);
+  }, [companyReady, data]);
 
-  async function search(event: FormEvent) {
-    event.preventDefault();
+  async function loadCompany(symbol: string) {
     setLoading(true);
     setError("");
     try {
-      const response = await fetch(`/api/company?symbol=${encodeURIComponent(ticker.trim().toUpperCase())}`, { cache: "no-store" });
+      const response = await fetch(`/api/company?symbol=${encodeURIComponent(symbol)}`, { cache: "no-store" });
       const json = await response.json();
       if (!response.ok) throw new Error(json.error || "Unable to load company.");
       setData(json);
       setModel(buildModel(json));
+      setCompanyReady(true);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to load company.");
     } finally {
       setLoading(false);
     }
+  }
+
+  async function search(event: FormEvent) {
+    event.preventDefault();
+    const symbol = ticker.trim().toUpperCase();
+    if (!symbol) {
+      setError("Type a ticker symbol to build a DCF.");
+      return;
+    }
+    await loadCompany(symbol);
   }
 
   const latestCostRevenue = latest?.cogs ?? null;
@@ -783,11 +820,12 @@ export default function Home() {
       <p>DISCOUNTED CASH FLOW</p>
       <h1>DCF Calculator</h1>
       <div className="instructions"><b>Instructions</b><span>Enter a public-company ticker below. The calculator follows the Bloomberg XDCF structure: six calendar-year operating forecasts, a five-year mid-year-convention valuation, and separate perpetuity and EBITDA-multiple outputs.</span></div>
-      <form className="ticker-search" onSubmit={search}><label><span>TICKER SYMBOL</span><input aria-label="Ticker symbol" value={ticker} onChange={(event) => setTicker(event.target.value.toUpperCase())} placeholder="AAPL" /></label><button disabled={loading}>{loading ? "BUILDING DCF…" : "BUILD DCF →"}</button></form>
+      <form className="ticker-search" onSubmit={search}><label><span>TICKER SYMBOL</span><input aria-label="Ticker symbol" value={ticker} onChange={(event) => setTicker(event.target.value.toUpperCase())} placeholder={`Type a ticker — try ${rotatingExample.symbol}`} /></label><button disabled={loading || !ticker.trim()}>{loading ? companyReady ? "BUILDING DCF…" : "LOADING EXAMPLE…" : "BUILD DCF →"}</button></form>
       {error && <div className="api-error"><b>Data connection:</b> {error}</div>}
-      <small>The supplied Bloomberg sheet defines the calculation process only. Current public data and visible, editable estimates populate each ticker; the website does not reuse Bloomberg’s dated company inputs.</small>
+      <small>Rotating ticker idea: {rotatingExample.name} ({rotatingExample.symbol}) · The supplied Bloomberg sheet defines the calculation process only. Current public data and visible, editable estimates populate each ticker.</small>
     </header>
 
+    {!companyReady ? <section className="example-loader" aria-live="polite"><span>LOADING A REAL-COMPANY EXAMPLE</span><h2>{startingExample.name} · {startingExample.symbol}</h2><p>The calculator opens with a current large-company example. Type any supported public-company ticker above when you are ready.</p></section> : <>
     <section className="company-summary">
       <div><span>{data.company.exchange} · {data.company.symbol}</span><h2>{data.company.name}</h2><b className="company-description-label">{data.source === "Sample data" ? "WHAT THE COMPANY DOES · SAMPLE" : `WHAT THE COMPANY DOES · ${data.company.descriptionSource || "COMPANY PROFILE"}`}</b><p>{briefDescription(data.company.description)}</p><Link className="deep-analysis-link" href={`/company-analysis?symbol=${encodeURIComponent(data.company.symbol)}`}>{data.source === "Sample data" ? "Open sample supply chain, customer concentration & default-risk analysis →" : "Open SEC supply chain, customer concentration & default-risk analysis →"}</Link></div>
       <dl><div><dt>{priceContext.label}</dt><dd>{usd.format(model.marketPrice)}<small>{priceContext.detail}</small></dd></div><div><dt>Business niche</dt><dd>{data.comparison?.nicheLabel || data.company.industry}<small>{data.comparison?.industryExplanation || `Reported industry: ${data.company.industry}`}</small></dd></div><div><dt>Financials through</dt><dd>{data.asOf}</dd></div><div><dt>Company data source</dt><dd>{data.source}</dd></div></dl>
@@ -851,5 +889,6 @@ export default function Home() {
     </section>
 
     <footer><span>Educational decision support only—not personalized investment advice.</span><span>MODEL V2 · DATA MAY BE DELAYED</span></footer>
+    </>}
   </main>;
 }
