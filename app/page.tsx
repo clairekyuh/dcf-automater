@@ -14,6 +14,8 @@ type HistoricalRow = {
   capexPercentRevenue: number;
   depreciation: number;
   freeCashFlow: number;
+  debt?: number;
+  interestExpense?: number;
 };
 type Comparable = {
   symbol: string;
@@ -38,6 +40,7 @@ type CompanyData = {
   company: { symbol: string; name: string; description: string; descriptionSource?: string; ipoDate?: string | null; exchange: string; currency: string; country: string; sector: string; industry: string };
   market: { marketCap: number; shares: number; estimatedPrice: number; priceDate?: string | null; priceBasis?: string; beta: number; priceHistory?: PricePoint[] };
   metrics: { revenueGrowth: number; revenue: number; ebitMargin: number; capexPercentRevenue: number; daPercentRevenue: number; cash: number; debt: number; taxRate: number };
+  forecast?: { year1Revenue: number; year2Revenue: number; year1Growth: number; year2Growth: number; source: string; sourceUrl: string } | null;
   comparison?: { company: Comparable; peers: Comparable[]; selectedPeerSymbols: string[]; industryGrowthRate: number | null; nicheLabel?: string; selectionBasis?: string; industryExplanation?: string; operatingCompetitors?: string[] };
   businessAnalysis?: {
     source: string;
@@ -121,7 +124,7 @@ const demo: CompanyData = {
 };
 
 const industryRules = [
-  { match: /AI-native GPU cloud|data-center ownership|data center/i, multiple: 12, wacc: 11, terminal: 2.5, margin: 18, note: "AI infrastructure can grow quickly, but GPU obsolescence, power availability, utilization, customer concentration, and heavy financing needs justify more conservative assumptions than asset-light software." },
+  { match: /AI-native GPU cloud|data-center ownership|data center/i, multiple: 12, wacc: 11, terminal: 2.5, margin: 22, da: 18, capex: 22, note: "AI infrastructure can grow quickly, but GPU obsolescence, power availability, utilization, customer concentration, and heavy financing needs justify a high discount rate and substantial continuing reinvestment." },
   { match: /software|internet|semiconductor|technology/i, multiple: 18, wacc: 9.5, terminal: 3, margin: 22, note: "Technology can support strong margins, but infrastructure-heavy companies require more reinvestment than asset-light software." },
   { match: /bank|insurance|financial/i, multiple: 11, wacc: 9, terminal: 2.5, margin: 18, note: "Financial companies normally require sector-specific equity valuation; this unlevered DCF is a directional cross-check." },
   { match: /biotech|pharma|health/i, multiple: 14, wacc: 10, terminal: 2.5, margin: 18, note: "Pipeline, patent, reimbursement, and regulatory outcomes can dominate historical trends." },
@@ -223,12 +226,15 @@ function recommendations(data: CompanyData) {
   const text = `${data.comparison?.nicheLabel || ""} ${data.company.sector} ${data.company.industry}`;
   const rule = industryRules.find((item) => item.match.test(text)) || { multiple: 10, wacc: 9.5, terminal: 2.5, margin: 15, note: "Use a conservative starting point and compare every assumption with direct industry peers." };
   const historicalGrowth = data.metrics.revenueGrowth;
-  const growth = historicalGrowth > 100 ? 40 : historicalGrowth > 50 ? 30 : historicalGrowth > 25 ? 20 : clamp(historicalGrowth * .65, 2, 18);
+  const growth = data.forecast?.year1Growth ?? (historicalGrowth > 100 ? 40 : historicalGrowth > 50 ? 30 : historicalGrowth > 25 ? 20 : clamp(historicalGrowth * .65, 2, 18));
   const margin = data.metrics.ebitMargin < 3 ? rule.margin : clamp(data.metrics.ebitMargin, 3, 40);
-  const da = clamp(data.metrics.daPercentRevenue || data.metrics.capexPercentRevenue * .75, 1, 50);
-  const capex = data.metrics.capexPercentRevenue > 50 ? clamp(da * 1.05, 20, 50) : clamp(data.metrics.capexPercentRevenue, 1, 30);
-  const riskPremium = (historicalGrowth > 50 ? 1.5 : 0) + (data.metrics.debt > data.metrics.revenue * 2 ? 1.5 : 0);
-  return { ...rule, growth: Math.round(growth * 10) / 10, margin: Math.round(margin * 10) / 10, da: Math.round(da * 10) / 10, capex: Math.round(capex * 10) / 10, wacc: Math.min(13, rule.wacc + riskPremium) };
+  const currentDa = clamp(data.metrics.daPercentRevenue || data.metrics.capexPercentRevenue * .75, 1, 50);
+  const da = "da" in rule && typeof rule.da === "number" ? rule.da : currentDa;
+  const currentCapex = data.metrics.capexPercentRevenue > 50 ? clamp(currentDa * 1.05, 20, 50) : clamp(data.metrics.capexPercentRevenue, 1, 30);
+  const capex = "capex" in rule && typeof rule.capex === "number" ? rule.capex : currentCapex;
+  const leverage = data.metrics.debt / Math.max(data.metrics.revenue, 1);
+  const riskPremium = leverage > 2 ? 1 : leverage > 1 ? .5 : 0;
+  return { ...rule, growth: Math.round(clamp(growth, -30, 200) * 10) / 10, margin: Math.round(margin * 10) / 10, da: Math.round(da * 10) / 10, capex: Math.round(capex * 10) / 10, wacc: Math.min(13, rule.wacc + riskPremium) };
 }
 
 function buildModel(data: CompanyData): Model {
@@ -264,24 +270,42 @@ function calculate(
   const terminalGrowth = overrides.terminalGrowth ?? model.terminalGrowth;
   const exitMultiple = overrides.exitMultiple ?? model.exitMultiple;
   const wacc = waccPercent / 100;
+  const forecast = data.forecast;
+  const startingGrowth = Math.max(terminalGrowth, model.growth + growthShift);
+  const secondYearGrowth = forecast
+    ? forecast.year2Growth + (startingGrowth - forecast.year1Growth) * .6
+    : null;
+  const normalizedYearFiveGrowth = secondYearGrowth === null
+    ? terminalGrowth
+    : Math.max(terminalGrowth + 2, Math.min(10, Math.max(0, secondYearGrowth) * .25));
+  const startingDaPercent = Math.min(Math.max(model.da, data.metrics.daPercentRevenue || model.da), Math.max(50, model.da));
+  const startingCapexPercent = Math.min(Math.max(model.capex, data.metrics.capexPercentRevenue || model.capex), Math.max(80, model.capex));
   const years = Array.from({ length: 5 }, (_, index) => {
     const year = index + 1;
-    const fade = 1 - index * .2;
-    const startingGrowth = Math.max(terminalGrowth, model.growth + growthShift);
-    const growth = (terminalGrowth + (startingGrowth - terminalGrowth) * fade) / 100;
+    const fallbackFade = 1 - index * .2;
+    const forecastGrowth = forecast && secondYearGrowth !== null
+      ? index === 0
+        ? startingGrowth
+        : index === 1
+          ? secondYearGrowth
+          : secondYearGrowth + (normalizedYearFiveGrowth - secondYearGrowth) * ((index - 1) / 3)
+      : terminalGrowth + (startingGrowth - terminalGrowth) * fallbackFade;
+    const growth = forecastGrowth / 100;
     revenue *= 1 + growth;
     const targetMargin = model.margin + marginShift;
     const forecastMargin = data.metrics.ebitMargin + (targetMargin - data.metrics.ebitMargin) * (year / 5);
     const ebit = revenue * forecastMargin / 100;
     const tax = Math.max(0, ebit * model.tax / 100);
     const nopat = ebit - tax;
-    const depreciation = revenue * model.da / 100;
-    const capex = revenue * model.capex / 100;
+    const daPercent = startingDaPercent + (model.da - startingDaPercent) * (year / 5);
+    const capexPercent = startingCapexPercent + (model.capex - startingCapexPercent) * (year / 5);
+    const depreciation = revenue * daPercent / 100;
+    const capex = revenue * capexPercent / 100;
     const changeNwc = Math.max(0, revenue - previousRevenue) * model.nwc / 100;
     const fcf = nopat + depreciation - capex - changeNwc;
     const discountFactor = 1 / Math.pow(1 + wacc, year);
     previousRevenue = revenue;
-    return { year, growth: growth * 100, margin: forecastMargin, revenue, ebit, tax, nopat, depreciation, capex, changeNwc, fcf, discountFactor, pv: fcf * discountFactor };
+    return { year, growth: growth * 100, margin: forecastMargin, daPercent, capexPercent, revenue, ebit, tax, nopat, depreciation, capex, changeNwc, fcf, discountFactor, pv: fcf * discountFactor };
   });
   const last = years[4];
   const terminalValue = method === "perpetuity"
@@ -367,7 +391,9 @@ function DefinedTerm({ term, children }: { term: DefinedTermKey; children: strin
 const DCF_ROW_TERMS: Record<string, DefinedTermKey> = {
   EBIT: "ebit",
   NOPAT: "nopat",
+  "D&A / revenue": "da",
   "Depreciation & amortization": "da",
+  "Capex / revenue": "capex",
   "Capital expenditures": "capex",
   "Change in net working capital": "nwc",
   "Unlevered Free Cash Flow (UFCF)": "ufcf",
@@ -411,6 +437,8 @@ function ValuationBridge({ title, result, model, method, data }: { title: string
       <div className="reference-row"><span>Observed niche-peer growth</span><b>{industryGrowth === null ? "—" : `${fmt.format(industryGrowth)}%`}</b></div>
       <div><span>Selected perpetual growth</span><b>{fmt.format(model.terminalGrowth)}%</b></div>
       <div><span>Year 5 <DefinedTerm term="ufcf">UFCF</DefinedTerm></span><b>{usd0.format(yearFive.fcf)}M</b></div>
+      <div><span>Year 5 <DefinedTerm term="da">D&amp;A / revenue</DefinedTerm></span><b>{fmt.format(yearFive.daPercent)}%</b></div>
+      <div><span>Year 5 <DefinedTerm term="capex">Capex / revenue</DefinedTerm></span><b>{fmt.format(yearFive.capexPercent)}%</b></div>
       <p className="bridge-note">Peer growth is median recent year-over-year revenue growth for the selected business niche. It is context—not a perpetual forecast—and the perpetual rate must remain below <DefinedTerm term="wacc">WACC</DefinedTerm>.</p>
     </> : <>
       <div className="method-explainer"><span>WHAT THIS METHOD DOES</span><p>Assumes the company could be valued in Year 5 at a market multiple of <DefinedTerm term="ebitda">EBITDA</DefinedTerm>. It multiplies Year 5 EBITDA by the selected multiple, then discounts that value back five years.</p><code>{fmt.format(yearFiveEbitda)} × {fmt.format(model.exitMultiple)} = {fmt.format(result.terminalValue)}</code><small>Year 5 <DefinedTerm term="ebitda">EBITDA</DefinedTerm> × selected <DefinedTerm term="exitMultiple">exit multiple</DefinedTerm></small></div>
@@ -598,7 +626,9 @@ export default function Home() {
     { label: "% Margin", actual: data.metrics.ebitMargin, values: result.years.map((year) => year.margin), type: "percent" },
     { label: "Less: Cash taxes", actual: null, values: result.years.map((year) => year.tax), type: "negative" },
     { label: "NOPAT", actual: null, values: result.years.map((year) => year.nopat), type: "total" },
+    { label: "D&A / revenue", actual: data.metrics.daPercentRevenue, values: result.years.map((year) => year.daPercent), type: "percent" },
     { label: "Plus: D&A", actual: latest?.depreciation ?? data.metrics.revenue * data.metrics.daPercentRevenue / 100, values: result.years.map((year) => year.depreciation) },
+    { label: "Capex / revenue", actual: data.metrics.capexPercentRevenue, values: result.years.map((year) => year.capexPercent), type: "percent" },
     { label: "Less: Capex", actual: latest?.capex ?? data.metrics.revenue * data.metrics.capexPercentRevenue / 100, values: result.years.map((year) => year.capex), type: "negative" },
     { label: "Less: Increase in NWC", actual: null, values: result.years.map((year) => year.changeNwc), type: "negative" },
     { label: "Unlevered Free Cash Flow (UFCF)", actual: latest?.freeCashFlow ?? null, values: result.years.map((year) => year.fcf), type: "total" },
@@ -626,7 +656,10 @@ export default function Home() {
   const riskFree = 4.5;
   const equityRiskPremium = 5;
   const costEquity = riskFree + beta * equityRiskPremium;
-  const preTaxDebt = 6;
+  const priorDebt = data.historical.length > 1 ? data.historical[data.historical.length - 2].debt : null;
+  const averageDebt = priorDebt && latest?.debt ? (priorDebt + latest.debt) / 2 : latest?.debt || model.debt;
+  const observedCostOfDebt = latest?.interestExpense && averageDebt ? latest.interestExpense / averageDebt * 100 : null;
+  const preTaxDebt = observedCostOfDebt && Number.isFinite(observedCostOfDebt) ? clamp(observedCostOfDebt, 3, 20) : 6;
   const referenceWacc = costEquity * equityWeight + preTaxDebt * (1 - model.tax / 100) * debtWeight;
 
   return <main>
@@ -659,18 +692,18 @@ export default function Home() {
       <div className="model-table-wrap"><table className="model-table"><thead><tr><th>DCF line item</th><th className="actual">{latest?.year || "Latest"}A</th>{result.years.map((year) => <th key={year.year}>YEAR {year.year}E</th>)}<th>Terminal</th></tr></thead><tbody>
         {tableRows.map((row) => <tr className={`${row.type === "total" ? "total" : ""} ${row.type === "percent" ? "percent-row" : ""}`} key={row.label}><td><DcfRowLabel label={row.label}/></td><td className="actual">{formatCell(row.actual, row.type)}</td>{row.values.map((value, index) => <td key={index}>{formatCell(value, row.type)}</td>)}<td>{row.label === "Unlevered Free Cash Flow (UFCF)" ? fmt.format(result.years[4].fcf) : row.label === "Perpetual-growth terminal value" ? fmt.format(perpetuity.terminalValue) : row.label === "PV of perpetual terminal value" ? fmt.format(perpetuity.pvTerminal) : row.label === "Exit-multiple terminal value" ? fmt.format(multiple.terminalValue) : row.label === "PV of exit-multiple terminal value" ? fmt.format(multiple.pvTerminal) : "—"}</td></tr>)}
       </tbody></table></div>
-      <p className="table-footnote">Hover over or focus any dotted-underlined term for a plain-English definition.</p>
+      <p className="table-footnote">Hover over or focus any dotted-underlined term for a plain-English definition. For capital-intensive companies, current D&amp;A and capex ratios fade toward the editable Year-5 targets shown below.</p>
     </section>
 
     <section className="sheet-section" id="assumptions">
       <div className="section-heading"><div><span className="section-index">03</span><p>INPUTS</p><h2>Editable assumptions</h2></div><div className="unit-note">GREEN CELLS ARE EDITABLE</div></div>
-      <div className="recommendation"><b>{data.comparison?.nicheLabel || data.company.industry} starting point</b><p>{rec.note}</p><span>{data.comparison?.industryGrowthRate === null || data.comparison?.industryGrowthRate === undefined ? "Niche-peer growth was unavailable. " : `Observed niche-peer revenue growth: ${fmt.format(data.comparison.industryGrowthRate)}%. `}This near-term benchmark is separate from the editable long-run terminal growth rate.</span></div>
+      <div className="recommendation"><b>{data.comparison?.nicheLabel || data.company.industry} starting point</b><p>{rec.note}</p>{data.forecast ? <span>Revenue forecast anchors: Year 1 {usd0.format(data.forecast.year1Revenue)}M ({fmt.format(data.forecast.year1Growth)}% growth) · Year 2 {usd0.format(data.forecast.year2Revenue)}M ({fmt.format(data.forecast.year2Growth)}% growth) · <a href={data.forecast.sourceUrl} target="_blank" rel="noreferrer">{data.forecast.source}</a>. Years 3–5 fade toward a normalized rate.</span> : <span>{data.comparison?.industryGrowthRate === null || data.comparison?.industryGrowthRate === undefined ? "Niche-peer growth was unavailable. " : `Observed niche-peer revenue growth: ${fmt.format(data.comparison.industryGrowthRate)}%. `}A validated two-year analyst forecast was unavailable, so the model uses the historical-growth fallback.</span>}</div>
       <div className="assumption-grid">
-        <NumberField label="Starting revenue growth" term="revenueGrowth" value={model.growth} suffix="%" help="Year 1 sales growth. The model fades it toward terminal growth over five years." onChange={(value) => update("growth", value)}/>
+        <NumberField label="Starting revenue growth" term="revenueGrowth" value={model.growth} suffix="%" help={data.forecast ? `Year 1 sales growth. The default is the current analyst-consensus estimate; editing it also adjusts the Year 2 anchor before growth fades toward maturity.` : "Year 1 sales growth. The model fades it toward terminal growth over five years."} onChange={(value) => update("growth", value)}/>
         <NumberField label="Target EBIT margin" term="ebitMargin" value={model.margin} suffix="%" help="Year 5 operating margin before interest and tax." onChange={(value) => update("margin", value)}/>
         <NumberField label="Tax rate" term="taxRate" value={model.tax} suffix="%" help="Normalized cash tax rate applied to positive EBIT." onChange={(value) => update("tax", value)}/>
-        <NumberField label="D&A / revenue" term="da" value={model.da} suffix="%" help="Non-cash depreciation and amortization added back to NOPAT." onChange={(value) => update("da", value)}/>
-        <NumberField label="Capex / revenue" term="capex" value={model.capex} suffix="%" help="Cash investment in long-lived operating assets." onChange={(value) => update("capex", value)}/>
+        <NumberField label="Target D&A / revenue" term="da" value={model.da} suffix="%" help="Normalized Year 5 depreciation and amortization as a share of revenue. The forecast fades from the latest reported ratio toward this target." onChange={(value) => update("da", value)}/>
+        <NumberField label="Target capex / revenue" term="capex" value={model.capex} suffix="%" help="Normalized Year 5 cash investment in long-lived assets as a share of revenue. The forecast fades from the latest ratio, capped at 80% in Year 0, toward this target." onChange={(value) => update("capex", value)}/>
         <NumberField label="NWC / new revenue" term="nwc" value={model.nwc} suffix="%" help="Working capital absorbed by each dollar of incremental revenue." onChange={(value) => update("nwc", value)}/>
         <NumberField label="WACC" term="wacc" value={model.wacc} suffix="%" help="Required return for debt and equity capital. It discounts forecast cash flows." onChange={(value) => update("wacc", value)}/>
         <NumberField label="Terminal growth" term="terminalGrowth" value={model.terminalGrowth} suffix="%" help="Long-run growth after Year 5. It must remain below WACC." onChange={(value) => update("terminalGrowth", value)}/>
@@ -680,7 +713,7 @@ export default function Home() {
         <NumberField label="Funded debt" term="fundedDebt" value={model.debt} suffix="$M" help="Debt subtracted from enterprise value. Review leases and other claims separately." onChange={(value) => update("debt", value)}/>
         <NumberField label="Diluted shares" term="dilutedShares" value={model.shares} suffix="M" help="Share count used to calculate value per share; check multi-class shares and dilution." onChange={(value) => update("shares", value)}/>
       </div>
-      <div className="assumption-bottom"><div className="wacc-table"><div className="sheet-bar"><DefinedTerm term="wacc">WACC</DefinedTerm> reference build</div><div><span><DefinedTerm term="riskFreeRate">Risk-free rate</DefinedTerm></span><b>{fmt.format(riskFree)}%</b></div><div><span><DefinedTerm term="beta">Beta</DefinedTerm></span><b>{fmt.format(beta)}×</b></div><div><span><DefinedTerm term="equityRiskPremium">Equity risk premium</DefinedTerm></span><b>{fmt.format(equityRiskPremium)}%</b></div><div><span><DefinedTerm term="costOfEquity">Implied cost of equity</DefinedTerm></span><b>{fmt.format(costEquity)}%</b></div><div><span><DefinedTerm term="equityWeight">Equity / capital</DefinedTerm></span><b>{fmt.format(equityWeight * 100)}%</b></div><div><span><DefinedTerm term="preTaxCostOfDebt">Pre-tax cost of debt</DefinedTerm></span><b>{fmt.format(preTaxDebt)}%</b></div><div><span><DefinedTerm term="debtWeight">Debt / capital</DefinedTerm></span><b>{fmt.format(debtWeight * 100)}%</b></div><div className="total"><span>Formula reference <DefinedTerm term="wacc">WACC</DefinedTerm></span><b>{fmt.format(referenceWacc)}%</b></div><small>The editable model WACC can include additional size, country, concentration, and execution risk.</small></div>
+      <div className="assumption-bottom"><div className="wacc-table"><div className="sheet-bar"><DefinedTerm term="wacc">WACC</DefinedTerm> reference build</div><div><span><DefinedTerm term="riskFreeRate">Risk-free rate</DefinedTerm></span><b>{fmt.format(riskFree)}%</b></div><div><span><DefinedTerm term="beta">Beta</DefinedTerm></span><b>{fmt.format(beta)}×</b></div><div><span><DefinedTerm term="equityRiskPremium">Equity risk premium</DefinedTerm></span><b>{fmt.format(equityRiskPremium)}%</b></div><div><span><DefinedTerm term="costOfEquity">Implied cost of equity</DefinedTerm></span><b>{fmt.format(costEquity)}%</b></div><div><span><DefinedTerm term="equityWeight">Equity / capital</DefinedTerm></span><b>{fmt.format(equityWeight * 100)}%</b></div><div><span><DefinedTerm term="preTaxCostOfDebt">Pre-tax cost of debt</DefinedTerm></span><b>{fmt.format(preTaxDebt)}%</b></div><div><span><DefinedTerm term="debtWeight">Debt / capital</DefinedTerm></span><b>{fmt.format(debtWeight * 100)}%</b></div><div className="total"><span>Formula reference <DefinedTerm term="wacc">WACC</DefinedTerm></span><b>{fmt.format(referenceWacc)}%</b></div><small>{observedCostOfDebt ? "Pre-tax debt cost uses trailing interest expense divided by average debt. " : "A 6% fallback debt cost is used because a reliable observed rate was unavailable. "}The editable model WACC can include additional size, country, concentration, and execution risk.</small></div>
         <div className="data-check"><div className="sheet-bar">Data checks</div><ul>{(data.qualityNotes?.length ? data.qualityNotes : ["Sample data is active. Enter a ticker to load Nasdaq financials."]).map((note) => <li key={note}>{note}</li>)}</ul></div>
       </div>
     </section>

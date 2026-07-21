@@ -137,9 +137,7 @@ function selectPeerSet(company: { symbol: string; sector: string; industry: stri
 function growthRate(values: number[]) {
   const valid = values.filter((value) => value > 0);
   if (valid.length < 2) return 0;
-  const newest = valid[0];
-  const oldest = valid[valid.length - 1];
-  return (Math.pow(newest / oldest, 1 / (valid.length - 1)) - 1) * 100;
+  return (valid[0] / valid[1] - 1) * 100;
 }
 
 async function nasdaqFundamentals(symbol: string) {
@@ -226,6 +224,50 @@ async function nasdaqPriceHistory(symbol: string) {
     if (close > 0 && !monthly.has(month)) monthly.set(month, { date: pointDate, close });
   }
   return Array.from(monthly.values()).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+type RevenueForecast = {
+  year1Revenue: number;
+  year2Revenue: number;
+  year1Growth: number;
+  year2Growth: number;
+  source: string;
+  sourceUrl: string;
+};
+
+async function analystRevenueForecast(symbol: string, latestRevenue: number): Promise<RevenueForecast | null> {
+  try {
+    const sourceUrl = `https://stockanalysis.com/stocks/${encodeURIComponent(symbol.toLowerCase())}/forecast/`;
+    const response = await fetch(sourceUrl, {
+      headers: { "User-Agent": NASDAQ_HEADERS["User-Agent"], Accept: "text/html,application/xhtml+xml" },
+      next: { revalidate: 21600 },
+    });
+    if (!response.ok) return null;
+    const html = await response.text();
+    const thisMatches = Array.from(html.matchAll(/revenueThis:\{last:([\d.]+),this:([\d.]+),growth:([-\d.]+)\}/g));
+    const nextMatches = Array.from(html.matchAll(/revenueNext:\{last:([\d.]+),this:([\d.]+),growth:([-\d.]+)\}/g));
+    const latestDollars = latestRevenue * 1_000_000;
+    const year1 = thisMatches
+      .map((match) => ({ last: Number(match[1]), value: Number(match[2]), growth: Number(match[3]) }))
+      .filter((item) => item.last > 0 && item.value > 0 && Number.isFinite(item.growth))
+      .sort((a, b) => Math.abs(a.last - latestDollars) - Math.abs(b.last - latestDollars))[0];
+    if (!year1 || Math.abs(year1.last / latestDollars - 1) > .15) return null;
+    const year2 = nextMatches
+      .map((match) => ({ last: Number(match[1]), value: Number(match[2]), growth: Number(match[3]) }))
+      .filter((item) => item.last > 0 && item.value > 0 && Number.isFinite(item.growth))
+      .sort((a, b) => Math.abs(a.last - year1.value) - Math.abs(b.last - year1.value))[0];
+    if (!year2 || Math.abs(year2.last / year1.value - 1) > .15) return null;
+    return {
+      year1Revenue: year1.value / 1_000_000,
+      year2Revenue: year2.value / 1_000_000,
+      year1Growth: year1.growth,
+      year2Growth: year2.growth,
+      source: "S&P Global consensus via Stock Analysis",
+      sourceUrl,
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function publicMarketDebutDate(symbol: string) {
@@ -569,11 +611,14 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const [primary, priceHistory, sec, ipoDate] = await Promise.all([
-      nasdaqFundamentals(symbol),
+    const primaryPromise = nasdaqFundamentals(symbol);
+    const revenueForecastPromise = primaryPromise.then((company) => analystRevenueForecast(symbol, company.historical[0].revenue));
+    const [primary, priceHistory, sec, ipoDate, revenueForecast] = await Promise.all([
+      primaryPromise,
       nasdaqPriceHistory(symbol).catch(() => []),
       secDataset(symbol),
       publicMarketDebutDate(symbol),
+      revenueForecastPromise,
     ]);
     const historical = primary.historical;
     const latest = historical[0];
@@ -651,6 +696,8 @@ export async function GET(request: NextRequest) {
     if (!priceHistory.length) qualityNotes.push("Monthly stock-price history was unavailable, so the price chart could not be populated for this request.");
     if (peers.length < selectedPeerSymbols.length) qualityNotes.push(`Comparable-company data is partial: Nasdaq returned ${peers.length} of ${selectedPeerSymbols.length} selected peers. Peer failures do not block the main DCF.`);
     if (industryGrowthRate !== null) qualityNotes.push(`Niche growth is represented by median latest annual revenue growth for the returned ${peerSet.label.toLowerCase()} peer group; it is a near-term benchmark, not a perpetual-growth forecast.`);
+    if (revenueForecast) qualityNotes.push(`Years 1 and 2 revenue use current S&P Global analyst consensus surfaced by Stock Analysis; later growth fades toward a normalized Year 5 rate. Consensus is a forecast, not a fact, and remains stress-testable.`);
+    else qualityNotes.push("A validated two-year analyst revenue forecast was unavailable, so the five-year revenue path uses the historical-growth fallback and fades toward maturity.");
     if (secCash === null) qualityNotes.push("SEC cash was unavailable; the DCF cash assumption uses Nasdaq's displayed cash and short-term investments and stays editable.");
     qualityNotes.push("Nasdaq does not return beta in this dataset, so the WACC reference build uses a neutral beta of 1.0; the editable WACC should reflect your risk assessment.");
     const latestTaxRate = latest.earningsBeforeTax > 0 ? Math.min(40, Math.max(0, latest.incomeTax / latest.earningsBeforeTax * 100)) : 21;
@@ -691,6 +738,7 @@ export async function GET(request: NextRequest) {
         debt: latest.debt,
         taxRate: latestTaxRate,
       },
+      forecast: revenueForecast,
       comparison: {
         company: { ...comparableFromNasdaq(primary), peerFit: "focus", businessModel: peerSet.rationales?.[symbol]?.businessModel || peerSet.label, peerRationale: `Focus company classified as ${peerSet.label.toLowerCase()}.` },
         peers,

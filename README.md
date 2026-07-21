@@ -18,6 +18,9 @@ Open [http://localhost:3000](http://localhost:3000).
 - Perpetual-growth and exit-multiple valuation bridges shown side by side
 - Hover and keyboard-focus definitions for technical DCF terms, every editable assumption, and each WACC component including risk-free rate, beta, equity risk premium, and capital weights
 - Observed niche-peer revenue growth shown beside the long-run perpetual-growth assumption
+- Optional two-year S&P Global consensus revenue anchors, with an automatic historical-growth fallback when the forecast cannot be validated
+- Capital-intensive forecasts that fade current D&A and capex ratios toward explicit, editable Year-5 targets instead of treating a build-out year as permanent
+- D&A / revenue and capex / revenue shown directly in every forecast year so the perpetual-growth cash flow can be audited
 - Business-model peer selection with direct, close, and adjacent fit labels; broad operating competitors are separated from primary valuation peers
 - Business-focus comparison and a conditional moat assessment with evidence that still needs verification
 - Separate `/company-analysis` page whose description, supply-chain mapping, customer concentration, company COGS, and default-risk inputs come only from SEC data
