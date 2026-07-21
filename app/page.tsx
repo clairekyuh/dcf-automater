@@ -328,6 +328,20 @@ const TERM_DEFINITIONS = {
   equityValue: "Equity value: the portion belonging to common shareholders after adding available cash and subtracting debt and other senior claims.",
   dilutedShares: "Diluted shares: the share count including potential dilution from options, restricted stock, convertibles, and similar securities.",
   discountFactor: "Discount factor: the multiplier that converts a future cash flow into today’s dollars using WACC and the number of years away.",
+  revenueGrowth: "Starting revenue growth: the expected percentage increase in sales during Year 1. The model gradually fades this rate toward the long-run terminal growth rate.",
+  ebitMargin: "Target EBIT margin: the percentage of revenue expected to remain as operating profit before interest and taxes by Year 5.",
+  taxRate: "Tax rate: the normalized cash tax percentage applied to positive operating profit. It should reflect a sustainable rate rather than a one-time tax benefit or charge.",
+  terminalGrowth: "Terminal growth: the annual rate the company is assumed to grow forever after Year 5. It must remain below WACC and should resemble a mature long-run growth rate.",
+  marketPrice: "Market price: the current or reference share price used only to calculate potential upside or downside. Changing it does not change the DCF’s intrinsic value.",
+  cash: "Cash: cash considered available to shareholders. It is added to enterprise value when calculating equity value.",
+  fundedDebt: "Funded debt: interest-bearing borrowings that must be repaid. It is subtracted from enterprise value before calculating equity value.",
+  riskFreeRate: "Risk-free rate: the return investors could earn with minimal default risk, commonly approximated with a long-term U.S. Treasury yield. It forms the starting point for required returns.",
+  beta: "Beta: an estimate of how sensitive the stock has been to broad market movements. A beta of 1.0 moves roughly with the market; above 1.0 implies greater market sensitivity.",
+  equityRiskPremium: "Equity risk premium: the additional annual return investors require for owning stocks instead of a risk-free asset.",
+  costOfEquity: "Cost of equity: the return shareholders require for taking the company’s risk. This reference uses risk-free rate + beta × equity risk premium.",
+  equityWeight: "Equity / capital: the percentage of the company’s financing represented by equity market value. It determines how much the cost of equity influences WACC.",
+  preTaxCostOfDebt: "Pre-tax cost of debt: the estimated interest rate the company pays or would pay on borrowings before the tax benefit of deductible interest.",
+  debtWeight: "Debt / capital: the percentage of financing represented by funded debt. It determines how much the after-tax cost of debt influences WACC.",
 } as const;
 
 type DefinedTermKey = keyof typeof TERM_DEFINITIONS;
@@ -357,10 +371,10 @@ function DcfRowLabel({ label }: { label: string }) {
   return term ? <DefinedTerm term={term}>{label}</DefinedTerm> : label;
 }
 
-function NumberField({ label, value, suffix, help, onChange }: { label: string; value: number; suffix: string; help: string; onChange: (value: number) => void }) {
+function NumberField({ label, term, value, suffix, help, onChange }: { label: string; term?: DefinedTermKey; value: number; suffix: string; help: string; onChange: (value: number) => void }) {
   const [showHelp, setShowHelp] = useState(false);
   return <div className="number-field">
-    <div className="field-label"><span>{label}</span><button type="button" aria-label={`Explain ${label}`} aria-expanded={showHelp} onClick={() => setShowHelp((open) => !open)}>?</button></div>
+    <div className="field-label"><span>{term ? <DefinedTerm term={term}>{label}</DefinedTerm> : label}</span><button type="button" aria-label={`Explain ${label}`} aria-expanded={showHelp} onClick={() => setShowHelp((open) => !open)}>?</button></div>
     <div className="input-cell"><input aria-label={`${label} ${suffix}`} type="number" step="0.1" value={Number.isFinite(value) ? value : 0} onChange={(event) => onChange(Number(event.target.value))} /><b>{suffix}</b></div>
     {showHelp && <p className="field-help">{help}</p>}
   </div>;
@@ -637,21 +651,21 @@ export default function Home() {
       <div className="section-heading"><div><span className="section-index">03</span><p>INPUTS</p><h2>Editable assumptions</h2></div><div className="unit-note">GREEN CELLS ARE EDITABLE</div></div>
       <div className="recommendation"><b>{data.company.industry} starting point</b><p>{rec.note}</p><span>{data.comparison?.industryGrowthRate === null || data.comparison?.industryGrowthRate === undefined ? "Peer industry growth was unavailable. " : `Observed peer industry revenue growth: ${fmt.format(data.comparison.industryGrowthRate)}%. `}This near-term benchmark is separate from the editable long-run terminal growth rate.</span></div>
       <div className="assumption-grid">
-        <NumberField label="Starting revenue growth" value={model.growth} suffix="%" help="Year 1 sales growth. The model fades it toward terminal growth over five years." onChange={(value) => update("growth", value)}/>
-        <NumberField label="Target EBIT margin" value={model.margin} suffix="%" help="Year 5 operating margin before interest and tax." onChange={(value) => update("margin", value)}/>
-        <NumberField label="Tax rate" value={model.tax} suffix="%" help="Normalized cash tax rate applied to positive EBIT." onChange={(value) => update("tax", value)}/>
-        <NumberField label="D&A / revenue" value={model.da} suffix="%" help="Non-cash depreciation and amortization added back to NOPAT." onChange={(value) => update("da", value)}/>
-        <NumberField label="Capex / revenue" value={model.capex} suffix="%" help="Cash investment in long-lived operating assets." onChange={(value) => update("capex", value)}/>
-        <NumberField label="NWC / new revenue" value={model.nwc} suffix="%" help="Working capital absorbed by each dollar of incremental revenue." onChange={(value) => update("nwc", value)}/>
-        <NumberField label="WACC" value={model.wacc} suffix="%" help="Required return for debt and equity capital. It discounts forecast cash flows." onChange={(value) => update("wacc", value)}/>
-        <NumberField label="Terminal growth" value={model.terminalGrowth} suffix="%" help="Long-run growth after Year 5. It must remain below WACC." onChange={(value) => update("terminalGrowth", value)}/>
-        <NumberField label="Exit EBITDA multiple" value={model.exitMultiple} suffix="×" help="Year 5 EBITDA valuation multiple used in the exit-multiple method." onChange={(value) => update("exitMultiple", value)}/>
-        <NumberField label="Market price used for comparison" value={model.marketPrice} suffix="$" help={`${priceContext.detail}. This input only calculates upside or downside; it does not change intrinsic value.`} onChange={(value) => update("marketPrice", value)}/>
-        <NumberField label="Cash" value={model.cash} suffix="$M" help="Available cash added in the enterprise-to-equity bridge." onChange={(value) => update("cash", value)}/>
-        <NumberField label="Funded debt" value={model.debt} suffix="$M" help="Debt subtracted from enterprise value. Review leases and other claims separately." onChange={(value) => update("debt", value)}/>
-        <NumberField label="Diluted shares" value={model.shares} suffix="M" help="Share count used to calculate value per share; check multi-class shares and dilution." onChange={(value) => update("shares", value)}/>
+        <NumberField label="Starting revenue growth" term="revenueGrowth" value={model.growth} suffix="%" help="Year 1 sales growth. The model fades it toward terminal growth over five years." onChange={(value) => update("growth", value)}/>
+        <NumberField label="Target EBIT margin" term="ebitMargin" value={model.margin} suffix="%" help="Year 5 operating margin before interest and tax." onChange={(value) => update("margin", value)}/>
+        <NumberField label="Tax rate" term="taxRate" value={model.tax} suffix="%" help="Normalized cash tax rate applied to positive EBIT." onChange={(value) => update("tax", value)}/>
+        <NumberField label="D&A / revenue" term="da" value={model.da} suffix="%" help="Non-cash depreciation and amortization added back to NOPAT." onChange={(value) => update("da", value)}/>
+        <NumberField label="Capex / revenue" term="capex" value={model.capex} suffix="%" help="Cash investment in long-lived operating assets." onChange={(value) => update("capex", value)}/>
+        <NumberField label="NWC / new revenue" term="nwc" value={model.nwc} suffix="%" help="Working capital absorbed by each dollar of incremental revenue." onChange={(value) => update("nwc", value)}/>
+        <NumberField label="WACC" term="wacc" value={model.wacc} suffix="%" help="Required return for debt and equity capital. It discounts forecast cash flows." onChange={(value) => update("wacc", value)}/>
+        <NumberField label="Terminal growth" term="terminalGrowth" value={model.terminalGrowth} suffix="%" help="Long-run growth after Year 5. It must remain below WACC." onChange={(value) => update("terminalGrowth", value)}/>
+        <NumberField label="Exit EBITDA multiple" term="exitMultiple" value={model.exitMultiple} suffix="×" help="Year 5 EBITDA valuation multiple used in the exit-multiple method." onChange={(value) => update("exitMultiple", value)}/>
+        <NumberField label="Market price used for comparison" term="marketPrice" value={model.marketPrice} suffix="$" help={`${priceContext.detail}. This input only calculates upside or downside; it does not change intrinsic value.`} onChange={(value) => update("marketPrice", value)}/>
+        <NumberField label="Cash" term="cash" value={model.cash} suffix="$M" help="Available cash added in the enterprise-to-equity bridge." onChange={(value) => update("cash", value)}/>
+        <NumberField label="Funded debt" term="fundedDebt" value={model.debt} suffix="$M" help="Debt subtracted from enterprise value. Review leases and other claims separately." onChange={(value) => update("debt", value)}/>
+        <NumberField label="Diluted shares" term="dilutedShares" value={model.shares} suffix="M" help="Share count used to calculate value per share; check multi-class shares and dilution." onChange={(value) => update("shares", value)}/>
       </div>
-      <div className="assumption-bottom"><div className="wacc-table"><div className="sheet-bar">WACC reference build</div><div><span>Risk-free rate</span><b>{fmt.format(riskFree)}%</b></div><div><span>Beta</span><b>{fmt.format(beta)}×</b></div><div><span>Equity risk premium</span><b>{fmt.format(equityRiskPremium)}%</b></div><div><span>Implied cost of equity</span><b>{fmt.format(costEquity)}%</b></div><div><span>Equity / capital</span><b>{fmt.format(equityWeight * 100)}%</b></div><div><span>Pre-tax cost of debt</span><b>{fmt.format(preTaxDebt)}%</b></div><div><span>Debt / capital</span><b>{fmt.format(debtWeight * 100)}%</b></div><div className="total"><span>Formula reference WACC</span><b>{fmt.format(referenceWacc)}%</b></div><small>The editable model WACC can include additional size, country, concentration, and execution risk.</small></div>
+      <div className="assumption-bottom"><div className="wacc-table"><div className="sheet-bar"><DefinedTerm term="wacc">WACC</DefinedTerm> reference build</div><div><span><DefinedTerm term="riskFreeRate">Risk-free rate</DefinedTerm></span><b>{fmt.format(riskFree)}%</b></div><div><span><DefinedTerm term="beta">Beta</DefinedTerm></span><b>{fmt.format(beta)}×</b></div><div><span><DefinedTerm term="equityRiskPremium">Equity risk premium</DefinedTerm></span><b>{fmt.format(equityRiskPremium)}%</b></div><div><span><DefinedTerm term="costOfEquity">Implied cost of equity</DefinedTerm></span><b>{fmt.format(costEquity)}%</b></div><div><span><DefinedTerm term="equityWeight">Equity / capital</DefinedTerm></span><b>{fmt.format(equityWeight * 100)}%</b></div><div><span><DefinedTerm term="preTaxCostOfDebt">Pre-tax cost of debt</DefinedTerm></span><b>{fmt.format(preTaxDebt)}%</b></div><div><span><DefinedTerm term="debtWeight">Debt / capital</DefinedTerm></span><b>{fmt.format(debtWeight * 100)}%</b></div><div className="total"><span>Formula reference <DefinedTerm term="wacc">WACC</DefinedTerm></span><b>{fmt.format(referenceWacc)}%</b></div><small>The editable model WACC can include additional size, country, concentration, and execution risk.</small></div>
         <div className="data-check"><div className="sheet-bar">Data checks</div><ul>{(data.qualityNotes?.length ? data.qualityNotes : ["Sample data is active. Enter a ticker to load provider financials."]).map((note) => <li key={note}>{note}</li>)}</ul></div>
       </div>
     </section>

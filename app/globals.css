@@ -82,6 +82,8 @@ button{cursor:pointer}
 .defined-term:hover:after,.defined-term:focus:after{opacity:1;visibility:visible;transform:translateX(-50%) translateY(0)}
 .model-table td:first-child .defined-term:after{left:0;transform:translateX(0) translateY(4px)}
 .model-table td:first-child .defined-term:hover:after,.model-table td:first-child .defined-term:focus:after{transform:translateX(0) translateY(0)}
+.wacc-table .defined-term:after,.field-label .defined-term:after{left:0;transform:translateX(0) translateY(4px)}
+.wacc-table .defined-term:hover:after,.wacc-table .defined-term:focus:after,.field-label .defined-term:hover:after,.field-label .defined-term:focus:after{transform:translateX(0) translateY(0)}
 .sensitivity-table th .defined-term:after{top:calc(100% + 9px);bottom:auto}
 .sensitivity-grid{margin-top:22px}
 .table-scroll{overflow:auto}

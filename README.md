@@ -18,7 +18,7 @@ Open [http://localhost:3000](http://localhost:3000).
 - Automatic company overview, sector, industry, and annual financials
 - Complete five-year operating and unlevered free-cash-flow build
 - Perpetual-growth and exit-multiple valuation bridges shown side by side
-- Hover and keyboard-focus definitions for UFCF, WACC, NOPAT, EBITDA, terminal value, enterprise value, and other technical DCF terms
+- Hover and keyboard-focus definitions for technical DCF terms, every editable assumption, and each WACC component including risk-free rate, beta, equity risk premium, and capital weights
 - Observed peer-industry revenue growth shown beside the long-run perpetual-growth assumption
 - Automatically selected competitor group with revenue growth, margins, EV/revenue, EV/EBITDA, P/E, and focus-company differences
 - Business-focus comparison and a conditional moat assessment with evidence that still needs verification
