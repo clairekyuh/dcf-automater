@@ -32,7 +32,7 @@ type CompanyData = {
   source: string;
   asOf: string;
   qualityNotes?: string[];
-  company: { symbol: string; name: string; description: string; descriptionSource?: string; exchange: string; currency: string; country: string; sector: string; industry: string };
+  company: { symbol: string; name: string; description: string; descriptionSource?: string; ipoDate?: string | null; exchange: string; currency: string; country: string; sector: string; industry: string };
   market: { marketCap: number; shares: number; estimatedPrice: number; priceDate?: string | null; priceBasis?: string; beta: number; priceHistory?: PricePoint[] };
   metrics: { revenueGrowth: number; revenue: number; ebitMargin: number; capexPercentRevenue: number; daPercentRevenue: number; cash: number; debt: number; taxRate: number };
   comparison?: { company: Comparable; peers: Comparable[]; selectedPeerSymbols: string[]; industryGrowthRate: number | null };
@@ -126,6 +126,7 @@ const industryRules = [
 const fmt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
 const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
 const usd0 = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+const longDate = (date: string) => new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" }).format(new Date(`${date}T00:00:00Z`));
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const validMedian = (values: Array<number | null>) => {
   const sorted = values.filter((value): value is number => value !== null && Number.isFinite(value)).sort((a, b) => a - b);
@@ -671,7 +672,7 @@ export default function Home() {
     </section>
 
     <section className="sheet-section" id="price-history">
-      <div className="section-heading"><div><span className="section-index">04</span><p>MARKET DATA</p><h2>Stock price history</h2></div><div className="unit-note">MONTH-END CLOSE · SELECT A PERIOD</div></div>
+      <div className="section-heading"><div><span className="section-index">04</span><p>MARKET DATA</p><h2>Stock price history</h2></div><p className="section-description">{data.source === "Sample data" ? "This is an illustrative company, so it does not have a real IPO date." : data.company.ipoDate ? `${data.company.name} first traded publicly on ${longDate(data.company.ipoDate)}.` : `A reliable public-market debut date was not available for ${data.company.name}.`} The chart shows monthly closing prices; select a period to compare performance.</p></div>
       <StockPriceChart points={data.market.priceHistory || []} symbol={data.company.symbol}/>
     </section>
 

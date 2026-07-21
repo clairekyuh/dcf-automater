@@ -190,6 +190,24 @@ async function nasdaqPriceHistory(symbol: string) {
   return Array.from(monthly.values()).sort((a, b) => a.date.localeCompare(b.date));
 }
 
+async function publicMarketDebutDate(symbol: string) {
+  try {
+    const response = await fetch(`https://stockanalysis.com/stocks/${encodeURIComponent(symbol.toLowerCase())}/company/`, {
+      headers: { "User-Agent": NASDAQ_HEADERS["User-Agent"], Accept: "text/html" },
+      next: { revalidate: 2592000 },
+    });
+    if (!response.ok) return null;
+    const html = await response.text();
+    const value = html.match(/IPO Date<\/td><td[^>]*>([^<]+)<\/td>/i)?.[1]?.trim();
+    if (!value) return null;
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? new Date(parsed).toISOString().slice(0, 10) : null;
+  } catch {
+    // IPO context is supplemental and must never prevent the DCF from loading.
+    return null;
+  }
+}
+
 function comparableFromNasdaq(company: Awaited<ReturnType<typeof nasdaqFundamentals>>) {
   const latest = company.historical[0];
   const prior = company.historical[1];
@@ -513,10 +531,11 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const [primary, priceHistory, sec] = await Promise.all([
+    const [primary, priceHistory, sec, ipoDate] = await Promise.all([
       nasdaqFundamentals(symbol),
       nasdaqPriceHistory(symbol).catch(() => []),
       secDataset(symbol),
+      publicMarketDebutDate(symbol),
     ]);
     const historical = primary.historical;
     const latest = historical[0];
@@ -596,6 +615,7 @@ export async function GET(request: NextRequest) {
         name: sec?.company.name || primary.name,
         description: sec?.company.description || primary.description || "A concise business description was unavailable.",
         descriptionSource: descriptionFromSec ? "SEC filing" : "Nasdaq company profile",
+        ipoDate,
         exchange: primary.exchange,
         currency: "USD",
         country: primary.country,
