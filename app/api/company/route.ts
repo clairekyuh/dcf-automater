@@ -63,37 +63,75 @@ function tableValue(table: NasdaqTable, labels: string[], column: string) {
   return null;
 }
 
-function peerSymbols(symbol: string, sector: string, industry: string, name: string) {
-  const text = `${symbol} ${sector} ${industry} ${name}`;
-  const exact: Record<string, string[]> = {
-    SNPS: ["CDNS", "ADSK", "PTC"],
-    CDNS: ["SNPS", "ADSK", "PTC"],
-    CRWV: ["MSFT", "ORCL", "AMZN"],
-    IBM: ["ORCL", "ACN", "MSFT"],
-    AAPL: ["MSFT", "GOOGL", "SONY"],
-    NVDA: ["AMD", "AVGO", "INTC"],
-    TSLA: ["GM", "F", "TM"],
-  };
-  if (exact[symbol]) return exact[symbol];
+type PeerSet = {
+  id: string;
+  label: string;
+  basis: string;
+  symbols: string[];
+  patterns: RegExp[];
+  operatingCompetitors?: string[];
+  rationales?: Record<string, { fit: "direct" | "close" | "adjacent"; businessModel: string; detail: string }>;
+};
 
-  const groups = [
-    { match: /electronic design automation|engineering.*software/i, symbols: ["SNPS", "CDNS", "ADSK", "PTC"] },
-    { match: /semiconductor/i, symbols: ["NVDA", "AMD", "AVGO", "INTC"] },
-    { match: /software|cloud|information technology|internet/i, symbols: ["MSFT", "ORCL", "CRM", "NOW"] },
-    { match: /bank/i, symbols: ["JPM", "BAC", "WFC", "C"] },
-    { match: /insurance/i, symbols: ["CB", "PGR", "ALL", "TRV"] },
-    { match: /biotech/i, symbols: ["AMGN", "GILD", "REGN", "VRTX"] },
-    { match: /pharma|health/i, symbols: ["MRK", "PFE", "ABBV", "BMY"] },
-    { match: /automotive|auto manufacturer/i, symbols: ["GM", "F", "TM", "HMC"] },
-    { match: /oil|gas|energy/i, symbols: ["XOM", "CVX", "COP", "EOG"] },
-    { match: /utility/i, symbols: ["NEE", "DUK", "SO", "AEP"] },
-    { match: /telecom/i, symbols: ["VZ", "T", "TMUS", "CHTR"] },
-    { match: /retail/i, symbols: ["WMT", "COST", "TGT", "AMZN"] },
-    { match: /aerospace|defense/i, symbols: ["RTX", "LMT", "NOC", "GD"] },
-    { match: /industrial|manufactur/i, symbols: ["HON", "ETN", "MMM", "EMR"] },
-  ];
-  const group = groups.find((item) => item.match.test(text));
-  return (group?.symbols || ["MSFT", "ORCL", "IBM", "ACN"]).filter((candidate) => candidate !== symbol).slice(0, 3);
+const peerSets: PeerSet[] = [
+  {
+    id: "ai-cloud",
+    label: "AI-native GPU cloud infrastructure",
+    basis: "Companies offering GPU compute or high-density AI infrastructure are more economically comparable than diversified software vendors. Hyperscalers are shown separately as operating competitors because their cloud economics are buried inside much larger businesses.",
+    symbols: ["CRWV", "NBIS", "IREN", "APLD"],
+    patterns: [/\bai[- ]native\b/i, /\bai cloud\b/i, /\bgpu\b.{0,45}\b(cloud|compute|infrastructure)\b/i, /\b(cloud|compute)\b.{0,45}\b(ai|gpu)\b/i, /purpose-built.{0,35}\bai\b/i, /accelerated[- ]compute/i],
+    operatingCompetitors: ["MSFT", "AMZN", "GOOGL", "ORCL"],
+    rationales: {
+      CRWV: { fit: "direct", businessModel: "Purpose-built AI cloud platform", detail: "Purpose-built AI cloud combining GPU infrastructure, networking, storage, orchestration, and managed software." },
+      NBIS: { fit: "direct", businessModel: "Full-stack AI-native cloud", detail: "Full-stack AI-native cloud with GPU compute, data centers, orchestration, storage, and managed AI services." },
+      IREN: { fit: "close", businessModel: "AI cloud and power-dense data centers", detail: "Provides GPU AI-cloud services and owns power-dense data centers, but still has a material Bitcoin-mining business." },
+      APLD: { fit: "adjacent", businessModel: "AI/HPC data-center developer", detail: "Builds and leases high-density AI/HPC data centers; it is closer to an infrastructure landlord than a full-stack cloud platform." },
+    },
+  },
+  { id: "consumer-ecosystems", label: "Consumer devices and digital ecosystems", basis: "No public company mirrors the full business mix, so the group emphasizes consumer hardware, operating systems, services, and ecosystem reach.", symbols: ["AAPL", "GOOGL", "MSFT", "SONY"], patterns: [/consumer electronics/i, /smartphone/i, /personal technology/i, /devices and services/i] },
+  { id: "electric-vehicles", label: "Electric-vehicle manufacturers", basis: "Peers design and manufacture electric vehicles and share exposure to factory utilization, battery costs, pricing, and vehicle demand.", symbols: ["TSLA", "RIVN", "LCID", "NIO"], patterns: [/electric vehicle/i, /\bev manufacturer/i, /battery electric/i] },
+  { id: "eda", label: "Electronic design automation and engineering software", basis: "Peers sell mission-critical engineering tools with specialized IP, long product cycles, and workflow switching costs.", symbols: ["SNPS", "CDNS", "ADSK", "PTC"], patterns: [/electronic design automation/i, /semiconductor ip/i, /engineering.{0,20}software/i] },
+  { id: "cybersecurity", label: "Enterprise cybersecurity platforms", basis: "Peers sell security software and platforms with recurring revenue, large-enterprise distribution, and high product-integration costs.", symbols: ["PANW", "CRWD", "FTNT", "ZS"], patterns: [/cybersecurity/i, /network security/i, /cloud security/i, /endpoint security/i] },
+  { id: "gpu-semiconductors", label: "Accelerated-computing semiconductors", basis: "Peers compete through chip architecture, performance, software ecosystems, manufacturing access, and product cycles.", symbols: ["NVDA", "AMD", "AVGO", "INTC"], patterns: [/graphics processing/i, /\bgpu\b/i, /accelerated computing/i, /semiconductor/i] },
+  { id: "data-centers", label: "Data-center ownership and colocation", basis: "Peers monetize power, buildings, interconnection, and leased data-center capacity rather than primarily selling software.", symbols: ["EQIX", "DLR", "IRM", "APLD"], patterns: [/colocation/i, /data center (reit|operator|hosting|infrastructure)/i, /leased data center/i] },
+  { id: "public-cloud", label: "Diversified public-cloud platforms", basis: "Peers operate broad cloud-computing platforms spanning compute, storage, databases, software, and developer services.", symbols: ["MSFT", "AMZN", "GOOGL", "ORCL"], patterns: [/public cloud/i, /cloud computing platform/i, /hyperscaler/i, /cloud infrastructure services/i] },
+  { id: "enterprise-software", label: "Enterprise application software", basis: "Peers primarily sell standardized, recurring software used across business workflows.", symbols: ["CRM", "NOW", "WDAY", "ORCL"], patterns: [/enterprise software/i, /software as a service/i, /\bsaas\b/i, /business applications/i, /prepackaged software/i] },
+  { id: "payments", label: "Digital payments networks and processors", basis: "Peers monetize payment volume, merchant acceptance, transaction processing, and network scale.", symbols: ["V", "MA", "PYPL", "FI"], patterns: [/payment network/i, /payment processing/i, /digital payments/i, /merchant acquiring/i] },
+  { id: "banks", label: "Large diversified banks", basis: "Peers are compared on lending, deposits, capital, credit quality, and fee-generating financial services.", symbols: ["JPM", "BAC", "WFC", "C"], patterns: [/\bbank\b/i, /consumer banking/i, /commercial banking/i] },
+  { id: "insurance", label: "Property and casualty insurance", basis: "Peers underwrite similar risks and are evaluated using premiums, loss ratios, reserves, and investment income.", symbols: ["CB", "PGR", "ALL", "TRV"], patterns: [/property.{0,10}casualty/i, /insurance underwriting/i, /\binsurance\b/i] },
+  { id: "biotech", label: "Large-cap biotechnology", basis: "Peers depend on patented medicines, clinical pipelines, regulatory outcomes, and research productivity.", symbols: ["AMGN", "GILD", "REGN", "VRTX"], patterns: [/biotechnology/i, /biopharma/i, /therapeutic/i] },
+  { id: "pharma", label: "Global pharmaceutical companies", basis: "Peers commercialize broad medicine portfolios and are compared on pipeline durability, patent exposure, and global distribution.", symbols: ["MRK", "PFE", "ABBV", "BMY"], patterns: [/pharmaceutical/i, /prescription medicine/i] },
+  { id: "automotive", label: "Global vehicle manufacturers", basis: "Peers manufacture and finance vehicles, with similar exposure to production scale, pricing, demand cycles, and capital intensity.", symbols: ["GM", "F", "TM", "HMC"], patterns: [/automotive/i, /automobile manufacturer/i, /vehicles and mobility/i] },
+  { id: "energy", label: "Oil and gas producers", basis: "Peers are exposed to commodity prices, production costs, reserve replacement, and capital discipline.", symbols: ["XOM", "CVX", "COP", "EOG"], patterns: [/oil and gas/i, /petroleum/i, /hydrocarbon/i, /energy exploration/i] },
+  { id: "utilities", label: "Regulated electric utilities", basis: "Peers earn regulated returns on capital-intensive electricity networks and generation assets.", symbols: ["NEE", "DUK", "SO", "AEP"], patterns: [/electric utility/i, /regulated utility/i, /power utility/i] },
+  { id: "telecom", label: "Telecommunications networks", basis: "Peers monetize wireless, broadband, and communications networks with similar capital intensity and subscriber economics.", symbols: ["VZ", "T", "TMUS", "CHTR"], patterns: [/telecommunications/i, /wireless network/i, /broadband services/i] },
+  { id: "retail", label: "Large-format and general retail", basis: "Peers compete through merchandise, purchasing scale, stores, logistics, memberships, and consumer pricing.", symbols: ["WMT", "COST", "TGT", "AMZN"], patterns: [/general merchandise/i, /discount retail/i, /membership warehouse/i, /\bretail\b/i] },
+  { id: "aerospace", label: "Aerospace and defense contractors", basis: "Peers share long program cycles, government customers, backlogs, engineering requirements, and contract execution risk.", symbols: ["RTX", "LMT", "NOC", "GD"], patterns: [/aerospace/i, /defense contractor/i, /defence contractor/i] },
+  { id: "industrials", label: "Diversified industrial technology", basis: "Peers sell engineered equipment and services with exposure to industrial cycles, backlogs, and operating leverage.", symbols: ["HON", "ETN", "EMR", "ROK"], patterns: [/industrial technology/i, /industrial automation/i, /engineered products/i, /manufacturing solutions/i] },
+];
+
+const exactPeerSet: Record<string, string> = {
+  CRWV: "ai-cloud", NBIS: "ai-cloud", IREN: "ai-cloud", APLD: "ai-cloud",
+  SNPS: "eda", CDNS: "eda", NVDA: "gpu-semiconductors", AMD: "gpu-semiconductors",
+  PANW: "cybersecurity", CRWD: "cybersecurity", EQIX: "data-centers", DLR: "data-centers",
+  AAPL: "consumer-ecosystems", TSLA: "electric-vehicles", RIVN: "electric-vehicles", LCID: "electric-vehicles",
+};
+
+function selectPeerSet(company: { symbol: string; sector: string; industry: string; name: string; description: string }) {
+  const text = `${company.name} ${company.sector} ${company.industry} ${company.description}`;
+  const exact = exactPeerSet[company.symbol];
+  const ranked = peerSets
+    .map((set) => ({ set, score: set.patterns.reduce((sum, pattern) => sum + (pattern.test(text) ? 1 : 0), 0) + (set.id === exact ? 100 : 0) }))
+    .sort((a, b) => b.score - a.score);
+  const selected = ranked[0]?.score > 0 ? ranked[0].set : peerSets.find((set) => set.id === "enterprise-software")!;
+  const symbols = selected.symbols.filter((candidate) => candidate !== company.symbol).slice(0, 3);
+  return {
+    ...selected,
+    symbols,
+    industryExplanation: /prepackaged software/i.test(company.industry)
+      ? `“Prepackaged software” is a broad legacy classification for standardized software developed for multiple customers. It does not mean boxed software, and it may not describe ${selected.label} economics very well.`
+      : `${company.industry} is the reported market classification. The peer set is narrowed using the company description and business model: ${selected.label.toLowerCase()}.`,
+  };
 }
 
 function growthRate(values: number[]) {
@@ -539,11 +577,23 @@ export async function GET(request: NextRequest) {
     ]);
     const historical = primary.historical;
     const latest = historical[0];
-    const selectedPeerSymbols = peerSymbols(symbol, primary.sector, primary.industry, primary.name);
+    const peerSet = selectPeerSet({
+      symbol,
+      sector: primary.sector,
+      industry: primary.industry,
+      name: primary.name,
+      description: sec?.company.description || primary.description,
+    });
+    const selectedPeerSymbols = peerSet.symbols;
     const peerResults = await Promise.allSettled(selectedPeerSymbols.map((peerSymbol) => nasdaqFundamentals(peerSymbol)));
     const peers = peerResults
       .filter((result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof nasdaqFundamentals>>> => result.status === "fulfilled")
-      .map((result) => comparableFromNasdaq(result.value));
+      .map((result) => ({
+        ...comparableFromNasdaq(result.value),
+        peerFit: peerSet.rationales?.[result.value.symbol]?.fit || "close",
+        businessModel: peerSet.rationales?.[result.value.symbol]?.businessModel || peerSet.label,
+        peerRationale: peerSet.rationales?.[result.value.symbol]?.detail || `Selected from the ${peerSet.label.toLowerCase()} peer universe.`,
+      }));
     const industryGrowthRate = median(peers.map((peer) => peer.revenueGrowth));
     const secMetric = (key: string) => {
       const value = sec?.metrics?.[key];
@@ -600,7 +650,7 @@ export async function GET(request: NextRequest) {
     if (latest.capexPercentRevenue > 50) qualityNotes.push("Latest capex is unusually high and is shown historically, but the starting forecast normalizes it rather than projecting it unchanged forever.");
     if (!priceHistory.length) qualityNotes.push("Monthly stock-price history was unavailable, so the price chart could not be populated for this request.");
     if (peers.length < selectedPeerSymbols.length) qualityNotes.push(`Comparable-company data is partial: Nasdaq returned ${peers.length} of ${selectedPeerSymbols.length} selected peers. Peer failures do not block the main DCF.`);
-    if (industryGrowthRate !== null) qualityNotes.push("Industry growth is represented by median latest annual revenue growth for the returned peer group; it is a near-term benchmark, not a perpetual-growth forecast.");
+    if (industryGrowthRate !== null) qualityNotes.push(`Niche growth is represented by median latest annual revenue growth for the returned ${peerSet.label.toLowerCase()} peer group; it is a near-term benchmark, not a perpetual-growth forecast.`);
     if (secCash === null) qualityNotes.push("SEC cash was unavailable; the DCF cash assumption uses Nasdaq's displayed cash and short-term investments and stays editable.");
     qualityNotes.push("Nasdaq does not return beta in this dataset, so the WACC reference build uses a neutral beta of 1.0; the editable WACC should reflect your risk assessment.");
     const latestTaxRate = latest.earningsBeforeTax > 0 ? Math.min(40, Math.max(0, latest.incomeTax / latest.earningsBeforeTax * 100)) : 21;
@@ -642,10 +692,14 @@ export async function GET(request: NextRequest) {
         taxRate: latestTaxRate,
       },
       comparison: {
-        company: comparableFromNasdaq(primary),
+        company: { ...comparableFromNasdaq(primary), peerFit: "focus", businessModel: peerSet.rationales?.[symbol]?.businessModel || peerSet.label, peerRationale: `Focus company classified as ${peerSet.label.toLowerCase()}.` },
         peers,
         selectedPeerSymbols,
         industryGrowthRate,
+        nicheLabel: peerSet.label,
+        selectionBasis: peerSet.basis,
+        industryExplanation: peerSet.industryExplanation,
+        operatingCompetitors: peerSet.operatingCompetitors || [],
       },
       businessAnalysis: {
         source: "SEC Company Facts and latest annual filing",

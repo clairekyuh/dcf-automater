@@ -27,6 +27,9 @@ type Comparable = {
   evToRevenue: number | null;
   evToEbitda: number | null;
   pe: number | null;
+  peerFit?: "focus" | "direct" | "close" | "adjacent";
+  businessModel?: string;
+  peerRationale?: string;
 };
 type CompanyData = {
   source: string;
@@ -35,7 +38,7 @@ type CompanyData = {
   company: { symbol: string; name: string; description: string; descriptionSource?: string; ipoDate?: string | null; exchange: string; currency: string; country: string; sector: string; industry: string };
   market: { marketCap: number; shares: number; estimatedPrice: number; priceDate?: string | null; priceBasis?: string; beta: number; priceHistory?: PricePoint[] };
   metrics: { revenueGrowth: number; revenue: number; ebitMargin: number; capexPercentRevenue: number; daPercentRevenue: number; cash: number; debt: number; taxRate: number };
-  comparison?: { company: Comparable; peers: Comparable[]; selectedPeerSymbols: string[]; industryGrowthRate: number | null };
+  comparison?: { company: Comparable; peers: Comparable[]; selectedPeerSymbols: string[]; industryGrowthRate: number | null; nicheLabel?: string; selectionBasis?: string; industryExplanation?: string; operatingCompetitors?: string[] };
   businessAnalysis?: {
     source: string;
     asOf: string | null;
@@ -93,6 +96,10 @@ const demo: CompanyData = {
     ],
     selectedPeerSymbols: ["ATLS", "MRDN", "VCTR"],
     industryGrowthRate: 11.1,
+    nicheLabel: "Enterprise infrastructure software",
+    selectionBasis: "Illustrative peers demonstrate how business-model matching will narrow a real company’s comparison group.",
+    industryExplanation: "Software—Infrastructure is the illustrative reported classification; the sample niche is enterprise infrastructure software.",
+    operatingCompetitors: [],
   },
   businessAnalysis: {
     source: "Illustrative sample",
@@ -114,6 +121,7 @@ const demo: CompanyData = {
 };
 
 const industryRules = [
+  { match: /AI-native GPU cloud|data-center ownership|data center/i, multiple: 12, wacc: 11, terminal: 2.5, margin: 18, note: "AI infrastructure can grow quickly, but GPU obsolescence, power availability, utilization, customer concentration, and heavy financing needs justify more conservative assumptions than asset-light software." },
   { match: /software|internet|semiconductor|technology/i, multiple: 18, wacc: 9.5, terminal: 3, margin: 22, note: "Technology can support strong margins, but infrastructure-heavy companies require more reinvestment than asset-light software." },
   { match: /bank|insurance|financial/i, multiple: 11, wacc: 9, terminal: 2.5, margin: 18, note: "Financial companies normally require sector-specific equity valuation; this unlevered DCF is a directional cross-check." },
   { match: /biotech|pharma|health/i, multiple: 14, wacc: 10, terminal: 2.5, margin: 18, note: "Pipeline, patent, reimbursement, and regulatory outcomes can dominate historical trends." },
@@ -150,11 +158,13 @@ function briefDescription(description: string) {
   return brief.length > 360 ? `${brief.slice(0, 357).trimEnd()}…` : brief;
 }
 
-function businessFocus(company: Pick<Comparable, "description" | "industry" | "sector">) {
+function businessFocus(company: Pick<Comparable, "description" | "industry" | "sector" | "businessModel">) {
+  if (company.businessModel) return company.businessModel;
   const text = `${company.industry} ${company.sector} ${company.description}`;
   const rules = [
     { match: /electronic design automation|semiconductor ip/i, label: "Chip-design software and IP" },
     { match: /cybersecurity|security software|network security/i, label: "Cybersecurity software" },
+    { match: /ai[- ]native|ai cloud|cloud for ai|gpu.{0,30}(cloud|compute)|accelerated[- ]compute/i, label: "AI-native GPU cloud infrastructure" },
     { match: /cloud infrastructure|data center|compute.*cloud|cloud.*compute/i, label: "Cloud and compute infrastructure" },
     { match: /semiconductor/i, label: "Semiconductor products and IP" },
     { match: /software|saas|application/i, label: "Enterprise software and workflows" },
@@ -175,6 +185,7 @@ function businessAssessment(data: CompanyData, company: Comparable) {
   const moatRules = [
     { match: /electronic design automation|semiconductor ip/i, score: 2, mechanism: "Specialized design tools can become embedded in customer workflows, creating switching costs and valuable technical IP.", verify: "customer retention, design-win duration, interoperability, and competitive tool performance" },
     { match: /semiconductor/i, score: 2, mechanism: "Proprietary architectures, engineering know-how, software ecosystems, and long design cycles can create durable advantages.", verify: "market share, performance leadership, customer concentration, and product-cycle durability" },
+    { match: /ai[- ]native|ai cloud|cloud for ai|gpu.{0,30}(cloud|compute)|accelerated[- ]compute/i, score: 1, mechanism: "Early access to scarce GPUs, high-density infrastructure, orchestration software, and deployment expertise can create an execution advantage, but hardware cycles and well-funded hyperscalers can erode it.", verify: "GPU utilization, return on invested capital, hardware refresh costs, customer concentration, power access, and performance versus hyperscalers" },
     { match: /software|saas|application/i, score: 1, mechanism: "Software may develop switching costs when it is deeply integrated into daily workflows, data, and customer systems.", verify: "retention, recurring revenue, pricing power, implementation cost, and credible substitutes" },
     { match: /cloud infrastructure|data center|compute/i, score: 1, mechanism: "Scale, scarce infrastructure access, and engineering execution can help, although capital intensity and customer concentration can weaken the advantage.", verify: "utilization, unit economics, supplier access, customer concentration, and returns on invested capital" },
     { match: /consumer|retail|restaurant/i, score: 1, mechanism: "Brand, distribution, customer habits, or purchasing scale can support an advantage, but those benefits are not automatic.", verify: "repeat purchasing, price premiums, store economics, and market-share stability" },
@@ -209,7 +220,7 @@ function businessAssessment(data: CompanyData, company: Comparable) {
 }
 
 function recommendations(data: CompanyData) {
-  const text = `${data.company.sector} ${data.company.industry}`;
+  const text = `${data.comparison?.nicheLabel || ""} ${data.company.sector} ${data.company.industry}`;
   const rule = industryRules.find((item) => item.match.test(text)) || { multiple: 10, wacc: 9.5, terminal: 2.5, margin: 15, note: "Use a conservative starting point and compare every assumption with direct industry peers." };
   const historicalGrowth = data.metrics.revenueGrowth;
   const growth = historicalGrowth > 100 ? 40 : historicalGrowth > 50 ? 30 : historicalGrowth > 25 ? 20 : clamp(historicalGrowth * .65, 2, 18);
@@ -300,8 +311,9 @@ function riskAnalysis(data: CompanyData, model: Model, perpetuity: ReturnType<ty
   risks.push({ level: terminalShare > 80 ? "high" : terminalShare > 65 ? "medium" : "low", title: "Terminal-value dependence", detail: `${fmt.format(perpetuity.terminalShare)}% of perpetual-growth enterprise value and ${fmt.format(multiple.terminalShare)}% of exit-multiple enterprise value come from value beyond Year 5.` });
   const country = data.company.country || "Unknown";
   const geoHigh = /china|russia|taiwan|ukraine|israel/i.test(country);
-  const geoMedium = /semiconductor|aerospace|defense|energy|mining|shipping|telecom/i.test(`${data.company.industry} ${data.company.sector}`);
-  risks.push({ level: geoHigh ? "high" : geoMedium ? "medium" : "low", title: "Geopolitical exposure", detail: `${country} domicile and ${data.company.industry} exposure can create trade, sanctions, supply-chain, currency, or regulatory risk. This is a screen, not geographic revenue analysis.` });
+  const businessNiche = data.comparison?.nicheLabel || data.company.industry;
+  const geoMedium = /semiconductor|aerospace|defense|energy|mining|shipping|telecom|AI-native GPU cloud|data center/i.test(`${businessNiche} ${data.company.sector}`);
+  risks.push({ level: geoHigh ? "high" : geoMedium ? "medium" : "low", title: "Geopolitical exposure", detail: `${country} domicile and ${businessNiche} exposure can create trade, sanctions, supply-chain, currency, or regulatory risk. This is a screen, not geographic revenue analysis.` });
   const margins = data.historical.map((row) => row.ebitMargin).filter(Number.isFinite);
   const spread = margins.length ? Math.max(...margins) - Math.min(...margins) : 0;
   risks.push({ level: spread > 15 ? "high" : spread > 7 ? "medium" : "low", title: "Margin stability", detail: `Historical EBIT margin range is ${fmt.format(spread)} percentage points. Wide swings reduce forecast reliability.` });
@@ -396,10 +408,10 @@ function ValuationBridge({ title, result, model, method, data }: { title: string
     <div className="sheet-bar">{title}</div>
     {method === "perpetuity" ? <>
       <div className="method-explainer"><span>WHAT THIS METHOD DOES</span><p>Assumes Year 5 <DefinedTerm term="ufcf">unlevered free cash flow</DefinedTerm> grows at a stable rate forever. It converts that continuing stream into one <DefinedTerm term="terminalValue">terminal value</DefinedTerm>, then discounts it back five years.</p><code>{fmt.format(yearFive.fcf)} × (1 + {fmt.format(model.terminalGrowth)}%) ÷ ({fmt.format(model.wacc)}% − {fmt.format(model.terminalGrowth)}%) = {fmt.format(result.terminalValue)}</code><small>Year 5 <DefinedTerm term="ufcf">UFCF</DefinedTerm> × growth adjustment ÷ (<DefinedTerm term="wacc">WACC</DefinedTerm> − perpetual growth)</small></div>
-      <div className="reference-row"><span>Observed peer industry growth</span><b>{industryGrowth === null ? "—" : `${fmt.format(industryGrowth)}%`}</b></div>
+      <div className="reference-row"><span>Observed niche-peer growth</span><b>{industryGrowth === null ? "—" : `${fmt.format(industryGrowth)}%`}</b></div>
       <div><span>Selected perpetual growth</span><b>{fmt.format(model.terminalGrowth)}%</b></div>
       <div><span>Year 5 <DefinedTerm term="ufcf">UFCF</DefinedTerm></span><b>{usd0.format(yearFive.fcf)}M</b></div>
-      <p className="bridge-note">Peer growth is median recent year-over-year revenue growth. It provides industry context, but the perpetual rate is a separate long-run assumption and must remain below <DefinedTerm term="wacc">WACC</DefinedTerm>.</p>
+      <p className="bridge-note">Peer growth is median recent year-over-year revenue growth for the selected business niche. It is context—not a perpetual forecast—and the perpetual rate must remain below <DefinedTerm term="wacc">WACC</DefinedTerm>.</p>
     </> : <>
       <div className="method-explainer"><span>WHAT THIS METHOD DOES</span><p>Assumes the company could be valued in Year 5 at a market multiple of <DefinedTerm term="ebitda">EBITDA</DefinedTerm>. It multiplies Year 5 EBITDA by the selected multiple, then discounts that value back five years.</p><code>{fmt.format(yearFiveEbitda)} × {fmt.format(model.exitMultiple)} = {fmt.format(result.terminalValue)}</code><small>Year 5 <DefinedTerm term="ebitda">EBITDA</DefinedTerm> × selected <DefinedTerm term="exitMultiple">exit multiple</DefinedTerm></small></div>
       <div><span>Year 5 <DefinedTerm term="ebitda">EBITDA</DefinedTerm></span><b>{usd0.format(yearFiveEbitda)}M</b></div>
@@ -520,16 +532,18 @@ function CompetitorComparison({ data }: { data: CompanyData }) {
   ];
   const assessment = businessAssessment(data, company);
   const rows = peers.length ? [company, ...peers] : [company];
+  const fitLabel = (fit: Comparable["peerFit"]) => fit === "direct" ? "DIRECT FIT" : fit === "close" ? "CLOSE FIT" : fit === "adjacent" ? "ADJACENT" : "";
   return <section className="sheet-section" id="competitors">
-    <div className="section-heading"><div><span className="section-index">05</span><p>BUSINESS + RELATIVE VALUATION</p><h2>Competitor companies</h2></div><p className="section-description">Peers are selected automatically from the reported industry. Review the group before relying on its business comparisons, growth rates, or trading multiples.</p></div>
+    <div className="section-heading"><div><span className="section-index">05</span><p>BUSINESS + RELATIVE VALUATION</p><h2>Competitor companies</h2></div><p className="section-description">Peers are selected from a business-model niche—not merely the reported industry label. Direct, close, and adjacent fits are identified so you can judge which valuation comparisons deserve the most weight.</p></div>
+    <div className="peer-selection-note"><div><span>SELECTED BUSINESS NICHE</span><strong>{comparison?.nicheLabel || businessFocus(company)}</strong></div><p>{comparison?.selectionBasis || "The closest available public companies are selected using the company description, products, customers, and operating model."}</p>{Boolean(comparison?.operatingCompetitors?.length) && <small>Broader operating competitors—not primary valuation peers: {comparison?.operatingCompetitors?.join(" · ")}</small>}</div>
     <div className="business-review">
-      <article><span>WHAT THE COMPANY DOES</span><h3>{businessFocus(company)}</h3><p>{company.description || data.company.description}</p></article>
+      <article><span>WHAT THE COMPANY DOES</span><h3>{comparison?.nicheLabel || businessFocus(company)}</h3><p>{company.description || data.company.description}</p></article>
       <article className="moat-card"><span>DOES IT HAVE A MOAT?</span><h3>{assessment.verdict}</h3><p>{assessment.mechanism} {assessment.financialSignal}</p><small>Verify: {assessment.verify}.</small></article>
       <article><span>HOW THE BUSINESS DIFFERS</span><h3>Business mix matters</h3><p>{assessment.difference}</p></article>
     </div>
-    <div className="peer-summary"><div><span>INDUSTRY GROWTH BENCHMARK</span><strong>{comparison?.industryGrowthRate === null || comparison?.industryGrowthRate === undefined ? "—" : `${fmt.format(comparison.industryGrowthRate)}%`}</strong><small>Median recent peer revenue growth</small></div><div><span>PEER MEDIAN EV / EBITDA</span><strong>{metrics.multiple === null ? "—" : `${fmt.format(metrics.multiple)}×`}</strong><small>Reference for the exit-multiple method</small></div><div><span>AUTOMATIC PEER GROUP</span><strong>{(comparison?.selectedPeerSymbols || peers.map((peer) => peer.symbol)).join(" · ") || "Unavailable"}</strong><small>Verify business-model and geographic comparability</small></div></div>
+    <div className="peer-summary"><div><span>NICHE GROWTH BENCHMARK</span><strong>{comparison?.industryGrowthRate === null || comparison?.industryGrowthRate === undefined ? "—" : `${fmt.format(comparison.industryGrowthRate)}%`}</strong><small>Median recent peer revenue growth</small></div><div><span>PEER MEDIAN EV / EBITDA</span><strong>{metrics.multiple === null ? "—" : `${fmt.format(metrics.multiple)}×`}</strong><small>Reference for the exit-multiple method</small></div><div><span>SELECTED PEER GROUP</span><strong>{(comparison?.selectedPeerSymbols || peers.map((peer) => peer.symbol)).join(" · ") || "Unavailable"}</strong><small>Narrowed by products, customers, and operating model</small></div></div>
     <div className="peer-table-wrap table-scroll"><table className="peer-table"><thead><tr><th>Company</th><th>Business focus</th><th>Market cap</th><th>Revenue growth</th><th>Operating margin</th><th>EV / Revenue</th><th>EV / EBITDA</th><th>P / E</th></tr></thead><tbody>
-      {rows.map((peer, index) => <tr className={index === 0 ? "focus-company" : ""} key={peer.symbol}><td><b>{peer.symbol}</b><span>{peer.name}</span>{index === 0 && <em>FOCUS COMPANY</em>}</td><td className="business-focus-cell">{businessFocus(peer)}</td><td>{formatCap(peer.marketCap)}</td><td>{formatMetric(peer.revenueGrowth, "%")}</td><td>{formatMetric(peer.operatingMargin, "%")}</td><td>{formatMetric(peer.evToRevenue)}</td><td>{formatMetric(peer.evToEbitda)}</td><td>{formatMetric(peer.pe)}</td></tr>)}
+      {rows.map((peer, index) => <tr className={index === 0 ? "focus-company" : ""} key={peer.symbol}><td><b>{peer.symbol}</b><span>{peer.name}</span>{index === 0 && <em>FOCUS COMPANY</em>}</td><td className="business-focus-cell"><b>{index === 0 ? comparison?.nicheLabel || businessFocus(peer) : businessFocus(peer)}</b>{index > 0 && fitLabel(peer.peerFit) && <em className={`peer-fit ${peer.peerFit}`}>{fitLabel(peer.peerFit)}</em>}{peer.peerRationale && <small>{peer.peerRationale}</small>}</td><td>{formatCap(peer.marketCap)}</td><td>{formatMetric(peer.revenueGrowth, "%")}</td><td>{formatMetric(peer.operatingMargin, "%")}</td><td>{formatMetric(peer.evToRevenue)}</td><td>{formatMetric(peer.evToEbitda)}</td><td>{formatMetric(peer.pe)}</td></tr>)}
       {peers.length > 0 && <tr className="peer-median"><td><b>PEER MEDIAN</b><span>{peers.length} returned companies</span></td><td>—</td><td>{formatCap(metrics.marketCap)}</td><td>{formatMetric(metrics.growth, "%")}</td><td>{formatMetric(metrics.margin, "%")}</td><td>{formatMetric(metrics.revenueMultiple)}</td><td>{formatMetric(metrics.multiple)}</td><td>{formatMetric(metrics.pe)}</td></tr>}
     </tbody></table></div>
     {!peers.length && <div className="peer-empty">Comparable ratios were not returned by Nasdaq for this request. The primary DCF still works because peer data is optional.</div>}
@@ -628,7 +642,7 @@ export default function Home() {
 
     <section className="company-summary">
       <div><span>{data.company.exchange} · {data.company.symbol}</span><h2>{data.company.name}</h2><b className="company-description-label">{data.source === "Sample data" ? "WHAT THE COMPANY DOES · SAMPLE" : `WHAT THE COMPANY DOES · ${data.company.descriptionSource || "COMPANY PROFILE"}`}</b><p>{briefDescription(data.company.description)}</p><Link className="deep-analysis-link" href={`/company-analysis?symbol=${encodeURIComponent(data.company.symbol)}`}>{data.source === "Sample data" ? "Open sample supply chain, customer concentration & default-risk analysis →" : "Open SEC supply chain, customer concentration & default-risk analysis →"}</Link></div>
-      <dl><div><dt>{priceContext.label}</dt><dd>{usd.format(model.marketPrice)}<small>{priceContext.detail}</small></dd></div><div><dt>Industry</dt><dd>{data.company.industry}</dd></div><div><dt>Financials through</dt><dd>{data.asOf}</dd></div><div><dt>Data source</dt><dd>{data.source}</dd></div></dl>
+      <dl><div><dt>{priceContext.label}</dt><dd>{usd.format(model.marketPrice)}<small>{priceContext.detail}</small></dd></div><div><dt>Business niche</dt><dd>{data.comparison?.nicheLabel || data.company.industry}<small>{data.comparison?.industryExplanation || `Reported industry: ${data.company.industry}`}</small></dd></div><div><dt>Financials through</dt><dd>{data.asOf}</dd></div><div><dt>Data source</dt><dd>{data.source}</dd></div></dl>
     </section>
 
     <section className="sheet-section" id="valuation">
@@ -650,7 +664,7 @@ export default function Home() {
 
     <section className="sheet-section" id="assumptions">
       <div className="section-heading"><div><span className="section-index">03</span><p>INPUTS</p><h2>Editable assumptions</h2></div><div className="unit-note">GREEN CELLS ARE EDITABLE</div></div>
-      <div className="recommendation"><b>{data.company.industry} starting point</b><p>{rec.note}</p><span>{data.comparison?.industryGrowthRate === null || data.comparison?.industryGrowthRate === undefined ? "Peer industry growth was unavailable. " : `Observed peer industry revenue growth: ${fmt.format(data.comparison.industryGrowthRate)}%. `}This near-term benchmark is separate from the editable long-run terminal growth rate.</span></div>
+      <div className="recommendation"><b>{data.comparison?.nicheLabel || data.company.industry} starting point</b><p>{rec.note}</p><span>{data.comparison?.industryGrowthRate === null || data.comparison?.industryGrowthRate === undefined ? "Niche-peer growth was unavailable. " : `Observed niche-peer revenue growth: ${fmt.format(data.comparison.industryGrowthRate)}%. `}This near-term benchmark is separate from the editable long-run terminal growth rate.</span></div>
       <div className="assumption-grid">
         <NumberField label="Starting revenue growth" term="revenueGrowth" value={model.growth} suffix="%" help="Year 1 sales growth. The model fades it toward terminal growth over five years." onChange={(value) => update("growth", value)}/>
         <NumberField label="Target EBIT margin" term="ebitMargin" value={model.margin} suffix="%" help="Year 5 operating margin before interest and tax." onChange={(value) => update("margin", value)}/>
