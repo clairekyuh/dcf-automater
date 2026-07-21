@@ -435,6 +435,54 @@ function moveFromPrice(value: number, price: number) {
   return { change, label: change >= 0 ? "Upside" : "Downside" };
 }
 
+function geopoliticalExposure(data: CompanyData) {
+  const country = data.company.country || "Unknown domicile";
+  const businessNiche = data.comparison?.nicheLabel || data.company.industry || data.company.sector;
+  const context = `${businessNiche} ${data.company.industry} ${data.company.sector} ${data.company.description}`;
+  const filingSignal = data.businessAnalysis?.supplyChain.signals.find((signal) =>
+    /geographic|china|taiwan|export|sanction|trade/i.test(`${signal.title} ${signal.detail}`),
+  );
+  const countryRisk = /china|russia|taiwan|ukraine|israel/i.test(country);
+  let sensitiveIndustry = false;
+  let channel = `The automated data does not identify an obvious geopolitically sensitive business model. The main unanswered questions are how much revenue, sourcing, and operating capacity sit outside ${country}.`;
+
+  if (/ai[- ]native|gpu cloud|accelerated[- ]compute|data center/i.test(context)) {
+    sensitiveIndustry = true;
+    channel = "The practical exposures are advanced-GPU export controls, a concentrated Asian chip supply chain, and country-specific power and data-center rules. Restrictions or conflict could delay server deliveries, raise equipment costs, or limit which customers the company can serve.";
+  } else if (/electronic design automation|semiconductor ip|chip[- ]design/i.test(context)) {
+    sensitiveIndustry = true;
+    channel = "The practical exposures are export-license restrictions on chip-design software or IP, especially for certain Chinese customers, plus dependence on a semiconductor ecosystem concentrated in Taiwan and East Asia. Those restrictions can reduce sales or disrupt customers' product schedules.";
+  } else if (/semiconductor|chip|foundr/i.test(context)) {
+    sensitiveIndustry = true;
+    channel = "The practical exposures are fabrication and packaging capacity concentrated in East Asia, restrictions on advanced-chip sales to China, and limits on semiconductor equipment exports. A disruption can reduce available supply, delay launches, or increase input costs.";
+  } else if (/aerospace|defense/i.test(context)) {
+    sensitiveIndustry = true;
+    channel = "The practical exposures are government procurement decisions, sanctions, export licenses, and restrictions on selling sensitive products across borders. These can delay contracts or prevent sales to particular customers and countries.";
+  } else if (/oil|gas|energy|mining|commodity/i.test(context)) {
+    sensitiveIndustry = true;
+    channel = "The practical exposures are sanctions, resource nationalism, cross-border pipelines or shipping routes, and local taxes or royalties. These can interrupt production, raise transport costs, or restrict access to markets.";
+  } else if (/shipping|freight|maritime/i.test(context)) {
+    sensitiveIndustry = true;
+    channel = "The practical exposures are wars and sanctions that close trade routes, port restrictions, and disruption at shipping chokepoints. These can lengthen routes, raise fuel and insurance costs, or reduce shipment volumes.";
+  } else if (/cloud|software|internet|telecom/i.test(context)) {
+    channel = "The main cross-border exposures are data-localization laws, privacy rules, sanctions, and government restrictions on digital services. These can require local infrastructure, increase compliance costs, or block service in a market.";
+  }
+
+  if (filingSignal) {
+    channel = `${filingSignal.detail} ${channel}`;
+  }
+
+  const level: "high" | "medium" | "low" = countryRisk ? "high" : filingSignal || sensitiveIndustry ? "medium" : "low";
+  const evidenceLimit = data.businessAnalysis?.supplyChain.filingReviewed
+    ? "This screen reviewed the latest annual filing, but it does not calculate revenue or supplier percentages by country."
+    : "A parseable annual filing was not available, so this screen uses only the reported region and business type—not revenue or supplier percentages by country.";
+  return {
+    level,
+    title: "Geopolitical and cross-border exposure",
+    detail: `For ${data.company.symbol}, the dataset lists ${country} as its region and identifies the business as ${businessNiche}. ${channel} This matters to the DCF because it can lower revenue growth or increase capex and operating costs. ${evidenceLimit}`,
+  };
+}
+
 function riskAnalysis(data: CompanyData, model: Model, perpetuity: ReturnType<typeof calculate>, multiple: ReturnType<typeof calculate>) {
   const risks: Array<{ level: "high" | "medium" | "low"; title: string; detail: string }> = [];
   const capex = data.metrics.capexPercentRevenue;
@@ -443,18 +491,24 @@ function riskAnalysis(data: CompanyData, model: Model, perpetuity: ReturnType<ty
   risks.push({ level: leverage > 1 ? "high" : leverage > .45 ? "medium" : "low", title: "Balance-sheet leverage", detail: `Debt equals ${fmt.format(leverage * 100)}% of annual revenue. Refinancing risk rises if rates increase or earnings deteriorate.` });
   const terminalShare = Math.max(perpetuity.terminalShare, multiple.terminalShare);
   risks.push({ level: terminalShare > 80 ? "high" : terminalShare > 65 ? "medium" : "low", title: "Terminal-value dependence", detail: `${fmt.format(perpetuity.terminalShare)}% of perpetual-growth enterprise value and ${fmt.format(multiple.terminalShare)}% of exit-multiple enterprise value come from value beyond Year 5.` });
-  const country = data.company.country || "Unknown";
-  const geoHigh = /china|russia|taiwan|ukraine|israel/i.test(country);
-  const businessNiche = data.comparison?.nicheLabel || data.company.industry;
-  const geoMedium = /semiconductor|aerospace|defense|energy|mining|shipping|telecom|AI-native GPU cloud|data center/i.test(`${businessNiche} ${data.company.sector}`);
-  risks.push({ level: geoHigh ? "high" : geoMedium ? "medium" : "low", title: "Geopolitical exposure", detail: `${country} domicile and ${businessNiche} exposure can create trade, sanctions, supply-chain, currency, or regulatory risk. This is a screen, not geographic revenue analysis.` });
-  const margins = data.historical.map((row) => row.ebitMargin).filter(Number.isFinite);
-  const spread = margins.length ? Math.max(...margins) - Math.min(...margins) : 0;
-  risks.push({ level: spread > 15 ? "high" : spread > 7 ? "medium" : "low", title: "Margin stability", detail: `Historical EBIT margin range is ${fmt.format(spread)} percentage points. Wide swings reduce forecast reliability.` });
+  risks.push(geopoliticalExposure(data));
+  const marginRows = data.historical.filter((row) => Number.isFinite(row.ebitMargin));
+  const lowMarginRow = marginRows.reduce<HistoricalRow | null>((lowest, row) => !lowest || row.ebitMargin < lowest.ebitMargin ? row : lowest, null);
+  const highMarginRow = marginRows.reduce<HistoricalRow | null>((highest, row) => !highest || row.ebitMargin > highest.ebitMargin ? row : highest, null);
+  const spread = lowMarginRow && highMarginRow ? highMarginRow.ebitMargin - lowMarginRow.ebitMargin : 0;
+  const marginDetail = lowMarginRow && highMarginRow
+    ? `EBIT margin ranged from ${fmt.format(lowMarginRow.ebitMargin)}% in ${lowMarginRow.year} to ${fmt.format(highMarginRow.ebitMargin)}% in ${highMarginRow.year}, a ${fmt.format(spread)} percentage-point swing. The DCF currently assumes a ${fmt.format(model.margin)}% margin. A wide historical range means operating profit—and therefore free cash flow—may be harder to forecast reliably.`
+    : `There was not enough historical EBIT-margin data to judge stability. The DCF currently assumes a ${fmt.format(model.margin)}% margin, so verify that assumption against company guidance and a full business cycle.`;
+  risks.push({ level: spread > 15 ? "high" : spread > 7 ? "medium" : "low", title: "Operating-margin consistency", detail: marginDetail });
   const lowValue = Math.min(perpetuity.perShare, multiple.perShare);
   const highValue = Math.max(perpetuity.perShare, multiple.perShare);
   const conservativeMove = moveFromPrice(lowValue, model.marketPrice);
-  risks.push({ level: conservativeMove.change < 10 ? "high" : conservativeMove.change < 25 ? "medium" : "low", title: "Valuation cushion", detail: `The two methods imply ${usd.format(lowValue)}–${usd.format(highValue)} per share versus the market-price input. A narrow or negative cushion leaves little room for forecast error.` });
+  const valuationDetail = model.marketPrice <= 0
+    ? `The two DCF methods imply ${usd.format(lowValue)}–${usd.format(highValue)} per share, but a valid market price was unavailable, so the model cannot measure room for forecast error.`
+    : conservativeMove.change >= 0
+      ? `The lower of the two DCF estimates is ${usd.format(lowValue)}, which is ${fmt.format(conservativeMove.change)}% above the ${usd.format(model.marketPrice)} market-price input. That difference is the room for forecast error: the conservative estimate exceeds the price by ${usd.format(lowValue - model.marketPrice)} per share. The other method gives ${usd.format(highValue)}.`
+      : `The lower of the two DCF estimates is ${usd.format(lowValue)}, which is ${fmt.format(Math.abs(conservativeMove.change))}% below the ${usd.format(model.marketPrice)} market-price input. On the more conservative method, the stock price already exceeds estimated value, so there is no margin of safety. The other method gives ${usd.format(highValue)}.`;
+  risks.push({ level: conservativeMove.change < 10 ? "high" : conservativeMove.change < 25 ? "medium" : "low", title: "Room for forecast error", detail: valuationDetail });
   return risks;
 }
 
@@ -1016,7 +1070,7 @@ export default function Home() {
     <CompetitorComparison data={data}/>
 
     <section className="sheet-section" id="risks">
-      <div className="section-heading"><div><span className="section-index">06</span><p>DECISION REVIEW</p><h2>Potential risks</h2></div><p className="section-description">Automated screening flags based on available financials, domicile, industry, and both DCF methods. Verify material risks in company filings.</p></div>
+      <div className="section-heading"><div><span className="section-index">06</span><h2>Potential risks</h2></div><p className="section-description">Each card explains the available evidence, what the risk means for the business, and how it could affect the DCF. Verify material risks in company filings.</p></div>
       <div className="risk-grid">{risks.map((risk) => <article key={risk.title}><span className={`risk-pill ${risk.level}`}>{risk.level}</span><h3>{risk.title}</h3><p>{risk.detail}</p></article>)}</div>
       <div className="decision-checklist"><h3>Investment-decision checklist</h3><ul><li>Read the latest annual report, risk factors, and management guidance.</li><li>Map revenue, suppliers, and operations by country.</li><li>Compare assumptions with direct peers and a full business cycle.</li><li>Stress-test dilution, acquisitions, regulation, and refinancing.</li><li>Define the evidence that would invalidate the thesis.</li><li>Require a margin of safety appropriate for forecast uncertainty.</li></ul></div>
     </section>

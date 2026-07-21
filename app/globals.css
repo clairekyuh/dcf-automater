@@ -237,7 +237,7 @@ table{border-collapse:collapse;width:100%}
 .risk-pill.medium{background:var(--amber)}
 .risk-pill.low{background:var(--green)}
 .risk-grid h3{font-size:14px;color:var(--navy-dark);margin:12px 0 8px}
-.risk-grid p{font-size:10px;line-height:1.6;color:#5c6974;margin:0}
+.risk-grid p{font-size:11px;line-height:1.65;color:#4f5e68;margin:0}
 .decision-checklist{margin-top:18px;background:var(--navy-dark);color:white;padding:21px}
 .decision-checklist h3{font-size:14px;margin:0}
 .decision-checklist ul{display:grid;grid-template-columns:1fr 1fr;gap:9px 34px;margin:14px 0 0;padding-left:18px}
