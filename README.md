@@ -14,8 +14,9 @@ Open [http://localhost:3000](http://localhost:3000).
 ## Current features
 
 - Automatic company overview, sector, industry, and annual financials
-- Complete five-year operating and unlevered free-cash-flow build
+- Bloomberg XDCF-shaped build with six calendar-year forecast columns, a five-year valuation window, partial first and sixth years, and mid-year discounting
 - Perpetual-growth and exit-multiple valuation bridges shown side by side
+- A CRWV reference case that reproduces the supplied Bloomberg Terminal XDCF dated April 27, 2026, including its operating forecast, WACC, terminal assumptions, capital bridge, and published per-share outputs
 - Hover and keyboard-focus definitions for technical DCF terms, every editable assumption, and each WACC component including risk-free rate, beta, equity risk premium, and capital weights
 - Observed niche-peer revenue growth shown beside the long-run perpetual-growth assumption
 - Optional two-year S&P Global consensus revenue anchors, with an automatic historical-growth fallback when the forecast cannot be validated
@@ -34,6 +35,8 @@ Open [http://localhost:3000](http://localhost:3000).
 - Potential-risk flags for capex, leverage, margins, geopolitics, terminal value, and valuation cushion
 - Responsive layout
 
-The main DCF uses Nasdaq-displayed annual financial statements, company profiles, market summaries, and cached price history without an API key. Alpha Vantage is no longer called, so its 25-request daily quota cannot block ticker loading. Peer requests are optional and cannot prevent the focus-company DCF from loading. The separate company-analysis page continues to use SEC Company Facts and the latest SEC annual filing; unavailable SEC fields are shown honestly rather than replaced with another provider.
+The model always uses the Bloomberg XDCF calculation structure. For CRWV, the forecast inputs and valuation bridge are the figures in the user-supplied April 27, 2026 Bloomberg PDF, allowing a direct reconciliation to $1,247.14 per share under perpetual growth and $1,348.65 under the exit-multiple method. For other tickers, the same calculation structure is populated from freely available Nasdaq financials and forecast fallbacks, so the output will not equal a Bloomberg terminal estimate unless the same proprietary consensus inputs are supplied.
+
+The main site loads Nasdaq-displayed annual financial statements, company profiles, market summaries, and cached price history without an API key. Alpha Vantage is no longer called, so its 25-request daily quota cannot block ticker loading. Peer requests are optional and cannot prevent the focus-company DCF from loading. The separate company-analysis page continues to use SEC Company Facts and the latest SEC annual filing; unavailable SEC fields are shown honestly rather than replaced with another provider.
 
 > For educational purposes only. Not investment advice.

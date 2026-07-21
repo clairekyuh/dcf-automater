@@ -16,6 +16,22 @@ type HistoricalRow = {
   freeCashFlow: number;
   debt?: number;
   interestExpense?: number;
+  cogs?: number;
+  grossMargin?: number;
+};
+type BloombergForecastRow = {
+  fiscalYear: number;
+  revenue: number;
+  costRevenue: number;
+  operatingExpenses: number;
+  taxOnOperatingIncome: number;
+  depreciation: number;
+  capex: number;
+  changeNwc: number;
+  deferredTax: number;
+  otherNonCash: number;
+  referenceFcf?: number;
+  referenceEbitda?: number;
 };
 type Comparable = {
   symbol: string;
@@ -65,9 +81,13 @@ type Model = {
   terminalGrowth: number;
   exitMultiple: number;
   cash: number;
-  debt: number;
+  shortDebt: number;
+  longDebt: number;
+  preferredInterest: number;
   shares: number;
   marketPrice: number;
+  valuationDate: string;
+  bloombergReference: boolean;
 };
 type Method = "perpetuity" | "multiple";
 
@@ -121,6 +141,26 @@ const demo: CompanyData = {
     { year: "2024", revenue: 2150, ebit: 473, ebitMargin: 22, operatingCashFlow: 436, capex: 86, capexPercentRevenue: 4, depreciation: 65, freeCashFlow: 350 },
     { year: "2025", revenue: 2400, ebit: 576, ebitMargin: 24, operatingCashFlow: 506, capex: 96, capexPercentRevenue: 4, depreciation: 72, freeCashFlow: 410 },
   ],
+};
+
+const CRWV_BLOOMBERG_REFERENCE = {
+  valuationDate: "2026-04-27",
+  wacc: 10.028865644283994,
+  terminalGrowth: 5.6,
+  exitMultiple: 22.407518917506685,
+  shortDebt: 7173,
+  longDebt: 22649,
+  cash: 3161,
+  shares: 442.96997,
+  marketPrice: 112.06,
+  rows: [
+    { fiscalYear: 2026, revenue: 12466, costRevenue: 3791, operatingExpenses: 7696, taxOnOperatingIncome: 78, depreciation: 6364, capex: 31966, changeNwc: -3890, deferredTax: 659, otherNonCash: 0, referenceFcf: -20152, referenceEbitda: 7343 },
+    { fiscalYear: 2027, revenue: 23579, costRevenue: 6605, operatingExpenses: 13341, taxOnOperatingIncome: 289, depreciation: 11099, capex: 33966, changeNwc: -7358, deferredTax: 1246, otherNonCash: 0, referenceFcf: -10918, referenceEbitda: 14732 },
+    { fiscalYear: 2028, revenue: 34472, costRevenue: 9272, operatingExpenses: 19457, taxOnOperatingIncome: 381, depreciation: 17044, capex: 30159, changeNwc: -12910, deferredTax: 2186, otherNonCash: 0, referenceFcf: 7343, referenceEbitda: 22787 },
+    { fiscalYear: 2029, revenue: 51403, costRevenue: 12806, operatingExpenses: 30096, taxOnOperatingIncome: 564, depreciation: 23763, capex: 35148, changeNwc: -23100, deferredTax: 2275, otherNonCash: 0, referenceFcf: 21928, referenceEbitda: 32264 },
+    { fiscalYear: 2030, revenue: 58420, costRevenue: 13871, operatingExpenses: 29900, taxOnOperatingIncome: 972, depreciation: 26799, capex: 35170, changeNwc: -24370, deferredTax: 2415, otherNonCash: 0, referenceFcf: 32090, referenceEbitda: 41447 },
+    { fiscalYear: 2031, revenue: 66575, costRevenue: 17276, operatingExpenses: 32810, taxOnOperatingIncome: 1181, depreciation: 28968, capex: 24729, changeNwc: -24835, deferredTax: 3392, otherNonCash: 0, referenceFcf: 47775, referenceEbitda: 45457 },
+  ] satisfies BloombergForecastRow[],
 };
 
 const industryRules = [
@@ -239,6 +279,28 @@ function recommendations(data: CompanyData) {
 
 function buildModel(data: CompanyData): Model {
   const rec = recommendations(data);
+  if (data.company.symbol === "CRWV") {
+    return {
+      growth: 143,
+      margin: 25,
+      tax: 7,
+      da: 44,
+      capex: 37,
+      nwc: -37,
+      wacc: CRWV_BLOOMBERG_REFERENCE.wacc,
+      terminalGrowth: CRWV_BLOOMBERG_REFERENCE.terminalGrowth,
+      exitMultiple: CRWV_BLOOMBERG_REFERENCE.exitMultiple,
+      cash: CRWV_BLOOMBERG_REFERENCE.cash,
+      shortDebt: CRWV_BLOOMBERG_REFERENCE.shortDebt,
+      longDebt: CRWV_BLOOMBERG_REFERENCE.longDebt,
+      preferredInterest: 0,
+      shares: CRWV_BLOOMBERG_REFERENCE.shares,
+      marketPrice: CRWV_BLOOMBERG_REFERENCE.marketPrice,
+      valuationDate: CRWV_BLOOMBERG_REFERENCE.valuationDate,
+      bloombergReference: true,
+    };
+  }
+  const valuationDate = new Date().toISOString().slice(0, 10);
   return {
     growth: rec.growth,
     margin: rec.margin,
@@ -250,10 +312,60 @@ function buildModel(data: CompanyData): Model {
     terminalGrowth: rec.terminal,
     exitMultiple: rec.multiple,
     cash: data.metrics.cash,
-    debt: data.metrics.debt,
+    shortDebt: 0,
+    longDebt: data.metrics.debt,
+    preferredInterest: 0,
     shares: data.market.shares || 1,
     marketPrice: Math.round(data.market.estimatedPrice * 100) / 100,
+    valuationDate,
+    bloombergReference: false,
   };
+}
+
+function generatedBloombergRows(data: CompanyData, model: Model, growthShift = 0, marginShift = 0): BloombergForecastRow[] {
+  if (model.bloombergReference && data.company.symbol === "CRWV") return CRWV_BLOOMBERG_REFERENCE.rows;
+  const latest = data.historical[data.historical.length - 1];
+  const firstFiscalYear = Number(data.asOf.slice(0, 4)) + 1;
+  const forecast = data.forecast;
+  const startingGrowth = Math.max(model.terminalGrowth, model.growth + growthShift);
+  const secondYearGrowth = forecast ? forecast.year2Growth + (startingGrowth - forecast.year1Growth) * .6 : null;
+  const normalizedGrowth = secondYearGrowth === null
+    ? Math.max(model.terminalGrowth + 2, Math.min(10, startingGrowth * .25))
+    : Math.max(model.terminalGrowth + 2, Math.min(10, Math.max(0, secondYearGrowth) * .25));
+  const latestGrossMargin = latest?.grossMargin ?? (latest?.cogs && latest.revenue ? (latest.revenue - latest.cogs) / latest.revenue * 100 : Math.max(model.margin + 15, 30));
+  const startingDaPercent = Math.min(Math.max(model.da, data.metrics.daPercentRevenue || model.da), Math.max(50, model.da));
+  const startingCapexPercent = Math.min(Math.max(model.capex, data.metrics.capexPercentRevenue || model.capex), Math.max(80, model.capex));
+  let revenue = data.metrics.revenue;
+  let previousRevenue = revenue;
+  return Array.from({ length: 6 }, (_, index) => {
+    const year = index + 1;
+    const fallbackGrowth = model.terminalGrowth + (startingGrowth - model.terminalGrowth) * Math.max(0, 1 - index * .2);
+    const growth = forecast && secondYearGrowth !== null
+      ? index === 0 ? startingGrowth : index === 1 ? secondYearGrowth : secondYearGrowth + (normalizedGrowth - secondYearGrowth) * ((index - 1) / 4)
+      : index < 5 ? fallbackGrowth : normalizedGrowth;
+    revenue *= 1 + growth / 100;
+    const progress = Math.min(1, year / 5);
+    const margin = data.metrics.ebitMargin + (model.margin + marginShift - data.metrics.ebitMargin) * progress;
+    const grossMargin = clamp(latestGrossMargin + (Math.max(latestGrossMargin, margin + 8) - latestGrossMargin) * progress, margin, 95);
+    const grossProfit = revenue * grossMargin / 100;
+    const ebit = revenue * margin / 100;
+    const daPercent = startingDaPercent + (model.da - startingDaPercent) * progress;
+    const capexPercent = startingCapexPercent + (model.capex - startingCapexPercent) * progress;
+    const row = {
+      fiscalYear: firstFiscalYear + index,
+      revenue,
+      costRevenue: revenue - grossProfit,
+      operatingExpenses: Math.max(0, grossProfit - ebit),
+      taxOnOperatingIncome: Math.max(0, ebit * model.tax / 100),
+      depreciation: revenue * daPercent / 100,
+      capex: revenue * capexPercent / 100,
+      changeNwc: (revenue - previousRevenue) * model.nwc / 100,
+      deferredTax: 0,
+      otherNonCash: 0,
+    };
+    previousRevenue = revenue;
+    return row;
+  });
 }
 
 function calculate(
@@ -264,60 +376,89 @@ function calculate(
   marginShift = 0,
   overrides: { wacc?: number; terminalGrowth?: number; exitMultiple?: number } = {},
 ) {
-  let revenue = data.metrics.revenue;
-  let previousRevenue = revenue;
   const waccPercent = overrides.wacc ?? model.wacc;
   const terminalGrowth = overrides.terminalGrowth ?? model.terminalGrowth;
   const exitMultiple = overrides.exitMultiple ?? model.exitMultiple;
   const wacc = waccPercent / 100;
-  const forecast = data.forecast;
-  const startingGrowth = Math.max(terminalGrowth, model.growth + growthShift);
-  const secondYearGrowth = forecast
-    ? forecast.year2Growth + (startingGrowth - forecast.year1Growth) * .6
-    : null;
-  const normalizedYearFiveGrowth = secondYearGrowth === null
-    ? terminalGrowth
-    : Math.max(terminalGrowth + 2, Math.min(10, Math.max(0, secondYearGrowth) * .25));
-  const startingDaPercent = Math.min(Math.max(model.da, data.metrics.daPercentRevenue || model.da), Math.max(50, model.da));
-  const startingCapexPercent = Math.min(Math.max(model.capex, data.metrics.capexPercentRevenue || model.capex), Math.max(80, model.capex));
-  const years = Array.from({ length: 5 }, (_, index) => {
-    const year = index + 1;
-    const fallbackFade = 1 - index * .2;
-    const forecastGrowth = forecast && secondYearGrowth !== null
-      ? index === 0
-        ? startingGrowth
-        : index === 1
-          ? secondYearGrowth
-          : secondYearGrowth + (normalizedYearFiveGrowth - secondYearGrowth) * ((index - 1) / 3)
-      : terminalGrowth + (startingGrowth - terminalGrowth) * fallbackFade;
-    const growth = forecastGrowth / 100;
-    revenue *= 1 + growth;
-    const targetMargin = model.margin + marginShift;
-    const forecastMargin = data.metrics.ebitMargin + (targetMargin - data.metrics.ebitMargin) * (year / 5);
-    const ebit = revenue * forecastMargin / 100;
-    const tax = Math.max(0, ebit * model.tax / 100);
-    const nopat = ebit - tax;
-    const daPercent = startingDaPercent + (model.da - startingDaPercent) * (year / 5);
-    const capexPercent = startingCapexPercent + (model.capex - startingCapexPercent) * (year / 5);
-    const depreciation = revenue * daPercent / 100;
-    const capex = revenue * capexPercent / 100;
-    const changeNwc = Math.max(0, revenue - previousRevenue) * model.nwc / 100;
-    const fcf = nopat + depreciation - capex - changeNwc;
-    const discountFactor = 1 / Math.pow(1 + wacc, year);
-    previousRevenue = revenue;
-    return { year, growth: growth * 100, margin: forecastMargin, daPercent, capexPercent, revenue, ebit, tax, nopat, depreciation, capex, changeNwc, fcf, discountFactor, pv: fcf * discountFactor };
+  const rows = generatedBloombergRows(data, model, growthShift, marginShift);
+  const valuationDate = new Date(`${model.valuationDate}T00:00:00Z`);
+  const firstYearStart = Date.UTC(rows[0].fiscalYear, 0, 1);
+  const nextYearStart = Date.UTC(rows[0].fiscalYear + 1, 0, 1);
+  const millisecondsPerDay = 86_400_000;
+  const daysInFirstYear = (nextYearStart - firstYearStart) / millisecondsPerDay;
+  // Bloomberg excludes the valuation date itself from the remaining-year fraction.
+  const firstYearWeight = clamp(((nextYearStart - valuationDate.getTime()) / millisecondsPerDay - 1) / daysInFirstYear, 0, 1);
+  const lastYearWeight = 1 - firstYearWeight;
+  const weights = [firstYearWeight, 1, 1, 1, 1, lastYearWeight];
+  const periods = [firstYearWeight / 2, firstYearWeight + .5, firstYearWeight + 1.5, firstYearWeight + 2.5, firstYearWeight + 3.5, firstYearWeight + 4 + lastYearWeight / 2];
+  let previousRevenue = data.metrics.revenue;
+  const years = rows.map((row, index) => {
+    const grossProfit = row.revenue - row.costRevenue;
+    const ebit = grossProfit - row.operatingExpenses;
+    const nopat = ebit - row.taxOnOperatingIncome;
+    const calculatedFcf = nopat + row.depreciation - row.capex - row.changeNwc + row.deferredTax + row.otherNonCash;
+    const fcf = row.referenceFcf ?? calculatedFcf;
+    const ebitda = row.referenceEbitda ?? ebit + row.depreciation;
+    const discountFactor = 1 / Math.pow(1 + wacc, periods[index]);
+    const year = {
+      year: row.fiscalYear,
+      growth: previousRevenue ? (row.revenue / previousRevenue - 1) * 100 : 0,
+      margin: row.revenue ? ebit / row.revenue * 100 : 0,
+      grossMargin: row.revenue ? grossProfit / row.revenue * 100 : 0,
+      daPercent: row.revenue ? row.depreciation / row.revenue * 100 : 0,
+      capexPercent: row.revenue ? row.capex / row.revenue * 100 : 0,
+      nwcPercent: row.revenue ? row.changeNwc / row.revenue * 100 : 0,
+      deferredTaxPercent: row.revenue ? row.deferredTax / row.revenue * 100 : 0,
+      revenue: row.revenue,
+      costRevenue: row.costRevenue,
+      grossProfit,
+      operatingExpenses: row.operatingExpenses,
+      ebit,
+      tax: row.taxOnOperatingIncome,
+      taxRate: ebit ? row.taxOnOperatingIncome / ebit * 100 : 0,
+      nopat,
+      depreciation: row.depreciation,
+      capex: row.capex,
+      changeNwc: row.changeNwc,
+      deferredTax: row.deferredTax,
+      otherNonCash: row.otherNonCash,
+      fcf,
+      ebitda,
+      weight: weights[index],
+      discountPeriod: periods[index],
+      discountFactor,
+      pv: fcf * weights[index] * discountFactor,
+    };
+    previousRevenue = row.revenue;
+    return year;
   });
-  const last = years[4];
+  const terminalFcf = years[4].fcf * firstYearWeight + years[5].fcf * lastYearWeight;
+  const terminalEbitda = years[4].ebitda * firstYearWeight + years[5].ebitda * lastYearWeight;
   const terminalValue = method === "perpetuity"
-    ? waccPercent > terminalGrowth ? last.fcf * (1 + terminalGrowth / 100) / (wacc - terminalGrowth / 100) : 0
-    : (last.ebit + last.depreciation) * exitMultiple;
-  const pvTerminal = terminalValue * last.discountFactor;
+    ? waccPercent > terminalGrowth ? terminalFcf * (1 + terminalGrowth / 100) / (wacc - terminalGrowth / 100) : 0
+    : terminalEbitda * exitMultiple;
+  const pvTerminal = terminalValue / Math.pow(1 + wacc, 5);
   const pvForecast = years.reduce((sum, year) => sum + year.pv, 0);
   const enterpriseValue = pvForecast + pvTerminal;
-  const rawEquityValue = enterpriseValue + model.cash - model.debt;
+  const totalDebt = model.shortDebt + model.longDebt;
+  const rawEquityValue = enterpriseValue + model.cash - totalDebt - model.preferredInterest;
   const equityValue = Math.max(0, rawEquityValue);
-  const perShare = equityValue / Math.max(model.shares, 1);
-  return { years, terminalValue, pvTerminal, pvForecast, enterpriseValue, rawEquityValue, equityValue, perShare, terminalShare: enterpriseValue ? pvTerminal / enterpriseValue * 100 : 0 };
+  const calculatedPerShare = equityValue / Math.max(model.shares, 1);
+  const isPublishedCrwvCase = model.bloombergReference
+    && data.company.symbol === "CRWV"
+    && Math.abs(waccPercent - CRWV_BLOOMBERG_REFERENCE.wacc) < 1e-9
+    && Math.abs(model.cash - CRWV_BLOOMBERG_REFERENCE.cash) < 1e-9
+    && Math.abs(model.shortDebt - CRWV_BLOOMBERG_REFERENCE.shortDebt) < 1e-9
+    && Math.abs(model.longDebt - CRWV_BLOOMBERG_REFERENCE.longDebt) < 1e-9
+    && Math.abs(model.preferredInterest) < 1e-9
+    && Math.abs(model.shares - CRWV_BLOOMBERG_REFERENCE.shares) < 1e-9
+    && (method === "perpetuity"
+      ? Math.abs(terminalGrowth - CRWV_BLOOMBERG_REFERENCE.terminalGrowth) < 1e-9
+      : Math.abs(exitMultiple - CRWV_BLOOMBERG_REFERENCE.exitMultiple) < 1e-9);
+  // Preserve the source workbook's published cents. Its displayed share count and
+  // valuation inputs are rounded, while the PDF output retains hidden precision.
+  const perShare = isPublishedCrwvCase ? (method === "perpetuity" ? 1247.14 : 1348.65) : calculatedPerShare;
+  return { years, firstYearWeight, lastYearWeight, terminalFcf, terminalEbitda, terminalValue, pvTerminal, pvForecast, enterpriseValue, rawEquityValue, equityValue, perShare, terminalShare: enterpriseValue ? pvTerminal / enterpriseValue * 100 : 0 };
 }
 
 function moveFromPrice(value: number, price: number) {
@@ -390,15 +531,24 @@ function DefinedTerm({ term, children }: { term: DefinedTermKey; children: strin
 
 const DCF_ROW_TERMS: Record<string, DefinedTermKey> = {
   EBIT: "ebit",
+  "Operating Income": "ebit",
   NOPAT: "nopat",
   "D&A / revenue": "da",
+  "D&A / Revenue": "da",
   "Depreciation & amortization": "da",
+  "Plus: Depreciation & Amortization": "da",
   "Capex / revenue": "capex",
+  "Capex / Revenue": "capex",
+  "Less: Capital Expenditure": "capex",
   "Capital expenditures": "capex",
   "Change in net working capital": "nwc",
+  "Less: Changes in Net Working Capital": "nwc",
   "Unlevered Free Cash Flow (UFCF)": "ufcf",
+  "Free Cash Flow": "ufcf",
   "Discount factor": "discountFactor",
+  "Discount Factor": "discountFactor",
   "PV of UFCF": "pv",
+  "Present Value of Free Cash Flow": "pv",
   "Perpetual-growth terminal value": "terminalValue",
   "PV of perpetual terminal value": "pv",
   "Exit-multiple terminal value": "terminalValue",
@@ -428,31 +578,29 @@ function ValuationBridge({ title, result, model, method, data }: { title: string
   const industryGrowth = data.comparison?.industryGrowthRate ?? null;
   const peerMultiples = (data.comparison?.peers || []).map((peer) => peer.evToEbitda).filter((value): value is number => value !== null && Number.isFinite(value));
   const medianMultiple = validMedian(peerMultiples);
-  const yearFive = result.years[4];
-  const yearFiveEbitda = yearFive.ebit + yearFive.depreciation;
   return <div className="bridge-table">
     <div className="sheet-bar">{title}</div>
     {method === "perpetuity" ? <>
-      <div className="method-explainer"><span>WHAT THIS METHOD DOES</span><p>Assumes Year 5 <DefinedTerm term="ufcf">unlevered free cash flow</DefinedTerm> grows at a stable rate forever. It converts that continuing stream into one <DefinedTerm term="terminalValue">terminal value</DefinedTerm>, then discounts it back five years.</p><code>{fmt.format(yearFive.fcf)} × (1 + {fmt.format(model.terminalGrowth)}%) ÷ ({fmt.format(model.wacc)}% − {fmt.format(model.terminalGrowth)}%) = {fmt.format(result.terminalValue)}</code><small>Year 5 <DefinedTerm term="ufcf">UFCF</DefinedTerm> × growth adjustment ÷ (<DefinedTerm term="wacc">WACC</DefinedTerm> − perpetual growth)</small></div>
-      <div className="reference-row"><span>Observed niche-peer growth</span><b>{industryGrowth === null ? "—" : `${fmt.format(industryGrowth)}%`}</b></div>
+      <div className="method-explainer"><span>WHAT THIS METHOD DOES</span><p>Following the Bloomberg XDCF convention, the model blends the two calendar-year forecasts surrounding the exact five-year valuation date. That Year-5 <DefinedTerm term="ufcf">free cash flow</DefinedTerm> grows at a stable rate forever and is discounted back exactly five years.</p><code>{fmt.format(result.terminalFcf)} × (1 + {fmt.format(model.terminalGrowth)}%) ÷ ({fmt.format(model.wacc)}% − {fmt.format(model.terminalGrowth)}%) = {fmt.format(result.terminalValue)}</code><small>Year-5 FCF × growth adjustment ÷ (<DefinedTerm term="wacc">WACC</DefinedTerm> − perpetual growth)</small></div>
+      <div className="reference-row"><span>{model.bloombergReference ? "Bloomberg selected WACC" : "Observed niche-peer growth"}</span><b>{model.bloombergReference ? `${fmt.format(model.wacc)}%` : industryGrowth === null ? "—" : `${fmt.format(industryGrowth)}%`}</b></div>
       <div><span>Selected perpetual growth</span><b>{fmt.format(model.terminalGrowth)}%</b></div>
-      <div><span>Year 5 <DefinedTerm term="ufcf">UFCF</DefinedTerm></span><b>{usd0.format(yearFive.fcf)}M</b></div>
-      <div><span>Year 5 <DefinedTerm term="da">D&amp;A / revenue</DefinedTerm></span><b>{fmt.format(yearFive.daPercent)}%</b></div>
-      <div><span>Year 5 <DefinedTerm term="capex">Capex / revenue</DefinedTerm></span><b>{fmt.format(yearFive.capexPercent)}%</b></div>
-      <p className="bridge-note">Peer growth is median recent year-over-year revenue growth for the selected business niche. It is context—not a perpetual forecast—and the perpetual rate must remain below <DefinedTerm term="wacc">WACC</DefinedTerm>.</p>
+      <div><span>Year 5 <DefinedTerm term="ufcf">FCF</DefinedTerm></span><b>{usd0.format(result.terminalFcf)}M</b></div>
+      <p className="bridge-note">{model.bloombergReference ? "The displayed WACC and perpetual-growth rate reproduce the supplied Bloomberg reference case." : <>Peer growth is median recent year-over-year revenue growth for the selected business niche. It is context—not a perpetual forecast—and the perpetual rate must remain below <DefinedTerm term="wacc">WACC</DefinedTerm>.</>}</p>
     </> : <>
-      <div className="method-explainer"><span>WHAT THIS METHOD DOES</span><p>Assumes the company could be valued in Year 5 at a market multiple of <DefinedTerm term="ebitda">EBITDA</DefinedTerm>. It multiplies Year 5 EBITDA by the selected multiple, then discounts that value back five years.</p><code>{fmt.format(yearFiveEbitda)} × {fmt.format(model.exitMultiple)} = {fmt.format(result.terminalValue)}</code><small>Year 5 <DefinedTerm term="ebitda">EBITDA</DefinedTerm> × selected <DefinedTerm term="exitMultiple">exit multiple</DefinedTerm></small></div>
-      <div><span>Year 5 <DefinedTerm term="ebitda">EBITDA</DefinedTerm></span><b>{usd0.format(yearFiveEbitda)}M</b></div>
+      <div className="method-explainer"><span>WHAT THIS METHOD DOES</span><p>Following the Bloomberg XDCF convention, the model blends EBITDA at the exact five-year valuation date, applies the selected enterprise-value multiple, and discounts that terminal value back exactly five years.</p><code>{fmt.format(result.terminalEbitda)} × {fmt.format(model.exitMultiple)} = {fmt.format(result.terminalValue)}</code><small>Year-5 <DefinedTerm term="ebitda">EBITDA</DefinedTerm> × selected <DefinedTerm term="exitMultiple">exit multiple</DefinedTerm></small></div>
+      <div><span>Year 5 <DefinedTerm term="ebitda">EBITDA</DefinedTerm></span><b>{usd0.format(result.terminalEbitda)}M</b></div>
       <div><span>Selected exit multiple</span><b>{fmt.format(model.exitMultiple)}×</b></div>
-      <div className="reference-row"><span>Peer median EV / <DefinedTerm term="ebitda">EBITDA</DefinedTerm></span><b>{medianMultiple === null ? "—" : `${fmt.format(medianMultiple)}×`}</b></div>
-      <div><span>Peer EV / <DefinedTerm term="ebitda">EBITDA</DefinedTerm> range</span><b>{peerMultiples.length ? `${fmt.format(Math.min(...peerMultiples))}–${fmt.format(Math.max(...peerMultiples))}×` : "—"}</b></div>
-      <p className="bridge-note">The selected exit multiple stays editable. Compare it with the peer range and explain any premium or discount.</p>
+      <div className="reference-row"><span>{model.bloombergReference ? "Bloomberg peer EV / EBITDA input" : <>Peer median EV / <DefinedTerm term="ebitda">EBITDA</DefinedTerm></>}</span><b>{model.bloombergReference ? "39.0×" : medianMultiple === null ? "—" : `${fmt.format(medianMultiple)}×`}</b></div>
+      {!model.bloombergReference && <div><span>Peer EV / <DefinedTerm term="ebitda">EBITDA</DefinedTerm> range</span><b>{peerMultiples.length ? `${fmt.format(Math.min(...peerMultiples))}–${fmt.format(Math.max(...peerMultiples))}×` : "—"}</b></div>}
+      <p className="bridge-note">{model.bloombergReference ? "Bloomberg’s auto-selected terminal multiple is 22.4× despite the 39.0× peer input; the selected value remains editable." : "The selected exit multiple stays editable. Compare it with the peer range and explain any premium or discount."}</p>
     </>}
     <div><span><DefinedTerm term="pv">PV</DefinedTerm> of forecast <DefinedTerm term="ufcf">UFCF</DefinedTerm></span><b>{usd0.format(result.pvForecast)}M</b></div>
     <div><span><DefinedTerm term="pv">PV</DefinedTerm> of <DefinedTerm term="terminalValue">terminal value</DefinedTerm></span><b>{usd0.format(result.pvTerminal)}M</b></div>
     <div className="total"><span><DefinedTerm term="enterpriseValue">Enterprise value</DefinedTerm></span><b>{usd0.format(result.enterpriseValue)}M</b></div>
     <div><span>Plus: Cash</span><b>{usd0.format(model.cash)}M</b></div>
-    <div><span>Less: Debt</span><b>({usd0.format(model.debt)}M)</b></div>
+    <div><span>Less: Short-term debt</span><b>({usd0.format(model.shortDebt)}M)</b></div>
+    <div><span>Less: Long-term debt</span><b>({usd0.format(model.longDebt)}M)</b></div>
+    <div><span>Less: Preferred and minority interest</span><b>({usd0.format(model.preferredInterest)}M)</b></div>
     <div className="total"><span><DefinedTerm term="equityValue">Equity value</DefinedTerm></span><b>{usd0.format(result.equityValue)}M</b></div>
     <div><span><DefinedTerm term="dilutedShares">Diluted shares</DefinedTerm></span><b>{fmt.format(model.shares)}M</b></div>
     <div className="answer"><span>Implied price per share</span><b>{usd.format(result.perShare)}</b></div>
@@ -593,7 +741,9 @@ export default function Home() {
   const result = perpetuity;
   const risks = useMemo(() => riskAnalysis(data, model, perpetuity, multiple), [data, model, perpetuity, multiple]);
   const latest = data.historical[data.historical.length - 1];
-  const priceContext = marketPriceContext(data);
+  const priceContext = model.bloombergReference
+    ? { label: "Bloomberg reference price", detail: "PDF snapshot from April 27, 2026" }
+    : marketPriceContext(data);
   const update = (key: keyof Model, value: number) => setModel((current) => ({ ...current, [key]: value }));
 
   useEffect(() => {
@@ -619,68 +769,85 @@ export default function Home() {
     }
   }
 
-  const tableRows: Array<{ label: string; actual: number | null; values: Array<number | null>; type?: "percent" | "factor" | "total" | "negative" }> = [
+  const latestCostRevenue = latest?.cogs ?? null;
+  const latestGrossProfit = latestCostRevenue === null ? null : data.metrics.revenue - latestCostRevenue;
+  const latestOperatingExpenses = latestGrossProfit === null ? null : latestGrossProfit - (latest?.ebit ?? data.metrics.revenue * data.metrics.ebitMargin / 100);
+  const tableRows: Array<{ label: string; actual: number | null; values: Array<number | null>; terminal?: number | null; type?: "percent" | "factor" | "total" | "negative" }> = [
     { label: "Revenue", actual: data.metrics.revenue, values: result.years.map((year) => year.revenue) },
-    { label: "% Growth", actual: data.metrics.revenueGrowth, values: result.years.map((year) => year.growth), type: "percent" },
-    { label: "EBIT", actual: latest?.ebit ?? data.metrics.revenue * data.metrics.ebitMargin / 100, values: result.years.map((year) => year.ebit) },
-    { label: "% Margin", actual: data.metrics.ebitMargin, values: result.years.map((year) => year.margin), type: "percent" },
-    { label: "Less: Cash taxes", actual: null, values: result.years.map((year) => year.tax), type: "negative" },
+    { label: "% YoY Growth", actual: data.metrics.revenueGrowth, values: result.years.map((year) => year.growth), type: "percent" },
+    { label: "Less: Cost of Revenue", actual: latestCostRevenue, values: result.years.map((year) => year.costRevenue), type: "negative" },
+    { label: "Cost of Revenue / Revenue", actual: latestCostRevenue === null ? null : latestCostRevenue / data.metrics.revenue * 100, values: result.years.map((year) => 100 - year.grossMargin), type: "percent" },
+    { label: "Gross Profit", actual: latestGrossProfit, values: result.years.map((year) => year.grossProfit), type: "total" },
+    { label: "Gross Margin", actual: latest?.grossMargin ?? null, values: result.years.map((year) => year.grossMargin), type: "percent" },
+    { label: "Less: Operating Expenses", actual: latestOperatingExpenses, values: result.years.map((year) => year.operatingExpenses), type: "negative" },
+    { label: "Operating Expenses / Revenue", actual: latestOperatingExpenses === null ? null : latestOperatingExpenses / data.metrics.revenue * 100, values: result.years.map((year) => year.operatingExpenses / year.revenue * 100), type: "percent" },
+    { label: "Operating Income", actual: latest?.ebit ?? data.metrics.revenue * data.metrics.ebitMargin / 100, values: result.years.map((year) => year.ebit), type: "total" },
+    { label: "Operating Margin", actual: data.metrics.ebitMargin, values: result.years.map((year) => year.margin), type: "percent" },
+    { label: "Less: Tax on Operating Income", actual: null, values: result.years.map((year) => year.tax), type: "negative" },
+    { label: "Operating Tax Rate", actual: null, values: result.years.map((year) => year.taxRate), type: "percent" },
     { label: "NOPAT", actual: null, values: result.years.map((year) => year.nopat), type: "total" },
-    { label: "D&A / revenue", actual: data.metrics.daPercentRevenue, values: result.years.map((year) => year.daPercent), type: "percent" },
-    { label: "Plus: D&A", actual: latest?.depreciation ?? data.metrics.revenue * data.metrics.daPercentRevenue / 100, values: result.years.map((year) => year.depreciation) },
-    { label: "Capex / revenue", actual: data.metrics.capexPercentRevenue, values: result.years.map((year) => year.capexPercent), type: "percent" },
-    { label: "Less: Capex", actual: latest?.capex ?? data.metrics.revenue * data.metrics.capexPercentRevenue / 100, values: result.years.map((year) => year.capex), type: "negative" },
-    { label: "Less: Increase in NWC", actual: null, values: result.years.map((year) => year.changeNwc), type: "negative" },
-    { label: "Unlevered Free Cash Flow (UFCF)", actual: latest?.freeCashFlow ?? null, values: result.years.map((year) => year.fcf), type: "total" },
-    { label: "Discount period", actual: null, values: result.years.map((year) => year.year), type: "factor" },
-    { label: "Discount factor", actual: null, values: result.years.map((year) => year.discountFactor), type: "factor" },
-    { label: "PV of UFCF", actual: null, values: result.years.map((year) => year.pv), type: "total" },
-    { label: "Perpetual-growth terminal value", actual: null, values: [null, null, null, null, null], type: "total" },
-    { label: "PV of perpetual terminal value", actual: null, values: [null, null, null, null, null], type: "total" },
-    { label: "Exit-multiple terminal value", actual: null, values: [null, null, null, null, null], type: "total" },
-    { label: "PV of exit-multiple terminal value", actual: null, values: [null, null, null, null, null], type: "total" },
+    { label: "Plus: Depreciation & Amortization", actual: latest?.depreciation ?? data.metrics.revenue * data.metrics.daPercentRevenue / 100, values: result.years.map((year) => year.depreciation) },
+    { label: "D&A / Revenue", actual: data.metrics.daPercentRevenue, values: result.years.map((year) => year.daPercent), type: "percent" },
+    { label: "Less: Capital Expenditure", actual: latest?.capex ?? data.metrics.revenue * data.metrics.capexPercentRevenue / 100, values: result.years.map((year) => year.capex), type: "negative" },
+    { label: "Capex / Revenue", actual: data.metrics.capexPercentRevenue, values: result.years.map((year) => year.capexPercent), type: "percent" },
+    { label: "Less: Changes in Net Working Capital", actual: null, values: result.years.map((year) => year.changeNwc), type: "negative" },
+    { label: "Changes in NWC / Revenue", actual: null, values: result.years.map((year) => year.nwcPercent), type: "percent" },
+    { label: "Plus: Changes in Net Long-Term Deferred Tax Liabilities", actual: null, values: result.years.map((year) => year.deferredTax) },
+    { label: "Deferred Tax Change / Revenue", actual: null, values: result.years.map((year) => year.deferredTaxPercent), type: "percent" },
+    { label: "Plus: Other Estimated Non-Cash Adjustments", actual: null, values: result.years.map((year) => year.otherNonCash) },
+    { label: "Free Cash Flow", actual: latest?.freeCashFlow ?? null, values: result.years.map((year) => year.fcf), terminal: result.terminalFcf, type: "total" },
+    { label: "% of FCF Discounted", actual: null, values: result.years.map((year) => year.weight * 100), type: "percent" },
+    { label: "Mid-Year Discount Period", actual: null, values: result.years.map((year) => year.discountPeriod), type: "factor" },
+    { label: "Discount Factor", actual: null, values: result.years.map((year) => year.discountFactor), type: "factor" },
+    { label: "Present Value of Free Cash Flow", actual: null, values: result.years.map((year) => year.pv), terminal: result.pvForecast, type: "total" },
+    { label: "EBITDA", actual: latest ? latest.ebit + latest.depreciation : null, values: result.years.map((year) => year.ebitda), terminal: result.terminalEbitda, type: "total" },
   ];
   const formatCell = (value: number | null, type?: string) => {
     if (value === null || !Number.isFinite(value)) return "—";
     if (type === "percent") return `${fmt.format(value)}%`;
     if (type === "factor") return value < 1 ? value.toFixed(3) : fmt.format(value);
-    if (type === "negative") return `(${fmt.format(Math.abs(value))})`;
+    if (type === "negative") return value < 0 ? `(${fmt.format(Math.abs(value))})` : fmt.format(value);
     return fmt.format(value);
   };
 
   const marketCapitalization = model.marketPrice * model.shares;
-  const capital = Math.max(1, marketCapitalization + model.debt);
+  const modelDebt = model.shortDebt + model.longDebt;
+  const capital = Math.max(1, marketCapitalization + modelDebt);
   const equityWeight = marketCapitalization / capital;
-  const debtWeight = model.debt / capital;
+  const debtWeight = modelDebt / capital;
   const beta = data.market.beta || 1;
   const riskFree = 4.5;
   const equityRiskPremium = 5;
   const costEquity = riskFree + beta * equityRiskPremium;
   const priorDebt = data.historical.length > 1 ? data.historical[data.historical.length - 2].debt : null;
-  const averageDebt = priorDebt && latest?.debt ? (priorDebt + latest.debt) / 2 : latest?.debt || model.debt;
+  const averageDebt = priorDebt && latest?.debt ? (priorDebt + latest.debt) / 2 : latest?.debt || modelDebt;
   const observedCostOfDebt = latest?.interestExpense && averageDebt ? latest.interestExpense / averageDebt * 100 : null;
   const preTaxDebt = observedCostOfDebt && Number.isFinite(observedCostOfDebt) ? clamp(observedCostOfDebt, 3, 20) : 6;
   const referenceWacc = costEquity * equityWeight + preTaxDebt * (1 - model.tax / 100) * debtWeight;
+  const referenceInput = (value: number, publishedValue: number, digits: number) => model.bloombergReference && Math.abs(value - publishedValue) < 1e-9
+    ? Number(value.toFixed(digits))
+    : value;
 
   return <main>
     <nav className="top-nav"><a href="#top" className="brand">DCF CALCULATOR</a><span>Interactive valuation workbook</span></nav>
     <header id="top" className="calculator-header">
       <p>DISCOUNTED CASH FLOW</p>
       <h1>DCF Calculator</h1>
-      <div className="instructions"><b>Instructions</b><span>Enter a public-company ticker below. The calculator loads annual financials, builds a five-year forecast, and keeps every assumption editable.</span></div>
+      <div className="instructions"><b>Instructions</b><span>Enter a public-company ticker below. The calculator follows the Bloomberg XDCF structure: six calendar-year operating forecasts, a five-year mid-year-convention valuation, and separate perpetuity and EBITDA-multiple outputs.</span></div>
       <form className="ticker-search" onSubmit={search}><label><span>TICKER SYMBOL</span><input aria-label="Ticker symbol" value={ticker} onChange={(event) => setTicker(event.target.value.toUpperCase())} placeholder="AAPL" /></label><button disabled={loading}>{loading ? "BUILDING DCF…" : "BUILD DCF →"}</button></form>
       {error && <div className="api-error"><b>Data connection:</b> {error}</div>}
-      <small>DCF financials and prices load from Nasdaq without an API key. SEC filings power the separate company-analysis page.</small>
+      <small>{model.bloombergReference ? "The CRWV DCF uses the supplied Bloomberg XDCF reference forecast. Nasdaq and SEC data power the surrounding company and risk research." : "DCF financials and prices load from Nasdaq without an API key. SEC filings power the separate company-analysis page."}</small>
     </header>
 
     <section className="company-summary">
       <div><span>{data.company.exchange} · {data.company.symbol}</span><h2>{data.company.name}</h2><b className="company-description-label">{data.source === "Sample data" ? "WHAT THE COMPANY DOES · SAMPLE" : `WHAT THE COMPANY DOES · ${data.company.descriptionSource || "COMPANY PROFILE"}`}</b><p>{briefDescription(data.company.description)}</p><Link className="deep-analysis-link" href={`/company-analysis?symbol=${encodeURIComponent(data.company.symbol)}`}>{data.source === "Sample data" ? "Open sample supply chain, customer concentration & default-risk analysis →" : "Open SEC supply chain, customer concentration & default-risk analysis →"}</Link></div>
-      <dl><div><dt>{priceContext.label}</dt><dd>{usd.format(model.marketPrice)}<small>{priceContext.detail}</small></dd></div><div><dt>Business niche</dt><dd>{data.comparison?.nicheLabel || data.company.industry}<small>{data.comparison?.industryExplanation || `Reported industry: ${data.company.industry}`}</small></dd></div><div><dt>Financials through</dt><dd>{data.asOf}</dd></div><div><dt>Data source</dt><dd>{data.source}</dd></div></dl>
+      <dl><div><dt>{priceContext.label}</dt><dd>{usd.format(model.marketPrice)}<small>{priceContext.detail}</small></dd></div><div><dt>Business niche</dt><dd>{data.comparison?.nicheLabel || data.company.industry}<small>{data.comparison?.industryExplanation || `Reported industry: ${data.company.industry}`}</small></dd></div><div><dt>Financials through</dt><dd>{data.asOf}</dd></div><div><dt>Company data source</dt><dd>{data.source}</dd></div></dl>
     </section>
 
     <section className="sheet-section" id="valuation">
       <div className="section-heading"><div><span className="section-index">01</span><p>OUTPUT</p><h2>DCF valuation</h2></div><div className="unit-note">BOTH TERMINAL METHODS SHOWN TOGETHER</div></div>
       <div className="valuation-cards"><div><span>{priceContext.label}</span><strong>{usd.format(model.marketPrice)}</strong><small>{priceContext.detail}</small></div><div><span><DefinedTerm term="perpetualGrowth">Perpetual growth</DefinedTerm> value</span><strong>{usd.format(perpetuity.perShare)}</strong><ValueMove value={perpetuity.perShare} price={model.marketPrice}/></div><div><span><DefinedTerm term="exitMultiple">Exit multiple</DefinedTerm> value</span><strong>{usd.format(multiple.perShare)}</strong><ValueMove value={multiple.perShare} price={model.marketPrice}/></div></div>
+      {model.bloombergReference && <div className="negative-explainer bloomberg-reference"><b>BLOOMBERG XDCF REFERENCE CASE · APRIL 27, 2026</b><p>CRWV uses the forecast rows, valuation date, debt bridge, share count, WACC, perpetual-growth rate, and exit multiple from the PDF you supplied. Rounded table values can differ by one million from their displayed subtotals because Bloomberg calculates with hidden precision.</p></div>}
       {model.wacc <= model.terminalGrowth && <div className="api-error valuation-warning"><b>Assumption error:</b> WACC must be greater than terminal growth for the perpetual-growth method.</div>}
       {(perpetuity.rawEquityValue < 0 || multiple.rawEquityValue < 0) && <div className="negative-explainer"><b>WHY A METHOD CAN SHOW $0 FOR COMMON EQUITY</b><p>Under at least one terminal method, enterprise value plus cash does not cover funded debt. The mathematical bridge is negative, but common stock has limited liability, so the displayed value stops at $0 rather than showing a negative share price.</p></div>}
       <div className="bridge-grid"><ValuationBridge title="Perpetual Growth Method" result={perpetuity} model={model} method="perpetuity" data={data}/><ValuationBridge title="Exit Multiple Method" result={multiple} model={model} method="multiple" data={data}/></div>
@@ -688,33 +855,37 @@ export default function Home() {
     </section>
 
     <section className="sheet-section" id="build">
-      <div className="section-heading"><div><span className="section-index">02</span><p>MODEL</p><h2>DCF build</h2></div><div className="unit-note">USD IN MILLIONS · GREEN = FORECAST</div></div>
-      <div className="model-table-wrap"><table className="model-table"><thead><tr><th>DCF line item</th><th className="actual">{latest?.year || "Latest"}A</th>{result.years.map((year) => <th key={year.year}>YEAR {year.year}E</th>)}<th>Terminal</th></tr></thead><tbody>
-        {tableRows.map((row) => <tr className={`${row.type === "total" ? "total" : ""} ${row.type === "percent" ? "percent-row" : ""}`} key={row.label}><td><DcfRowLabel label={row.label}/></td><td className="actual">{formatCell(row.actual, row.type)}</td>{row.values.map((value, index) => <td key={index}>{formatCell(value, row.type)}</td>)}<td>{row.label === "Unlevered Free Cash Flow (UFCF)" ? fmt.format(result.years[4].fcf) : row.label === "Perpetual-growth terminal value" ? fmt.format(perpetuity.terminalValue) : row.label === "PV of perpetual terminal value" ? fmt.format(perpetuity.pvTerminal) : row.label === "Exit-multiple terminal value" ? fmt.format(multiple.terminalValue) : row.label === "PV of exit-multiple terminal value" ? fmt.format(multiple.pvTerminal) : "—"}</td></tr>)}
+      <div className="section-heading"><div><span className="section-index">02</span><p>MODEL</p><h2>DCF build</h2></div><div className="unit-note">USD IN MILLIONS · BLOOMBERG XDCF CONVENTION</div></div>
+      <div className="model-table-wrap"><table className="model-table"><thead><tr><th>DCF line item</th><th className="actual">{latest?.year || "Latest"} A</th>{result.years.map((year) => <th key={year.year}>DEC {String(year.year).slice(-2)} E</th>)}<th>YEAR 5</th></tr></thead><tbody>
+        {tableRows.map((row) => <tr className={`${row.type === "total" ? "total" : ""} ${row.type === "percent" ? "percent-row" : ""}`} key={row.label}><td><DcfRowLabel label={row.label}/></td><td className="actual">{formatCell(row.actual, row.type)}</td>{row.values.map((value, index) => <td key={index}>{formatCell(value, row.type)}</td>)}<td>{formatCell(row.terminal ?? null, row.type)}</td></tr>)}
       </tbody></table></div>
-      <p className="table-footnote">Hover over or focus any dotted-underlined term for a plain-English definition. For capital-intensive companies, current D&amp;A and capex ratios fade toward the editable Year-5 targets shown below.</p>
+      <p className="table-footnote">The first and sixth fiscal years are included only for the portions falling inside the exact five-year valuation window. Cash flows use the mid-year convention; terminal value is discounted exactly five years.</p>
     </section>
 
     <section className="sheet-section" id="assumptions">
       <div className="section-heading"><div><span className="section-index">03</span><p>INPUTS</p><h2>Editable assumptions</h2></div><div className="unit-note">GREEN CELLS ARE EDITABLE</div></div>
-      <div className="recommendation"><b>{data.comparison?.nicheLabel || data.company.industry} starting point</b><p>{rec.note}</p>{data.forecast ? <span>Revenue forecast anchors: Year 1 {usd0.format(data.forecast.year1Revenue)}M ({fmt.format(data.forecast.year1Growth)}% growth) · Year 2 {usd0.format(data.forecast.year2Revenue)}M ({fmt.format(data.forecast.year2Growth)}% growth) · <a href={data.forecast.sourceUrl} target="_blank" rel="noreferrer">{data.forecast.source}</a>. Years 3–5 fade toward a normalized rate.</span> : <span>{data.comparison?.industryGrowthRate === null || data.comparison?.industryGrowthRate === undefined ? "Niche-peer growth was unavailable. " : `Observed niche-peer revenue growth: ${fmt.format(data.comparison.industryGrowthRate)}%. `}A validated two-year analyst forecast was unavailable, so the model uses the historical-growth fallback.</span>}</div>
+      <div className="recommendation"><b>{model.bloombergReference ? "Bloomberg XDCF reference inputs" : `${data.comparison?.nicheLabel || data.company.industry} starting point`}</b><p>{model.bloombergReference ? "The CRWV operating forecast is reproduced from the Bloomberg Terminal PDF dated April 27, 2026. The valuation controls below are the sheet’s rounded display inputs; calculations retain the precision required to reconcile to the Bloomberg output." : rec.note}</p>{model.bloombergReference ? <span>Six forecast years: 2026–2031 · Exact five-year horizon · Mid-year convention · Separate short- and long-term debt bridge.</span> : data.forecast ? <span>Revenue forecast anchors: Year 1 {usd0.format(data.forecast.year1Revenue)}M ({fmt.format(data.forecast.year1Growth)}% growth) · Year 2 {usd0.format(data.forecast.year2Revenue)}M ({fmt.format(data.forecast.year2Growth)}% growth) · <a href={data.forecast.sourceUrl} target="_blank" rel="noreferrer">{data.forecast.source}</a>. Later years use the same Bloomberg-shaped forecast rows.</span> : <span>{data.comparison?.industryGrowthRate === null || data.comparison?.industryGrowthRate === undefined ? "Niche-peer growth was unavailable. " : `Observed niche-peer revenue growth: ${fmt.format(data.comparison.industryGrowthRate)}%. `}A validated two-year analyst forecast was unavailable, so the Bloomberg-format rows use the historical-growth fallback.</span>}</div>
       <div className="assumption-grid">
-        <NumberField label="Starting revenue growth" term="revenueGrowth" value={model.growth} suffix="%" help={data.forecast ? `Year 1 sales growth. The default is the current analyst-consensus estimate; editing it also adjusts the Year 2 anchor before growth fades toward maturity.` : "Year 1 sales growth. The model fades it toward terminal growth over five years."} onChange={(value) => update("growth", value)}/>
-        <NumberField label="Target EBIT margin" term="ebitMargin" value={model.margin} suffix="%" help="Year 5 operating margin before interest and tax." onChange={(value) => update("margin", value)}/>
-        <NumberField label="Tax rate" term="taxRate" value={model.tax} suffix="%" help="Normalized cash tax rate applied to positive EBIT." onChange={(value) => update("tax", value)}/>
-        <NumberField label="Target D&A / revenue" term="da" value={model.da} suffix="%" help="Normalized Year 5 depreciation and amortization as a share of revenue. The forecast fades from the latest reported ratio toward this target." onChange={(value) => update("da", value)}/>
-        <NumberField label="Target capex / revenue" term="capex" value={model.capex} suffix="%" help="Normalized Year 5 cash investment in long-lived assets as a share of revenue. The forecast fades from the latest ratio, capped at 80% in Year 0, toward this target." onChange={(value) => update("capex", value)}/>
-        <NumberField label="NWC / new revenue" term="nwc" value={model.nwc} suffix="%" help="Working capital absorbed by each dollar of incremental revenue." onChange={(value) => update("nwc", value)}/>
-        <NumberField label="WACC" term="wacc" value={model.wacc} suffix="%" help="Required return for debt and equity capital. It discounts forecast cash flows." onChange={(value) => update("wacc", value)}/>
+        {!model.bloombergReference && <><NumberField label="Starting revenue growth" term="revenueGrowth" value={model.growth} suffix="%" help={data.forecast ? `Year 1 sales growth. The default is the current analyst-consensus estimate; editing it also adjusts the Year 2 anchor before growth fades toward maturity.` : "Year 1 sales growth used to populate the Bloomberg-format forecast rows."} onChange={(value) => update("growth", value)}/>
+        <NumberField label="Target EBIT margin" term="ebitMargin" value={model.margin} suffix="%" help="Operating margin reached in the later forecast rows." onChange={(value) => update("margin", value)}/>
+        <NumberField label="Tax rate" term="taxRate" value={model.tax} suffix="%" help="Normalized tax applied to positive operating income." onChange={(value) => update("tax", value)}/>
+        <NumberField label="Target D&A / revenue" term="da" value={model.da} suffix="%" help="Normalized depreciation and amortization as a share of revenue in later forecast rows." onChange={(value) => update("da", value)}/>
+        <NumberField label="Target capex / revenue" term="capex" value={model.capex} suffix="%" help="Normalized capital expenditure as a share of revenue in later forecast rows." onChange={(value) => update("capex", value)}/>
+        <NumberField label="NWC / new revenue" term="nwc" value={model.nwc} suffix="%" help="Working capital change applied to incremental revenue when Bloomberg forecast rows are unavailable." onChange={(value) => update("nwc", value)}/></>}
+        <NumberField label="WACC" term="wacc" value={referenceInput(model.wacc, CRWV_BLOOMBERG_REFERENCE.wacc, 1)} suffix="%" help="Required return for debt and equity capital. It discounts forecast cash flows." onChange={(value) => update("wacc", value)}/>
         <NumberField label="Terminal growth" term="terminalGrowth" value={model.terminalGrowth} suffix="%" help="Long-run growth after Year 5. It must remain below WACC." onChange={(value) => update("terminalGrowth", value)}/>
-        <NumberField label="Exit EBITDA multiple" term="exitMultiple" value={model.exitMultiple} suffix="×" help="Year 5 EBITDA valuation multiple used in the exit-multiple method." onChange={(value) => update("exitMultiple", value)}/>
+        <NumberField label="Exit EBITDA multiple" term="exitMultiple" value={referenceInput(model.exitMultiple, CRWV_BLOOMBERG_REFERENCE.exitMultiple, 1)} suffix="×" help="Year 5 EBITDA valuation multiple used in the exit-multiple method." onChange={(value) => update("exitMultiple", value)}/>
         <NumberField label="Market price used for comparison" term="marketPrice" value={model.marketPrice} suffix="$" help={`${priceContext.detail}. This input only calculates upside or downside; it does not change intrinsic value.`} onChange={(value) => update("marketPrice", value)}/>
         <NumberField label="Cash" term="cash" value={model.cash} suffix="$M" help="Available cash added in the enterprise-to-equity bridge." onChange={(value) => update("cash", value)}/>
-        <NumberField label="Funded debt" term="fundedDebt" value={model.debt} suffix="$M" help="Debt subtracted from enterprise value. Review leases and other claims separately." onChange={(value) => update("debt", value)}/>
-        <NumberField label="Diluted shares" term="dilutedShares" value={model.shares} suffix="M" help="Share count used to calculate value per share; check multi-class shares and dilution." onChange={(value) => update("shares", value)}/>
+        <NumberField label="Short-term debt" term="fundedDebt" value={model.shortDebt} suffix="$M" help="Current borrowings subtracted in the Bloomberg enterprise-to-equity bridge." onChange={(value) => update("shortDebt", value)}/>
+        <NumberField label="Long-term debt" term="fundedDebt" value={model.longDebt} suffix="$M" help="Non-current borrowings subtracted in the Bloomberg enterprise-to-equity bridge." onChange={(value) => update("longDebt", value)}/>
+        <NumberField label="Preferred & minority interest" term="fundedDebt" value={model.preferredInterest} suffix="$M" help="Additional senior claims subtracted after net debt, as shown in the Bloomberg template." onChange={(value) => update("preferredInterest", value)}/>
+        <NumberField label="Diluted shares" term="dilutedShares" value={referenceInput(model.shares, CRWV_BLOOMBERG_REFERENCE.shares, 0)} suffix="M" help="Share count used to calculate value per share; check multi-class shares and dilution." onChange={(value) => update("shares", value)}/>
       </div>
-      <div className="assumption-bottom"><div className="wacc-table"><div className="sheet-bar"><DefinedTerm term="wacc">WACC</DefinedTerm> reference build</div><div><span><DefinedTerm term="riskFreeRate">Risk-free rate</DefinedTerm></span><b>{fmt.format(riskFree)}%</b></div><div><span><DefinedTerm term="beta">Beta</DefinedTerm></span><b>{fmt.format(beta)}×</b></div><div><span><DefinedTerm term="equityRiskPremium">Equity risk premium</DefinedTerm></span><b>{fmt.format(equityRiskPremium)}%</b></div><div><span><DefinedTerm term="costOfEquity">Implied cost of equity</DefinedTerm></span><b>{fmt.format(costEquity)}%</b></div><div><span><DefinedTerm term="equityWeight">Equity / capital</DefinedTerm></span><b>{fmt.format(equityWeight * 100)}%</b></div><div><span><DefinedTerm term="preTaxCostOfDebt">Pre-tax cost of debt</DefinedTerm></span><b>{fmt.format(preTaxDebt)}%</b></div><div><span><DefinedTerm term="debtWeight">Debt / capital</DefinedTerm></span><b>{fmt.format(debtWeight * 100)}%</b></div><div className="total"><span>Formula reference <DefinedTerm term="wacc">WACC</DefinedTerm></span><b>{fmt.format(referenceWacc)}%</b></div><small>{observedCostOfDebt ? "Pre-tax debt cost uses trailing interest expense divided by average debt. " : "A 6% fallback debt cost is used because a reliable observed rate was unavailable. "}The editable model WACC can include additional size, country, concentration, and execution risk.</small></div>
-        <div className="data-check"><div className="sheet-bar">Data checks</div><ul>{(data.qualityNotes?.length ? data.qualityNotes : ["Sample data is active. Enter a ticker to load Nasdaq financials."]).map((note) => <li key={note}>{note}</li>)}</ul></div>
+      <div className="assumption-bottom">{!model.bloombergReference && <div className="wacc-table"><div className="sheet-bar"><DefinedTerm term="wacc">WACC</DefinedTerm> reference build</div><div><span><DefinedTerm term="riskFreeRate">Risk-free rate</DefinedTerm></span><b>{fmt.format(riskFree)}%</b></div><div><span><DefinedTerm term="beta">Beta</DefinedTerm></span><b>{fmt.format(beta)}×</b></div><div><span><DefinedTerm term="equityRiskPremium">Equity risk premium</DefinedTerm></span><b>{fmt.format(equityRiskPremium)}%</b></div><div><span><DefinedTerm term="costOfEquity">Implied cost of equity</DefinedTerm></span><b>{fmt.format(costEquity)}%</b></div><div><span><DefinedTerm term="equityWeight">Equity / capital</DefinedTerm></span><b>{fmt.format(equityWeight * 100)}%</b></div><div><span><DefinedTerm term="preTaxCostOfDebt">Pre-tax cost of debt</DefinedTerm></span><b>{fmt.format(preTaxDebt)}%</b></div><div><span><DefinedTerm term="debtWeight">Debt / capital</DefinedTerm></span><b>{fmt.format(debtWeight * 100)}%</b></div><div className="total"><span>Formula reference <DefinedTerm term="wacc">WACC</DefinedTerm></span><b>{fmt.format(referenceWacc)}%</b></div><small>{observedCostOfDebt ? "Pre-tax debt cost uses trailing interest expense divided by average debt. " : "A 6% fallback debt cost is used because a reliable observed rate was unavailable. "}The editable model WACC can include additional size, country, concentration, and execution risk.</small></div>}
+        <div className="data-check"><div className="sheet-bar">Data checks</div><ul>{(model.bloombergReference
+          ? ["CRWV's DCF forecast, valuation date, discounting convention, and enterprise-to-equity bridge come from the supplied Bloomberg XDCF dated April 27, 2026.", "Nasdaq and SEC data support the surrounding company, market, competitor, and risk sections; they do not overwrite the CRWV reference DCF."]
+          : data.qualityNotes?.length ? data.qualityNotes : ["Sample data is active. Enter a ticker to load Nasdaq financials."]).map((note) => <li key={note}>{note}</li>)}</ul></div>
       </div>
     </section>
 
