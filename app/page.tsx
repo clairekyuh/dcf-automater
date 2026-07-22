@@ -160,7 +160,12 @@ const validMedian = (values: Array<number | null>) => {
   const middle = Math.floor(sorted.length / 2);
   return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 };
+const validMean = (values: Array<number | null>) => {
+  const valid = values.filter((value): value is number => value !== null && Number.isFinite(value));
+  return valid.length ? valid.reduce((sum, value) => sum + value, 0) / valid.length : null;
+};
 const peerMedian = (data: CompanyData, key: keyof Pick<Comparable, "marketCap" | "revenueGrowth" | "operatingMargin" | "evToRevenue" | "evToEbitda" | "pe">) => validMedian((data.comparison?.peers || []).map((peer) => peer[key]));
+const peerMean = (data: CompanyData, key: keyof Pick<Comparable, "marketCap" | "revenueGrowth" | "operatingMargin" | "evToRevenue" | "evToEbitda" | "pe">) => validMean((data.comparison?.peers || []).map((peer) => peer[key]));
 
 function hasDailyPriceDensity(points: PricePoint[]) {
   if (points.length < 8) return false;
@@ -426,6 +431,7 @@ const TERM_DEFINITIONS = {
   pv: "Present value: what a future cash flow is worth today after discounting it for time and risk.",
   terminalValue: "Terminal value: the estimated value of all cash flows after the explicit five-year forecast. It often represents a large share of a DCF.",
   terminalRoic: "Implied terminal return on invested capital: the return suggested by the relationship between perpetual growth and the reinvestment embedded in terminal free cash flow. Very low or extreme values signal inconsistent terminal economics.",
+  yearFive: "Year 5 is the point exactly five years after the valuation date. When that date falls between two fiscal year-ends, the model blends the fifth and sixth forecast periods. That blended UFCF or EBITDA is used to calculate terminal value.",
   perpetualGrowth: "Perpetual growth method: assumes cash flow grows at a stable rate forever after Year 5. The growth rate must stay below WACC.",
   exitMultiple: "Exit multiple method: estimates the company’s Year 5 value by multiplying Year 5 EBITDA by a market valuation multiple.",
   enterpriseValue: "Enterprise value: the value of the operating business available to both lenders and shareholders, before adding cash and subtracting debt.",
@@ -671,6 +677,14 @@ function CompetitorComparison({ data }: { data: CompanyData }) {
     revenueMultiple: peerMedian(data, "evToRevenue"),
     pe: peerMedian(data, "pe"),
   };
+  const means = {
+    growth: peerMean(data, "revenueGrowth"),
+    margin: peerMean(data, "operatingMargin"),
+    marketCap: peerMean(data, "marketCap"),
+    multiple: peerMean(data, "evToEbitda"),
+    revenueMultiple: peerMean(data, "evToRevenue"),
+    pe: peerMean(data, "pe"),
+  };
   const difference = (value: number | null, benchmark: number | null, positive: string, negative: string, gapUnit: string, benchmarkUnit = gapUnit) => {
     if (value === null || benchmark === null) return "Not enough provider data to calculate this comparison.";
     const gap = value - benchmark;
@@ -700,11 +714,12 @@ function CompetitorComparison({ data }: { data: CompanyData }) {
     <div className="peer-table-wrap table-scroll"><table className="peer-table"><thead><tr><th>Company</th><th>Business focus</th><th>Market cap</th><th>Revenue growth</th><th>Operating margin</th><th>EV / Revenue</th><th>EV / EBITDA</th><th>P / E</th></tr></thead><tbody>
       {rows.map((peer, index) => <tr className={index === 0 ? "focus-company" : ""} key={peer.symbol}><td><b>{peer.symbol}</b><span>{peer.name}</span>{index === 0 && <em>FOCUS COMPANY</em>}</td><td className="business-focus-cell"><b>{index === 0 ? comparison?.nicheLabel || businessFocus(peer) : businessFocus(peer)}</b>{index > 0 && fitLabel(peer.peerFit) && <em className={`peer-fit ${peer.peerFit}`}>{fitLabel(peer.peerFit)}</em>}{peer.peerRationale && <small>{peer.peerRationale}</small>}</td><td>{formatCap(peer.marketCap)}</td><td>{formatMetric(peer.revenueGrowth, "%")}</td><td>{formatMetric(peer.operatingMargin, "%")}</td><td>{financialCompany ? "n/m" : formatMetric(peer.evToRevenue)}</td><td>{financialCompany ? "n/m" : formatMetric(peer.evToEbitda)}</td><td>{formatMetric(peer.pe)}</td></tr>)}
       {peers.length > 0 && <tr className="peer-median"><td><b>PEER MEDIAN</b><span>{peers.length} returned companies</span></td><td>—</td><td>{formatCap(metrics.marketCap)}</td><td>{formatMetric(metrics.growth, "%")}</td><td>{formatMetric(metrics.margin, "%")}</td><td>{financialCompany ? "n/m" : formatMetric(metrics.revenueMultiple)}</td><td>{financialCompany ? "n/m" : formatMetric(metrics.multiple)}</td><td>{formatMetric(metrics.pe)}</td></tr>}
+      {peers.length > 0 && <tr className="peer-mean"><td><b>PEER MEAN</b><span>Arithmetic average</span></td><td>—</td><td>{formatCap(means.marketCap)}</td><td>{formatMetric(means.growth, "%")}</td><td>{formatMetric(means.margin, "%")}</td><td>{financialCompany ? "n/m" : formatMetric(means.revenueMultiple)}</td><td>{financialCompany ? "n/m" : formatMetric(means.multiple)}</td><td>{formatMetric(means.pe)}</td></tr>}
     </tbody></table></div>
     {!peers.length && <div className="peer-empty">Comparable ratios were not returned by Nasdaq for this request. The primary DCF still works because peer data is optional.</div>}
     <h3 className="difference-title">How {company.symbol} differs from the peer median</h3>
     <div className="difference-grid">{insights.map((insight) => <article key={insight.label}><span>{insight.label}</span><strong>{insight.value}</strong><p>{insight.detail}</p></article>)}</div>
-    <p className="peer-disclaimer">{financialCompany ? "EV/revenue and EV/EBITDA are marked not meaningful for banks and insurers. Compare P/TBV, P/E, ROE, regulatory capital, reserve or credit quality, and funding economics instead; this free dataset does not contain all of those sector-specific fields. " : ""}Revenue growth compares each company’s latest two annual periods. Multiples and margins use current market capitalization against the latest displayed annual financials—not LTM or forward consensus—and may not be comparable when earnings are negative, fiscal periods differ, or business mixes vary.</p>
+    <p className="peer-disclaimer">Peer mean is the arithmetic average and can be pulled upward or downward by an outlier; peer median is the middle observation and is usually more resistant to extremes. {financialCompany ? "EV/revenue and EV/EBITDA are marked not meaningful for banks and insurers. Compare P/TBV, P/E, ROE, regulatory capital, reserve or credit quality, and funding economics instead; this free dataset does not contain all of those sector-specific fields. " : ""}Revenue growth compares each company’s latest two annual periods. Multiples and margins use current market capitalization against the latest displayed annual financials—not LTM or forward consensus—and may not be comparable when earnings are negative, fiscal periods differ, or business mixes vary.</p>
   </section>;
 }
 
@@ -929,7 +944,7 @@ export default function Home() {
       <div className="workbook-shell">
         <div className="formula-bar"><b>fx</b><code>{workbookFormula[workbookTab]}</code></div>
         <div className="workbook-panel" role="tabpanel" aria-label={`${workbookTab} worksheet`}>
-          {workbookTab === "dcf" && <div className="model-table-wrap"><table className="model-table"><thead><tr><th>DCF line item</th><th className="actual">{latest?.year || "Latest"} A</th>{result.years.map((year) => <th key={year.periodEnd}>{fiscalPeriodLabel(year.periodEnd)}</th>)}<th>YEAR 5</th></tr></thead><tbody>
+          {workbookTab === "dcf" && <div className="model-table-wrap"><table className="model-table"><thead><tr><th>DCF line item</th><th className="actual">{latest?.year || "Latest"} A</th>{result.years.map((year) => <th key={year.periodEnd}>{fiscalPeriodLabel(year.periodEnd)}</th>)}<th><DefinedTerm term="yearFive">AT YEAR 5</DefinedTerm></th></tr></thead><tbody>
             {tableRows.map((row) => <tr className={`${row.type === "total" ? "total" : ""} ${row.type === "percent" ? "percent-row" : ""}`} key={row.label}><td><DcfRowLabel label={row.label}/></td><td className="actual">{formatCell(row.actual, row.type)}</td>{row.values.map((value, index) => <td key={index}>{formatCell(value, row.type)}</td>)}<td>{formatCell(row.terminal ?? null, row.type)}</td></tr>)}
           </tbody></table></div>}
           {workbookTab === "assumptions" && <div className="model-table-wrap"><table className="workbook-table"><thead><tr><th>Assumption</th><th>Linked value</th><th>Source / treatment</th></tr></thead><tbody>{assumptionSheet.map(([label, value, source]) => <tr key={label}><td>{label}</td><td className="linked-cell">{value}</td><td>{source}</td></tr>)}</tbody></table></div>}
@@ -953,7 +968,7 @@ export default function Home() {
           ["dcf", "DCF Model"], ["assumptions", "Assumptions"], ["wacc", "WACC"], ["valuation", "Valuation"], ["sensitivity", "Sensitivity"],
         ] as Array<[WorkbookTab, string]>).map(([tab, label]) => <button type="button" role="tab" aria-selected={workbookTab === tab} className={workbookTab === tab ? "active" : ""} key={tab} onClick={() => setWorkbookTab(tab)}>{label}</button>)}</div>
       </div>
-      <p className="table-footnote">The workbook follows Wall Street Prep’s six-step unlevered DCF and retains the Bloomberg PDF’s exact five-year, partial-year, mid-year discounting mechanics. The formulas are audited; forecast accuracy still depends on the visible assumptions and data quality.</p>
+      <p className="table-footnote"><b>At Year 5</b> means the point exactly five years after the valuation date—not simply the fifth forecast column. The model blends the two surrounding fiscal forecasts when necessary. The workbook follows Wall Street Prep’s unlevered DCF and the Bloomberg PDF’s partial-year, mid-year discounting mechanics.</p>
     </section>}
 
     {!financialUnsupported && <section className="sheet-section" id="assumptions">

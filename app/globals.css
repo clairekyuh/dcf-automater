@@ -234,6 +234,7 @@ table{border-collapse:collapse;width:100%}
 .peer-table em{display:inline-block;margin-top:5px;padding:3px 5px;background:var(--teal);color:var(--ink);font:normal 7px DM Mono}
 .peer-table .focus-company td{background:var(--teal-soft);color:var(--navy-dark);font-weight:600}
 .peer-table .peer-median td{background:#e9ece6;font-weight:700;border-top:2px solid var(--navy-dark)}
+.peer-table .peer-mean td{background:#f4f1e7;font-weight:700;border-top:1px solid var(--grid-dark)}
 .peer-table .business-focus-cell{text-align:left;white-space:normal;min-width:165px;color:#536158}
 .business-focus-cell>b,.business-focus-cell>small{display:block}
 .business-focus-cell>small{margin-top:7px;color:#6e7a73;font:7.5px/1.45 Manrope,Arial,sans-serif}

@@ -26,6 +26,7 @@ Open [http://localhost:3000](http://localhost:3000).
 - Six explicit annual forecast-driver columns for revenue growth, gross and EBIT margins, tax, D&A, capex, working capital, deferred tax, and other non-cash adjustments; terminal growth cannot change the explicit forecast or exit-multiple result
 - D&A / revenue and capex / revenue shown directly in every forecast year so the perpetual-growth cash flow can be audited
 - Business-model peer selection with direct, close, and adjacent fit labels; broad operating competitors are separated from primary valuation peers
+- Peer mean and peer median rows for every comparable-company metric, with outlier caveats
 - Business-focus comparison and a conditional moat assessment with evidence that still needs verification
 - Standard unlevered DCF is disabled for banks and insurers, where debt and regulatory capital are operating inputs and sector-specific equity methods are required
 - Separate `/company-analysis` page whose filing conclusions, supply-chain signals, customer concentration, company COGS, and credit-screen inputs come only from SEC data
