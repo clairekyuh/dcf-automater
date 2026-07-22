@@ -4,6 +4,7 @@ import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import CompanyNews from "@/app/components/company-news";
 import { buildBusinessComparison } from "@/lib/business-comparison";
+import { actualFiscalLabel, historicalEffectiveTaxRate, historicalRevenueGrowth, historicalUfcf } from "@/lib/historical-dcf";
 import {
   addYears,
   calculateDcf,
@@ -30,6 +31,9 @@ type HistoricalRow = {
   freeCashFlow: number;
   debt?: number;
   interestExpense?: number;
+  incomeTax?: number;
+  earningsBeforeTax?: number;
+  netIncome?: number;
   cogs?: number;
   grossMargin?: number;
   shortDebt?: number;
@@ -820,38 +824,47 @@ export default function Home() {
     await loadCompany(symbol);
   }
 
-  const latestCostRevenue = latest?.cogs ?? null;
-  const latestGrossProfit = latestCostRevenue === null ? null : data.metrics.revenue - latestCostRevenue;
-  const latestOperatingExpenses = latestGrossProfit === null ? null : latestGrossProfit - (latest?.ebit ?? data.metrics.revenue * data.metrics.ebitMargin / 100);
-  const tableRows: Array<{ label: string; actual: number | null; values: Array<number | null>; terminal?: number | null; type?: "percent" | "factor" | "total" | "negative" }> = [
-    { label: "Revenue", actual: data.metrics.revenue, values: result.years.map((year) => year.revenue) },
-    { label: "% YoY Growth", actual: data.metrics.revenueGrowth, values: result.years.map((year) => year.growth), type: "percent" },
-    { label: "Less: Cost of Revenue", actual: latestCostRevenue, values: result.years.map((year) => year.costRevenue), type: "negative" },
-    { label: "Cost of Revenue / Revenue", actual: latestCostRevenue === null ? null : latestCostRevenue / data.metrics.revenue * 100, values: result.years.map((year) => 100 - year.grossMargin), type: "percent" },
-    { label: "Gross Profit", actual: latestGrossProfit, values: result.years.map((year) => year.grossProfit), type: "total" },
-    { label: "Gross Margin", actual: latest?.grossMargin ?? null, values: result.years.map((year) => year.grossMargin), type: "percent" },
-    { label: "Less: Operating Expenses", actual: latestOperatingExpenses, values: result.years.map((year) => year.operatingExpenses), type: "negative" },
-    { label: "Operating Expenses / Revenue", actual: latestOperatingExpenses === null ? null : latestOperatingExpenses / data.metrics.revenue * 100, values: result.years.map((year) => year.operatingExpenses / year.revenue * 100), type: "percent" },
-    { label: "Operating Income", actual: latest?.ebit ?? data.metrics.revenue * data.metrics.ebitMargin / 100, values: result.years.map((year) => year.ebit), type: "total" },
-    { label: "Operating Margin", actual: data.metrics.ebitMargin, values: result.years.map((year) => year.margin), type: "percent" },
-    { label: "Less: Tax on Operating Income", actual: null, values: result.years.map((year) => year.tax), type: "negative" },
-    { label: "Operating Tax Rate", actual: null, values: result.years.map((year) => year.taxRate), type: "percent" },
-    { label: "NOPAT", actual: null, values: result.years.map((year) => year.nopat), type: "total" },
-    { label: "Plus: Depreciation & Amortization", actual: latest?.depreciation ?? data.metrics.revenue * data.metrics.daPercentRevenue / 100, values: result.years.map((year) => year.depreciation) },
-    { label: "D&A / Revenue", actual: data.metrics.daPercentRevenue, values: result.years.map((year) => year.daPercent), type: "percent" },
-    { label: "Less: Capital Expenditure", actual: latest?.capex ?? data.metrics.revenue * data.metrics.capexPercentRevenue / 100, values: result.years.map((year) => year.capex), type: "negative" },
-    { label: "Capex / Revenue", actual: data.metrics.capexPercentRevenue, values: result.years.map((year) => year.capexPercent), type: "percent" },
-    { label: "Less: Changes in Net Working Capital", actual: null, values: result.years.map((year) => year.changeNwc), type: "negative" },
-    { label: "Changes in NWC / Revenue", actual: null, values: result.years.map((year) => year.nwcPercent), type: "percent" },
-    { label: "Plus: Changes in Net Long-Term Deferred Tax Liabilities", actual: null, values: result.years.map((year) => year.deferredTax) },
-    { label: "Deferred Tax Change / Revenue", actual: null, values: result.years.map((year) => year.deferredTaxPercent), type: "percent" },
-    { label: "Plus: Other Estimated Non-Cash Adjustments", actual: null, values: result.years.map((year) => year.otherNonCash) },
-    { label: "Unlevered Free Cash Flow (UFCF)", actual: null, values: result.years.map((year) => year.fcf), terminal: result.terminalFcf, type: "total" },
-    { label: "% of FCF Discounted", actual: null, values: result.years.map((year) => year.weight * 100), type: "percent" },
-    { label: "Mid-Year Discount Period", actual: null, values: result.years.map((year) => year.discountPeriod), type: "factor" },
-    { label: "Discount Factor", actual: null, values: result.years.map((year) => year.discountFactor), type: "factor" },
-    { label: "Present Value of Free Cash Flow", actual: null, values: result.years.map((year) => year.pv), terminal: result.pvForecast, type: "total" },
-    { label: "EBITDA", actual: latest ? latest.ebit + latest.depreciation : null, values: result.years.map((year) => year.ebitda), terminal: result.terminalEbitda, type: "total" },
+  const actualPeriods = data.historical.slice(-5);
+  const actualOffset = data.historical.length - actualPeriods.length;
+  const actualValues = (value: (row: HistoricalRow, fullIndex: number) => number | null) => actualPeriods.map((row, index) => value(row, actualOffset + index));
+  const grossProfit = (row: HistoricalRow) => row.cogs === undefined ? null : row.revenue - row.cogs;
+  const operatingExpenses = (row: HistoricalRow) => {
+    const gross = grossProfit(row);
+    return gross === null ? null : gross - row.ebit;
+  };
+  const operatingTax = (row: HistoricalRow) => {
+    const rate = historicalEffectiveTaxRate(row);
+    return rate === null ? null : Math.max(0, row.ebit * rate / 100);
+  };
+  const tableRows: Array<{ label: string; actuals: Array<number | null>; values: Array<number | null>; terminal?: number | null; type?: "percent" | "factor" | "total" | "negative" }> = [
+    { label: "Revenue", actuals: actualValues((row) => row.revenue), values: result.years.map((year) => year.revenue) },
+    { label: "% YoY Growth", actuals: actualValues((_row, index) => historicalRevenueGrowth(data.historical, index)), values: result.years.map((year) => year.growth), type: "percent" },
+    { label: "Less: Cost of Revenue", actuals: actualValues((row) => row.cogs ?? null), values: result.years.map((year) => year.costRevenue), type: "negative" },
+    { label: "Cost of Revenue / Revenue", actuals: actualValues((row) => row.cogs === undefined || !row.revenue ? null : row.cogs / row.revenue * 100), values: result.years.map((year) => 100 - year.grossMargin), type: "percent" },
+    { label: "Gross Profit", actuals: actualValues(grossProfit), values: result.years.map((year) => year.grossProfit), type: "total" },
+    { label: "Gross Margin", actuals: actualValues((row) => row.grossMargin ?? null), values: result.years.map((year) => year.grossMargin), type: "percent" },
+    { label: "Less: Operating Expenses", actuals: actualValues(operatingExpenses), values: result.years.map((year) => year.operatingExpenses), type: "negative" },
+    { label: "Operating Expenses / Revenue", actuals: actualValues((row) => { const expenses = operatingExpenses(row); return expenses === null || !row.revenue ? null : expenses / row.revenue * 100; }), values: result.years.map((year) => year.operatingExpenses / year.revenue * 100), type: "percent" },
+    { label: "Operating Income", actuals: actualValues((row) => row.ebit), values: result.years.map((year) => year.ebit), type: "total" },
+    { label: "Operating Margin", actuals: actualValues((row) => row.ebitMargin), values: result.years.map((year) => year.margin), type: "percent" },
+    { label: "Less: Tax on Operating Income", actuals: actualValues(operatingTax), values: result.years.map((year) => year.tax), type: "negative" },
+    { label: "Operating Tax Rate", actuals: actualValues(historicalEffectiveTaxRate), values: result.years.map((year) => year.taxRate), type: "percent" },
+    { label: "NOPAT", actuals: actualValues((row) => { const tax = operatingTax(row); return tax === null ? null : row.ebit - tax; }), values: result.years.map((year) => year.nopat), type: "total" },
+    { label: "Plus: Depreciation & Amortization", actuals: actualValues((row) => row.depreciation), values: result.years.map((year) => year.depreciation) },
+    { label: "D&A / Revenue", actuals: actualValues((row) => row.revenue ? row.depreciation / row.revenue * 100 : null), values: result.years.map((year) => year.daPercent), type: "percent" },
+    { label: "Less: Capital Expenditure", actuals: actualValues((row) => row.capex), values: result.years.map((year) => year.capex), type: "negative" },
+    { label: "Capex / Revenue", actuals: actualValues((row) => row.capexPercentRevenue), values: result.years.map((year) => year.capexPercent), type: "percent" },
+    { label: "Less: Changes in Net Working Capital", actuals: actualValues(() => null), values: result.years.map((year) => year.changeNwc), type: "negative" },
+    { label: "Changes in NWC / Revenue", actuals: actualValues(() => null), values: result.years.map((year) => year.nwcPercent), type: "percent" },
+    { label: "Plus: Changes in Net Long-Term Deferred Tax Liabilities", actuals: actualValues(() => null), values: result.years.map((year) => year.deferredTax) },
+    { label: "Deferred Tax Change / Revenue", actuals: actualValues(() => null), values: result.years.map((year) => year.deferredTaxPercent), type: "percent" },
+    { label: "Plus: Other Estimated Non-Cash Adjustments", actuals: actualValues(() => null), values: result.years.map((year) => year.otherNonCash) },
+    { label: "Unlevered Free Cash Flow (UFCF)", actuals: actualValues((row) => historicalUfcf(row, model.normalizedTaxRate)), values: result.years.map((year) => year.fcf), terminal: result.terminalFcf, type: "total" },
+    { label: "% of FCF Discounted", actuals: actualValues(() => null), values: result.years.map((year) => year.weight * 100), type: "percent" },
+    { label: "Mid-Year Discount Period", actuals: actualValues(() => null), values: result.years.map((year) => year.discountPeriod), type: "factor" },
+    { label: "Discount Factor", actuals: actualValues(() => null), values: result.years.map((year) => year.discountFactor), type: "factor" },
+    { label: "Present Value of Free Cash Flow", actuals: actualValues(() => null), values: result.years.map((year) => year.pv), terminal: result.pvForecast, type: "total" },
+    { label: "EBITDA", actuals: actualValues((row) => row.ebit + row.depreciation), values: result.years.map((year) => year.ebitda), terminal: result.terminalEbitda, type: "total" },
   ];
   const formatCell = (value: number | null, type?: string) => {
     if (value === null || !Number.isFinite(value)) return "—";
@@ -952,9 +965,9 @@ export default function Home() {
       <div className="workbook-shell">
         <div className="formula-bar"><b>fx</b><code>{workbookFormula[workbookTab]}</code></div>
         <div className="workbook-panel" role="tabpanel" aria-label={`${workbookTab} worksheet`}>
-          {workbookTab === "dcf" && <div className="model-table-wrap"><table className="model-table"><thead><tr><th>DCF line item</th><th className="actual">{latest?.year || "Latest"} A</th>{result.years.map((year) => <th key={year.periodEnd}>{fiscalPeriodLabel(year.periodEnd)}</th>)}<th><DefinedTerm term="yearFive">AT YEAR 5</DefinedTerm></th></tr></thead><tbody>
-            {tableRows.map((row) => <tr className={`${row.type === "total" ? "total" : ""} ${row.type === "percent" ? "percent-row" : ""}`} key={row.label}><td><DcfRowLabel label={row.label}/></td><td className="actual">{formatCell(row.actual, row.type)}</td>{row.values.map((value, index) => <td key={index}>{formatCell(value, row.type)}</td>)}<td>{formatCell(row.terminal ?? null, row.type)}</td></tr>)}
-          </tbody></table></div>}
+          {workbookTab === "dcf" && <><div className="model-table-wrap"><table className="model-table historical-model-table"><thead><tr className="period-group-row"><th>PERIOD TYPE</th><th className="actual-group" colSpan={actualPeriods.length}>HISTORICAL ACTUALS / DERIVED RATIOS · REFERENCE ONLY</th><th className="forecast-group" colSpan={result.years.length}>FORECAST ESTIMATES · INCLUDED IN DCF</th><th>TERMINAL</th></tr><tr><th>DCF line item</th>{actualPeriods.map((period) => <th className="actual" key={period.fiscalDate || period.year}>{actualFiscalLabel(period)}</th>)}{result.years.map((year, index) => <th className={index === 0 ? "forecast-start" : ""} key={year.periodEnd}>{fiscalPeriodLabel(year.periodEnd)}</th>)}<th><DefinedTerm term="yearFive">AT YEAR 5</DefinedTerm></th></tr></thead><tbody>
+            {tableRows.map((row) => <tr className={`${row.type === "total" ? "total" : ""} ${row.type === "percent" ? "percent-row" : ""}`} key={row.label}><td><DcfRowLabel label={row.label}/></td>{row.actuals.map((value, index) => <td className="actual" key={`${actualPeriods[index]?.fiscalDate || actualPeriods[index]?.year}-${row.label}`}>{formatCell(value, row.type)}</td>)}{row.values.map((value, index) => <td className={index === 0 ? "forecast-start" : ""} key={index}>{formatCell(value, row.type)}</td>)}<td>{formatCell(row.terminal ?? null, row.type)}</td></tr>)}
+          </tbody></table></div><p className="historical-model-note"><b>Historical actuals are context—not valuation cash flows.</b> They are not discounted or included in enterprise value. Historical UFCF is approximated as reported operating cash flow − capex + after-tax interest; working-capital and other non-cash movements remain embedded in operating cash flow. Historical operating tax uses a capped effective-tax proxy when available. Forecast UFCF uses the visible line-by-line formula.</p></>}
           {workbookTab === "assumptions" && <div className="model-table-wrap"><table className="workbook-table"><thead><tr><th>Assumption</th><th>Linked value</th><th>Source / treatment</th></tr></thead><tbody>{assumptionSheet.map(([label, value, source]) => <tr key={label}><td>{label}</td><td className="linked-cell">{value}</td><td>{source}</td></tr>)}</tbody></table></div>}
           {workbookTab === "wacc" && <div className="wacc-workbook">
             <div className="wacc-intro"><div><span>WHAT WACC ANSWERS</span><h3>What return do common-equity and funded-debt providers require?</h3><p>UFCF belongs to both shareholders and lenders, so this simplified model combines their required returns according to how much of the company is financed by common equity and funded debt. That combined rate discounts future cash flow into today’s value.</p></div><strong>{pct2.format(selectedWacc)}%<small>SELECTED MODEL WACC</small></strong></div>
