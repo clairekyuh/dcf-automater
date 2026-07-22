@@ -202,6 +202,26 @@ table{border-collapse:collapse;width:100%}
 .chart-stats{display:flex;flex-wrap:wrap;gap:12px 28px;border-top:1px solid var(--grid);padding-top:13px;font:9px DM Mono;color:#71808b}
 .chart-stats b{color:var(--ink)}
 .chart-empty{border:1px dashed var(--grid-dark);padding:55px;text-align:center;color:#71808b;font:10px DM Mono}
+.news-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.news-grid article{display:flex;flex-direction:column;min-height:255px;border:1px solid var(--grid-dark);padding:18px;background:var(--paper)}
+.news-card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.news-card-head time{color:#77838d;font:8px DM Mono;white-space:nowrap;padding-top:4px}
+.news-category{display:inline-block;padding:5px 7px;background:#e9ece6;color:var(--navy);font:600 7px DM Mono;text-transform:uppercase;letter-spacing:.04em}
+.news-category.high{background:var(--teal);color:var(--ink)}
+.news-grid h3{margin:16px 0 8px;font-size:17px;line-height:1.35;color:var(--navy-dark)}
+.news-grid h3 a{color:inherit;text-decoration:none}
+.news-grid h3 a:hover{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px}
+.news-grid>article>small{color:#77838d;font:8px DM Mono}
+.news-impact{margin-top:auto;padding-top:15px;border-top:1px solid var(--grid)}
+.news-impact b{display:block;color:var(--navy);font:600 7px DM Mono;letter-spacing:.08em}
+.news-impact p{margin:7px 0 0;color:#536159;font-size:10px;line-height:1.55}
+.news-foot{display:flex;justify-content:space-between;align-items:center;gap:20px;margin-top:13px;padding:12px 14px;background:#f4f3ed;border:1px solid var(--grid-dark)}
+.news-foot p{margin:0;color:#69766e;font:8px/1.5 DM Mono}
+.news-foot a,.news-status a{color:var(--navy-dark);font:600 8px DM Mono;text-decoration:none;white-space:nowrap;border-bottom:1px solid var(--navy)}
+.news-status{padding:34px;border:1px dashed var(--grid-dark);background:#f4f3ed;text-align:center}
+.news-status span{color:var(--navy);font:600 8px DM Mono;letter-spacing:.09em}
+.news-status p{max-width:680px;margin:9px auto 13px;color:#617068;font-size:10px;line-height:1.6}
+.news-status.news-error{background:#fff4ed;border-color:#c89582}
 .business-review{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:20px}
 .business-review article{border:1px solid var(--grid-dark);padding:19px;min-height:205px}
 .business-review article.moat-card{background:var(--teal-soft);border-color:#809169}
@@ -324,6 +344,7 @@ footer{display:flex;justify-content:space-between;padding:23px 5vw;background:va
 .six-step-grid{grid-template-columns:repeat(2,1fr)}.six-step-grid article:nth-child(3n){border-right:1px solid var(--grid)}.six-step-grid article:nth-child(2n){border-right:0}.six-step-grid article:nth-last-child(-n+3){border-bottom:1px solid var(--grid)}.six-step-grid article:nth-last-child(-n+2){border-bottom:0}
 .assumption-grid{grid-template-columns:repeat(3,1fr)}
 .risk-grid{grid-template-columns:1fr 1fr}
+.news-grid{grid-template-columns:1fr}
 .difference-grid{grid-template-columns:1fr 1fr}
 .business-review{grid-template-columns:1fr 1fr}.business-review article:last-child{grid-column:1/-1;min-height:0}
 .valuation-cards strong{font-size:31px}
@@ -356,5 +377,6 @@ footer{display:flex;justify-content:space-between;padding:23px 5vw;background:va
 .analysis-section{padding:20px 15px}.analysis-hero h1{font-size:42px}.supply-flow,.analysis-risk-grid,.analysis-metrics.four,.analysis-metrics.five{grid-template-columns:1fr}.supply-flow article{border-right:0}.supply-flow article:not(:last-child):after{content:"↓";right:18px;top:auto;bottom:-12px}.customer-row,.customer-row.header{grid-template-columns:1fr}.customer-row>*:last-child{grid-column:auto}.analysis-sources{padding:20px}.analysis-missing{margin:45px 20px;padding:28px}
 .chart-head{display:block}.chart-controls{justify-items:start;margin-top:15px}.chart-control-row{justify-content:flex-start;align-items:flex-start;flex-direction:column;gap:5px}.chart-controls .period-toggle{justify-content:flex-start;margin-top:0}.chart-stats{display:grid;gap:8px}
 .decision-checklist ul{grid-template-columns:1fr}
+.news-card-head,.news-foot{align-items:flex-start;flex-direction:column}.news-grid article{min-height:0}
 footer{display:block;padding:20px}footer span{display:block;margin-top:5px}
 }

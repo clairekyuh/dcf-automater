@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import CompanyNews from "@/app/components/company-news";
 import {
   addYears,
   calculateDcf,
@@ -703,7 +704,7 @@ function CompetitorComparison({ data }: { data: CompanyData }) {
   const rows = peers.length ? [company, ...peers] : [company];
   const fitLabel = (fit: Comparable["peerFit"]) => fit === "direct" ? "DIRECT FIT" : fit === "close" ? "CLOSE FIT" : fit === "adjacent" ? "ADJACENT" : "";
   return <section className="sheet-section" id="competitors">
-    <div className="section-heading"><div><span className="section-index">05</span><p>BUSINESS + RELATIVE VALUATION</p><h2>Competitor companies</h2></div><p className="section-description">Peers are selected from a business-model niche—not merely the reported industry label. Direct, close, and adjacent fits are identified so you can judge which valuation comparisons deserve the most weight.</p></div>
+    <div className="section-heading"><div><span className="section-index">06</span><p>BUSINESS + RELATIVE VALUATION</p><h2>Competitor companies</h2></div><p className="section-description">Peers are selected from a business-model niche—not merely the reported industry label. Direct, close, and adjacent fits are identified so you can judge which valuation comparisons deserve the most weight.</p></div>
     <div className="peer-selection-note"><div><span>SELECTED BUSINESS NICHE</span><strong>{comparison?.nicheLabel || businessFocus(company)}</strong></div><p>{comparison?.selectionBasis || "The closest available public companies are selected using the company description, products, customers, and operating model."}</p>{Boolean(comparison?.operatingCompetitors?.length) && <small>Broader operating competitors—not primary valuation peers: {comparison?.operatingCompetitors?.join(" · ")}</small>}</div>
     <div className="business-review">
       <article><span>WHAT THE COMPANY DOES</span><h3>{comparison?.nicheLabel || businessFocus(company)}</h3><p>{company.description || data.company.description}</p></article>
@@ -1003,10 +1004,12 @@ export default function Home() {
       <StockPriceChart points={data.market.priceHistory || []} symbol={data.company.symbol}/>
     </section>
 
+    <CompanyNews symbol={data.company.symbol} name={data.company.name}/>
+
     <CompetitorComparison data={data}/>
 
     {!financialUnsupported && <section className="sheet-section" id="risks">
-      <div className="section-heading"><div><span className="section-index">06</span><h2>Potential risks</h2></div><p className="section-description">Each card explains the available evidence, what the risk means for the business, and how it could affect the DCF. Verify material risks in company filings.</p></div>
+      <div className="section-heading"><div><span className="section-index">07</span><h2>Potential risks</h2></div><p className="section-description">Each card explains the available evidence, what the risk means for the business, and how it could affect the DCF. Verify material risks in company filings.</p></div>
       <div className="risk-grid">{risks.map((risk) => <article key={risk.title}><span className={`risk-pill ${risk.level}`}>{risk.level}</span><h3>{risk.title}</h3><p>{risk.detail}</p></article>)}</div>
       <div className="decision-checklist"><h3>Investment-decision checklist</h3><ul><li>Read the latest annual report, risk factors, and management guidance.</li><li>Map revenue, suppliers, and operations by country.</li><li>Compare assumptions with direct peers and a full business cycle.</li><li>Stress-test dilution, acquisitions, regulation, and refinancing.</li><li>Define the evidence that would invalidate the thesis.</li><li>Require a margin of safety appropriate for forecast uncertainty.</li></ul></div>
     </section>}
