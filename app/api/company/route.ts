@@ -747,6 +747,13 @@ export async function GET(request: NextRequest) {
       .filter((result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof nasdaqFundamentals>>> => result.status === "fulfilled")
       .map((result) => ({
         ...comparableFromNasdaq(result.value),
+        description: conciseBusinessDescription({
+          symbol: result.value.symbol,
+          name: result.value.name,
+          description: result.value.description,
+          sector: result.value.sector,
+          industry: result.value.industry,
+        }),
         peerFit: peerSet.rationales?.[result.value.symbol]?.fit || "close",
         businessModel: peerSet.rationales?.[result.value.symbol]?.businessModel || peerSet.label,
         peerRationale: peerSet.rationales?.[result.value.symbol]?.detail || `Selected from the ${peerSet.label.toLowerCase()} peer universe.`,

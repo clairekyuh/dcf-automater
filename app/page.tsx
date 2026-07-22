@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import CompanyNews from "@/app/components/company-news";
+import { buildBusinessComparison } from "@/lib/business-comparison";
 import {
   addYears,
   calculateDcf,
@@ -240,16 +241,11 @@ function businessAssessment(data: CompanyData, company: Comparable) {
       : marginPremium < -3
         ? `Its operating margin is ${fmt.format(Math.abs(marginPremium))} percentage points below the peer median, so the current numbers do not show peer-leading economics.`
         : "Its operating margin is close to the peer median, so the current numbers alone do not establish pricing power.";
-  const peerFocuses = Array.from(new Set((data.comparison?.peers || []).map(businessFocus))).filter((focus) => focus !== businessFocus(company));
-  const difference = peerFocuses.length
-    ? `${company.symbol} is categorized as ${businessFocus(company)}. The automatic peer set also includes ${peerFocuses.slice(0, 3).join(", ")}, so differences in capital intensity and revenue model matter when comparing multiples.`
-    : `${company.symbol} and the returned peers share a broadly similar ${businessFocus(company).toLowerCase()} focus; product depth, customer mix, geography, and execution may still differ materially.`;
   return {
     verdict,
     mechanism: rule?.mechanism || "The provider description and financial ratios do not reveal a specific durable competitive advantage.",
     verify: rule?.verify || "customer retention, pricing power, market share, returns on invested capital, and credible substitutes",
     financialSignal,
-    difference,
   };
 }
 
@@ -703,6 +699,14 @@ function CompetitorComparison({ data }: { data: CompanyData }) {
       : { label: "EV / EBITDA", value: formatMetric(company.evToEbitda), detail: difference(company.evToEbitda, metrics.multiple, "above", "below", "×") },
   ];
   const assessment = businessAssessment(data, company);
+  const detailedComparison = buildBusinessComparison({
+    company,
+    peers,
+    nicheLabel: comparison?.nicheLabel,
+    capexPercentRevenue: data.metrics.capexPercentRevenue,
+    operatingMargin: company.operatingMargin,
+    peerMedianMargin: metrics.margin,
+  });
   const rows = peers.length ? [company, ...peers] : [company];
   const fitLabel = (fit: Comparable["peerFit"]) => fit === "direct" ? "DIRECT FIT" : fit === "close" ? "CLOSE FIT" : fit === "adjacent" ? "ADJACENT" : "";
   return <section className="sheet-section" id="competitors">
@@ -711,7 +715,7 @@ function CompetitorComparison({ data }: { data: CompanyData }) {
     <div className="business-review">
       <article><span>WHAT THE COMPANY DOES</span><h3>{comparison?.nicheLabel || businessFocus(company)}</h3><p>{company.description || data.company.description}</p></article>
       <article className="moat-card"><span>DOES IT HAVE A MOAT?</span><h3>{assessment.verdict}</h3><p>{assessment.mechanism} {assessment.financialSignal}</p><small>Verify: {assessment.verify}.</small></article>
-      <article><span>HOW THE BUSINESS DIFFERS</span><h3>Business mix matters</h3><p>{assessment.difference}</p></article>
+      <article className="business-difference-card"><span>HOW THE BUSINESS DIFFERS</span><h3>{detailedComparison.title}</h3><p>{detailedComparison.summary}</p><div className="business-difference-grid">{detailedComparison.dimensions.map((dimension) => <div key={dimension.label}><b>{dimension.label}</b><p>{dimension.detail}</p></div>)}</div>{detailedComparison.peerModels.length > 0 && <div className="peer-model-list"><b>PEER-BY-PEER BUSINESS MODEL</b><div>{detailedComparison.peerModels.map((peer) => <section key={peer.symbol}><strong>{peer.symbol} · {peer.name}</strong><p>{peer.detail}</p></section>)}</div></div>}<small>Comparison lens: {detailedComparison.ruleTitle}. Verify segment revenue, customer concentration, and capital allocation in the latest filing before applying a peer multiple.</small></article>
     </div>
     <div className="peer-summary"><div><span>NICHE GROWTH BENCHMARK</span><strong>{comparison?.industryGrowthRate === null || comparison?.industryGrowthRate === undefined ? "—" : `${fmt.format(comparison.industryGrowthRate)}%`}</strong><small>Median recent peer revenue growth</small></div><div><span>{financialCompany ? "PEER MEDIAN P / E" : "PEER MEDIAN EV / EBITDA"}</span><strong>{financialCompany ? metrics.pe === null ? "—" : `${fmt.format(metrics.pe)}×` : metrics.multiple === null ? "—" : `${fmt.format(metrics.multiple)}×`}</strong><small>{financialCompany ? "Use with P/TBV, ROE, capital, and credit quality" : "Reference for the exit-multiple method"}</small></div><div><span>SELECTED PEER GROUP</span><strong>{(comparison?.selectedPeerSymbols || peers.map((peer) => peer.symbol)).join(" · ") || "Unavailable"}</strong><small>Narrowed by products, customers, and operating model</small></div></div>
     <div className="peer-table-wrap table-scroll"><table className="peer-table"><thead><tr><th>Company</th><th>Business focus</th><th>Market cap</th><th>Revenue growth</th><th>Operating margin</th><th>EV / Revenue</th><th>EV / EBITDA</th><th>P / E</th></tr></thead><tbody>
