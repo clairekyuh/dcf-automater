@@ -31,13 +31,13 @@ function model(periodEnd = "2026-12-31"): DcfModel {
     preferredInterest: 0,
     shares: 100,
     marketPrice: 50,
-    valuationDate: "2026-04-27",
+    valuationDate: "2026-07-22",
   };
 }
 
-test("calendar-period convention preserves the April 27 partial-year weight", () => {
+test("calendar-period convention preserves the exact partial-year weight", () => {
   const timing = forecastTiming(model());
-  assert.ok(Math.abs(timing.firstYearWeight - 247 / 365) < 1e-10);
+  assert.ok(Math.abs(timing.firstYearWeight - 161 / 365) < 1e-10);
   assert.ok(Math.abs(timing.firstYearWeight + timing.lastYearWeight - 1) < 1e-12);
   assert.ok(Math.abs(timing.periods[5] - (5 - timing.lastYearWeight / 2)) < 1e-12);
 });

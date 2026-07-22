@@ -140,8 +140,6 @@ const LARGE_COMPANY_EXAMPLES = [
   { symbol: "WMT", name: "Walmart" },
   { symbol: "XOM", name: "Exxon Mobil" },
 ];
-const WSP_DCF_GUIDE = "https://www.wallstreetprep.com/knowledge/dcf-model-training-6-steps-building-dcf-model-excel/";
-
 const industryRules = [
   { match: /AI-native GPU cloud|data-center ownership|data center/i, multiple: 12, wacc: 11, terminal: 2.5, margin: 22, da: 18, capex: 22, note: "AI infrastructure can grow quickly, but GPU obsolescence, power availability, utilization, customer concentration, and heavy financing needs justify a high discount rate and substantial continuing reinvestment." },
   { match: /consumer devices and digital ecosystems/i, multiple: 15, wacc: 9, terminal: 3, margin: 25, note: "Consumer ecosystems can combine hardware, services, and switching costs. Forecast the mix explicitly and compare the multiple with other diversified platform companies." },
@@ -943,7 +941,7 @@ export default function Home() {
       <div className="valuation-cards"><div><span>{priceContext.label}</span><strong>{usd.format(model.marketPrice)}</strong><small>{priceContext.detail}</small></div><div><span><DefinedTerm term="perpetualGrowth">Perpetual growth</DefinedTerm> scenario value</span><strong>{perpetuity.valid ? usd.format(perpetuity.perShare) : "—"}</strong>{perpetuity.valid && <ValueMove value={perpetuity.perShare} price={model.marketPrice}/>}</div><div><span><DefinedTerm term="exitMultiple">Exit multiple</DefinedTerm> scenario value</span><strong>{usd.format(multiple.perShare)}</strong><ValueMove value={multiple.perShare} price={model.marketPrice}/></div></div>
       <div className={`forecast-confidence ${forecastConfidence.toLowerCase()}`}><b>FORECAST CONFIDENCE · {forecastConfidence.toUpperCase()}</b><p>{forecastConfidenceDetail} The outputs are scenario results, not price targets.</p></div>
       {selectedWacc <= model.terminalGrowth && <div className="api-error valuation-warning"><b>Assumption error:</b> WACC must be greater than terminal growth for the perpetual-growth method.</div>}
-      {(model.terminalGrowth < 2 || model.terminalGrowth > 4) && <div className="api-error valuation-warning"><b>Terminal-growth review:</b> Wall Street Prep describes roughly 2%–4% as a typical mature-company range. A value outside that range can be valid, but it needs company-specific support.</div>}
+      {(model.terminalGrowth < 2 || model.terminalGrowth > 4) && <div className="api-error valuation-warning"><b>Terminal-growth review:</b> This assumption should represent a sustainable long-run nominal growth rate. Because it appears in the denominator of TV = Year-5 UFCF × (1 + g) ÷ (WACC − g), even a small change can materially affect terminal value.</div>}
       {(perpetuity.rawEquityValue < 0 || multiple.rawEquityValue < 0) && <div className="negative-explainer"><b>WHY A METHOD CAN SHOW $0 FOR COMMON EQUITY</b><p>Under at least one terminal method, enterprise value plus cash does not cover funded debt. The mathematical bridge is negative, but common stock has limited liability, so the displayed value stops at $0 rather than showing a negative share price.</p></div>}
       <div className="bridge-grid"><ValuationBridge title="Perpetual Growth Method" result={perpetuity} model={model} method="perpetuity" data={data}/><ValuationBridge title="Exit Multiple Method" result={multiple} model={model} method="multiple" data={data}/></div>
     </section>}
@@ -951,16 +949,16 @@ export default function Home() {
     {!financialUnsupported && <section className="sheet-section" id="build">
       <div className="section-heading"><div><span className="section-index">02</span><p>MODEL</p><h2>DCF workbook</h2></div><div className="unit-note">USD IN MILLIONS · LIVE TICKER-LINKED CELLS</div></div>
       <div className="method-audit">
-        <div className="audit-heading"><div><span>PROCESS CHECK</span><h3>Wall Street Prep six-step unlevered DCF</h3></div><a href={WSP_DCF_GUIDE} target="_blank" rel="noreferrer">Review source framework ↗</a></div>
+        <div className="audit-heading"><div><span>FORMULA CHECK</span><h3>Standard unlevered DCF calculation</h3></div></div>
         <div className="six-step-grid">
           <article><span>01</span><b>Forecast UFCF</b><code>EBIT × (1−T) + D&A − Capex − ΔNWC</code></article>
-          <article><span>02</span><b>Calculate terminal value</b><code>Perpetuity or Exit EBITDA</code></article>
-          <article><span>03</span><b>Discount at WACC</b><code>PV of UFCF + PV of terminal value</code></article>
-          <article><span>04</span><b>Add non-operating assets</b><code>Enterprise value + cash & investments</code></article>
-          <article><span>05</span><b>Subtract non-equity claims</b><code>Debt + leases + preferred + minority</code></article>
+          <article><span>02</span><b>Calculate terminal value</b><code>PG: UFCF₅ × (1+g) ÷ (WACC−g)<br/>Exit: EBITDA₅ × selected multiple</code></article>
+          <article><span>03</span><b>Discount at WACC</b><code>EV = Σ[UFCFₜ ÷ (1+WACC)ᵗ] + TV ÷ (1+WACC)⁵</code></article>
+          <article><span>04</span><b>Add non-operating assets</b><code>Enterprise value + cash &amp; included investments</code></article>
+          <article><span>05</span><b>Subtract non-equity claims</b><code>− short debt − long debt − other non-equity claims</code></article>
           <article><span>06</span><b>Calculate value per share</b><code>Equity value ÷ fully diluted shares</code></article>
         </div>
-        <p><b>Scope check:</b> This is an automated quick DCF, not a fully linked three-statement model. Wall Street Prep says high-stakes forecasts should ideally link EBIT, D&A, capex, and working capital through all three statements. Every modeled shortcut remains visible and editable here.</p>
+        <p><b>Scope check:</b> This is an automated quick DCF, not a fully linked three-statement model. A transaction-grade forecast should link EBIT, D&amp;A, capex, and working capital through the income statement, balance sheet, and cash-flow statement. Every modeled shortcut remains visible and editable here.</p>
       </div>
       <div className="workbook-shell">
         <div className="formula-bar"><b>fx</b><code>{workbookFormula[workbookTab]}</code></div>
@@ -994,7 +992,7 @@ export default function Home() {
               <tr className="workbook-answer"><td>Selected model WACC</td><td>{pct2.format(selectedWacc)}%</td><td>{pct2.format(referenceWacc)}% base formula + {pct2.format(model.companyRiskPremium)}% premium = {pct2.format(selectedWacc)}%</td></tr>
             </tbody></table></div><p className="workbook-warning">The clearest items to verify are beta and pre-tax debt cost. Beta is currently a neutral 1.0 fallback when Nasdaq does not provide it. For a transaction-grade WACC, use a current regression or peer beta and replace trailing interest expense with a forward bond yield, borrowing rate, or credit-spread estimate.</p>
           </div>}
-          {workbookTab === "valuation" && <div className="model-table-wrap"><table className="workbook-table valuation-workbook"><thead><tr><th>Valuation bridge</th><th>Perpetual growth</th><th>Exit multiple</th></tr></thead><tbody>{valuationSheet.map(([label, perpetuityValue, multipleValue]) => <tr className={["Enterprise value", "Equity value"].includes(String(label)) ? "workbook-total" : ""} key={String(label)}><td>{label}</td><td>{perpetuity.valid ? workbookMoney(Number(perpetuityValue)) : "—"}</td><td>{workbookMoney(Number(multipleValue))}</td></tr>)}<tr><td>Share count used</td><td>{fmt.format(model.shares)}M</td><td>{fmt.format(model.shares)}M</td></tr><tr className="workbook-answer"><td>Implied value per share</td><td>{perpetuity.valid ? usd.format(perpetuity.perShare) : "—"}</td><td>{usd.format(multiple.perShare)}</td></tr></tbody></table><p className="workbook-warning">Share source: {data.market.sharesSource || "market-cap-derived proxy; verify current and fully diluted shares"}. Wall Street Prep’s Step 6 requires current shares plus options, warrants, restricted stock, convertibles, and other dilutive securities.</p></div>}
+          {workbookTab === "valuation" && <div className="model-table-wrap"><table className="workbook-table valuation-workbook"><thead><tr><th>Valuation bridge</th><th>Perpetual growth</th><th>Exit multiple</th></tr></thead><tbody>{valuationSheet.map(([label, perpetuityValue, multipleValue]) => <tr className={["Enterprise value", "Equity value"].includes(String(label)) ? "workbook-total" : ""} key={String(label)}><td>{label}</td><td>{perpetuity.valid ? workbookMoney(Number(perpetuityValue)) : "—"}</td><td>{workbookMoney(Number(multipleValue))}</td></tr>)}<tr><td>Share count used</td><td>{fmt.format(model.shares)}M</td><td>{fmt.format(model.shares)}M</td></tr><tr className="workbook-answer"><td>Implied value per share</td><td>{perpetuity.valid ? usd.format(perpetuity.perShare) : "—"}</td><td>{usd.format(multiple.perShare)}</td></tr></tbody></table><p className="workbook-warning">Share source: {data.market.sharesSource || "market-cap-derived proxy; verify current and fully diluted shares"}. Per-share value equals common-equity value divided by the current fully diluted share count, including options, warrants, restricted stock, convertibles, and other dilutive securities where applicable.</p></div>}
           {workbookTab === "sensitivity" && <div className="sensitivity-grid workbook-sensitivity"><SensitivityTable data={data} model={model} method="perpetuity"/><SensitivityTable data={data} model={model} method="multiple"/></div>}
         </div>
         <div className="workbook-tabs" role="tablist" aria-label="DCF workbook sheets">{([
