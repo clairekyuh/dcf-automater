@@ -272,9 +272,7 @@ table{border-collapse:collapse;width:100%}
 .peer-table .business-focus-cell{text-align:left;white-space:normal;min-width:165px;color:#536158}
 .business-focus-cell>b,.business-focus-cell>small{display:block}
 .business-focus-cell>small{margin-top:7px;color:#6e7a73;font:7.5px/1.45 Manrope,Arial,sans-serif}
-.peer-table .peer-fit{margin-right:5px;background:#dfe6d5;color:#304338}
-.peer-table .peer-fit.direct{background:var(--teal);color:var(--ink)}
-.peer-table .peer-fit.adjacent{background:#eee5cf;color:#73561d}
+.peer-fit-indicator{display:block;margin-top:6px;color:#68756e;font:600 7px DM Mono;text-transform:uppercase;letter-spacing:.04em;cursor:default}
 .peer-empty{margin-top:14px;padding:16px;border:1px dashed var(--grid-dark);background:#f4f3ed;color:#66736b;font:9px/1.55 DM Mono}
 .difference-title{font-size:15px;color:var(--navy-dark);margin:25px 0 12px}
 .difference-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
