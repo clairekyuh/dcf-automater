@@ -163,6 +163,35 @@ const applePeerModels: Record<string, string> = {
   SONY: "Sony combines PlayStation gaming hardware and network services with entertainment content, image sensors, and consumer electronics.",
 };
 
+const applePeerRationales: Record<string, string> = {
+  GOOGL: "Alphabet is primarily advertising-funded through Search and YouTube, with Google Cloud, Android, subscriptions, and devices as additional businesses. It is similar to AAPL because both control large consumer platforms, app ecosystems, devices, and subscription services. Unlike Apple, Alphabet earns most of its revenue from advertising and has greater cloud exposure.",
+  GOOG: "Alphabet is primarily advertising-funded through Search and YouTube, with Google Cloud, Android, subscriptions, and devices as additional businesses. It is similar to AAPL because both control large consumer platforms, app ecosystems, devices, and subscription services. Unlike Apple, Alphabet earns most of its revenue from advertising and has greater cloud exposure.",
+  MSFT: "Microsoft sells enterprise software and cloud infrastructure through Microsoft 365, Azure, Windows, Dynamics, LinkedIn, and gaming. It is similar to AAPL because both control major operating systems, app distribution, devices, and subscription ecosystems. Unlike Apple, Microsoft is much more dependent on enterprise software and cloud spending than premium consumer-device sales.",
+  SONY: "Sony combines PlayStation gaming hardware and network services with entertainment content, image sensors, and consumer electronics. It is similar to AAPL because both sell consumer hardware and attach digital services and content to their devices. Unlike Apple, Sony has greater gaming, media, and component exposure and does not control a smartphone ecosystem of comparable scale.",
+};
+
+const similarityRules = [
+  { match: /consumer devices and digital ecosystems/i, shared: "Both participate in consumer technology ecosystems through some combination of devices, operating systems, digital distribution, subscriptions, or content.", difference: "Compare whether revenue is led by hardware, advertising, enterprise cloud, gaming and content, or attached services." },
+  { match: /ai-native gpu cloud/i, shared: "Both serve AI computing demand through GPU capacity, data-center infrastructure, or managed cloud services.", difference: "Compare data-center ownership, financing, GPU utilization, software depth, customer concentration, and exposure to non-cloud businesses." },
+  { match: /electronic design automation|engineering software/i, shared: "Both sell specialized software or intellectual property used in semiconductor or engineering design workflows.", difference: "Compare core EDA exposure, semiconductor IP, adjacent engineering products, recurring revenue, and workflow switching costs." },
+  { match: /cybersecurity/i, shared: "Both sell security products to enterprises through recurring software, cloud platforms, or network appliances.", difference: "Compare endpoint, network, cloud, and identity exposure; hardware mix; retention; and the breadth of each platform." },
+  { match: /accelerated-computing semiconductors|semiconductor products/i, shared: "Both participate in semiconductor computing through processors, networking, custom silicon, manufacturing, or related software.", difference: "Compare chip categories, software ecosystems, foundry dependence, manufacturing ownership, end markets, and product cycles." },
+  { match: /data-center ownership|colocation/i, shared: "Both monetize data-center capacity, power, buildings, or infrastructure used by enterprise and cloud customers.", difference: "Compare colocation rent, interconnection, powered-shell leasing, managed compute, development exposure, occupancy, and leverage." },
+  { match: /public-cloud platforms/i, shared: "Both operate large cloud or software platforms used for computing, storage, data, applications, or developer services.", difference: "Compare how much value comes from cloud versus advertising, retail, enterprise software, databases, devices, and other parent-company businesses." },
+  { match: /enterprise application software/i, shared: "Both sell recurring enterprise software used in important business workflows.", difference: "Compare product category, seat versus usage pricing, implementation services, customer size, retention, hosting costs, and sales efficiency." },
+  { match: /payments network|processors/i, shared: "Both earn revenue from electronic payment volume, transaction processing, merchant acceptance, or related financial services.", difference: "Compare network tolls, processing and acquiring, wallet exposure, take rates, credit risk, and customer concentration." },
+  { match: /banks/i, shared: "Both combine deposits or other funding with lending and fee-generating financial services.", difference: "Compare consumer and commercial lending, cards, investment banking, trading, wealth management, funding costs, credit quality, and capital." },
+  { match: /insurance/i, shared: "Both underwrite insurance risk and invest policyholder funds.", difference: "Compare insurance lines, distribution, loss ratios, catastrophe exposure, reserve risk, and investment portfolios." },
+  { match: /biotechnology|pharmaceutical/i, shared: "Both depend on patented medicines, clinical development, regulatory approvals, and commercialization capabilities.", difference: "Compare product concentration, patent life, therapeutic areas, pipeline maturity, reimbursement, and licensing exposure." },
+  { match: /electric-vehicle|vehicle manufacturers/i, shared: "Both design, manufacture, and sell vehicles and depend on production scale, pricing, and consumer demand.", difference: "Compare electric-vehicle mix, factories, batteries, software, financing, dealer versus direct distribution, and non-vehicle businesses." },
+  { match: /oil and gas|energy production/i, shared: "Both are exposed to energy prices, production economics, and capital-intensive asset development.", difference: "Compare upstream production with refining, chemicals, marketing, trading, reserve quality, and project duration." },
+  { match: /regulated electric utilities/i, shared: "Both invest in regulated energy infrastructure and earn returns under public-utility oversight.", difference: "Compare regulatory jurisdictions, generation mix, rate-base growth, construction plans, customer growth, and financing needs." },
+  { match: /telecommunications/i, shared: "Both monetize communications networks through recurring consumer or enterprise subscriptions.", difference: "Compare wireless, fiber, cable, broadband, media, spectrum holdings, churn, network quality, capex, and leverage." },
+  { match: /retail/i, shared: "Both sell consumer goods through physical or digital distribution networks.", difference: "Compare grocery and discretionary mix, memberships, advertising, marketplace fees, stores, inventory turns, fulfillment, and private labels." },
+  { match: /aerospace and defense/i, shared: "Both supply long-cycle aerospace or defense programs with concentrated government or commercial customers.", difference: "Compare platform versus component exposure, contract type, classified work, aftermarket revenue, backlog quality, and program execution." },
+  { match: /industrial technology/i, shared: "Both sell engineered equipment, components, automation, or services to industrial customers.", difference: "Compare end markets, installed base, recurring service, project concentration, cyclicality, factories, inventory, and working capital." },
+] as const;
+
 function concise(value: string, limit = 300) {
   const clean = String(value || "").replace(/\s+/g, " ").trim();
   if (!clean) return "A sufficiently detailed business description was not available.";
@@ -221,4 +250,26 @@ export function buildBusinessComparison(input: BusinessComparisonInput) {
     peerModels,
     ruleTitle: rule.title,
   };
+}
+
+export function buildPeerSimilarityRationale(input: {
+  targetSymbol: string;
+  peer: BusinessComparable;
+  nicheLabel?: string;
+  existingDetail?: string;
+}) {
+  const targetSymbol = input.targetSymbol.toUpperCase();
+  const peerSymbol = input.peer.symbol.toUpperCase();
+  if (targetSymbol === "AAPL" && applePeerRationales[peerSymbol]) return applePeerRationales[peerSymbol];
+
+  const context = `${input.nicheLabel || ""} ${input.peer.industry} ${input.peer.sector}`;
+  const rule = similarityRules.find((item) => item.match.test(context)) || {
+    shared: `Both operate in the selected ${input.nicheLabel || input.peer.industry || "business"} comparison area.`,
+    difference: "Compare their actual products, customers, revenue concentration, margins, capital intensity, geography, and distribution before treating their valuation multiples as interchangeable.",
+  };
+  const existing = String(input.existingDetail || "").trim();
+  const peerBusiness = existing && !/^Selected from the /i.test(existing)
+    ? concise(existing)
+    : concise(input.peer.description || input.peer.businessModel || "");
+  return `${peerBusiness} Similarity to ${targetSymbol}: ${rule.shared} Key difference to verify: ${rule.difference}`;
 }

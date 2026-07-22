@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { conciseBusinessDescription } from "@/lib/company-description";
+import { buildPeerSimilarityRationale } from "@/lib/business-comparison";
 
 export const runtime = "nodejs";
 
@@ -732,6 +733,14 @@ export async function GET(request: NextRequest) {
       currentMarketInputs(),
     ]);
     const sec = secResult.data;
+    const companyName = sec?.company.name || primary.name;
+    const companyDescription = conciseBusinessDescription({
+      symbol,
+      name: companyName,
+      description: sec?.company.description || primary.description,
+      sector: primary.sector,
+      industry: primary.industry,
+    });
     const historical = primary.historical;
     const latest = historical[0];
     const peerSet = selectPeerSet({
@@ -745,19 +754,36 @@ export async function GET(request: NextRequest) {
     const peerResults = await Promise.allSettled(selectedPeerSymbols.map((peerSymbol) => nasdaqFundamentals(peerSymbol)));
     const peers = peerResults
       .filter((result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof nasdaqFundamentals>>> => result.status === "fulfilled")
-      .map((result) => ({
-        ...comparableFromNasdaq(result.value),
-        description: conciseBusinessDescription({
+      .map((result) => {
+        const peerDescription = conciseBusinessDescription({
           symbol: result.value.symbol,
           name: result.value.name,
           description: result.value.description,
           sector: result.value.sector,
           industry: result.value.industry,
-        }),
-        peerFit: peerSet.rationales?.[result.value.symbol]?.fit || "close",
-        businessModel: peerSet.rationales?.[result.value.symbol]?.businessModel || peerSet.label,
-        peerRationale: peerSet.rationales?.[result.value.symbol]?.detail || `Selected from the ${peerSet.label.toLowerCase()} peer universe.`,
-      }));
+        });
+        const existingDetail = peerSet.rationales?.[result.value.symbol]?.detail;
+        return {
+          ...comparableFromNasdaq(result.value),
+          description: peerDescription,
+          peerFit: peerSet.rationales?.[result.value.symbol]?.fit || "close",
+          businessModel: peerSet.rationales?.[result.value.symbol]?.businessModel || peerSet.label,
+          peerRationale: buildPeerSimilarityRationale({
+            targetSymbol: symbol,
+            nicheLabel: peerSet.label,
+            existingDetail,
+            peer: {
+              symbol: result.value.symbol,
+              name: result.value.name,
+              description: peerDescription,
+              sector: result.value.sector,
+              industry: result.value.industry,
+              businessModel: peerSet.rationales?.[result.value.symbol]?.businessModel || peerSet.label,
+              peerRationale: existingDetail,
+            },
+          }),
+        };
+      });
     const industryGrowthRate = median(peers.map((peer) => peer.revenueGrowth));
     const secMetric = (key: string) => {
       const value = sec?.metrics?.[key];
@@ -838,14 +864,6 @@ export async function GET(request: NextRequest) {
     qualityNotes.push(`WACC uses ${marketInputs.source}. Nasdaq does not return beta in this dataset, so beta starts at a disclosed neutral 1.0 and remains editable.`);
     const latestTaxRate = latest.earningsBeforeTax > 0 ? Math.min(40, Math.max(0, latest.incomeTax / latest.earningsBeforeTax * 100)) : 21;
     const descriptionFromSec = Boolean(sec?.company.description);
-    const companyName = sec?.company.name || primary.name;
-    const companyDescription = conciseBusinessDescription({
-      symbol,
-      name: companyName,
-      description: sec?.company.description || primary.description,
-      sector: primary.sector,
-      industry: primary.industry,
-    });
     const secCompanyDescription = sec?.company.description
       ? conciseBusinessDescription({ symbol, name: companyName, description: sec.company.description, sector: primary.sector, industry: primary.industry })
       : "A factual business description could not be extracted from the latest SEC annual filing.";
