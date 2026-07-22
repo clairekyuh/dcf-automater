@@ -93,7 +93,7 @@ export function forecastTiming(model: Pick<DcfModel, "forecastDrivers" | "valuat
   const firstForecastEnd = new Date(`${model.forecastDrivers[0].periodEnd}T00:00:00Z`).getTime();
   const valuationDate = new Date(`${model.valuationDate}T00:00:00Z`).getTime();
   const daysInFirstPeriod = Math.max(1, (firstForecastEnd - latestFiscalEnd) / DAY);
-  // Bloomberg excludes the valuation date itself from the remaining-period fraction.
+  // Exclude the valuation date itself from the remaining-period fraction.
   const firstYearWeight = clampNumber(((firstForecastEnd - valuationDate) / DAY - 1) / daysInFirstPeriod, 0, 1);
   const lastYearWeight = 1 - firstYearWeight;
   return {

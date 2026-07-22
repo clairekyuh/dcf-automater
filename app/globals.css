@@ -68,9 +68,6 @@ button{cursor:pointer}
 .valuation-warning{max-width:none;margin:0 0 25px}
 .negative-explainer b{font:500 9px DM Mono;color:#a33829;letter-spacing:.08em}
 .negative-explainer p{font-size:11px;line-height:1.6;color:#72463f;margin:7px 0 0}
-.bloomberg-reference{border-color:var(--navy);background:var(--teal-soft)}
-.bloomberg-reference b{color:var(--navy-dark)}
-.bloomberg-reference p{color:#526159}
 .forecast-confidence{border:1px solid var(--grid-dark);border-left:5px solid var(--amber);background:#fff7e7;padding:14px 17px;margin:-10px 0 25px}
 .forecast-confidence b{font:600 9px DM Mono;color:#795817;letter-spacing:.07em}.forecast-confidence p{margin:6px 0 0;color:#655a43;font-size:10px;line-height:1.55}
 .forecast-confidence.moderate{border-left-color:var(--green);background:#eef4ea}.forecast-confidence.moderate b{color:var(--green)}

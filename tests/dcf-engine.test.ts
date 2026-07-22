@@ -35,7 +35,7 @@ function model(periodEnd = "2026-12-31"): DcfModel {
   };
 }
 
-test("Bloomberg calendar-period convention preserves the April 27 partial-year weight", () => {
+test("calendar-period convention preserves the April 27 partial-year weight", () => {
   const timing = forecastTiming(model());
   assert.ok(Math.abs(timing.firstYearWeight - 247 / 365) < 1e-10);
   assert.ok(Math.abs(timing.firstYearWeight + timing.lastYearWeight - 1) < 1e-12);
