@@ -10,6 +10,67 @@ const NASDAQ_HEADERS = {
   Origin: "https://www.nasdaq.com",
   Referer: "https://www.nasdaq.com/",
 };
+const SEC_HEADERS = {
+  "User-Agent": process.env.SEC_USER_AGENT || "DCF Automater clairekyuh@users.noreply.github.com",
+  Accept: "application/json,text/html,*/*",
+  "Accept-Encoding": "gzip, deflate",
+};
+const wait = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+const todayPacific = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+
+let secRequestQueue = Promise.resolve();
+async function secFetch(url: string, revalidate: number) {
+  const run = async () => {
+    await wait(120);
+    let lastStatus = 0;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const response = await fetch(url, { headers: SEC_HEADERS, next: { revalidate } });
+      lastStatus = response.status;
+      if (response.ok) return response;
+      if (![403, 429, 500, 502, 503, 504].includes(response.status)) break;
+      await wait(300 * 2 ** attempt);
+    }
+    throw new Error(`SEC EDGAR returned HTTP ${lastStatus || "error"}.`);
+  };
+  const request = secRequestQueue.then(run, run);
+  secRequestQueue = request.then(() => undefined, () => undefined);
+  return request;
+}
+
+async function currentMarketInputs() {
+  const fallback = { riskFreeRate: 4.5, riskFreeAsOf: null as string | null, equityRiskPremium: 4.2, erpAsOf: null as string | null, source: "Editable fallbacks—live market inputs unavailable" };
+  try {
+    const end = todayPacific();
+    const startDate = new Date(`${end}T00:00:00Z`);
+    startDate.setUTCDate(startDate.getUTCDate() - 120);
+    const start = startDate.toISOString().slice(0, 10);
+    const [fredResponse, damodaranResponse] = await Promise.all([
+      fetch(`https://fred.stlouisfed.org/graph/fredgraph.csv?id=DGS10&cosd=${start}&coed=${end}`, { next: { revalidate: 3600 } }),
+      fetch("https://pages.stern.nyu.edu/~adamodar/New_Home_Page/home.htm", { next: { revalidate: 86400 } }),
+    ]);
+    const result = { ...fallback };
+    if (fredResponse.ok) {
+      const rows = (await fredResponse.text()).trim().split(/\r?\n/).slice(1).map((row) => row.split(","));
+      const latest = rows.reverse().find((row) => row.length >= 2 && Number.isFinite(Number(row[1])));
+      if (latest) {
+        result.riskFreeAsOf = latest[0];
+        result.riskFreeRate = Number(latest[1]);
+      }
+    }
+    if (damodaranResponse.ok) {
+      const text = (await damodaranResponse.text()).replace(/<[^>]+>/g, " ").replace(/&amp;/g, "&").replace(/\s+/g, " ");
+      const match = text.match(/Implied ERP on\s+([^=]{3,40})=\s*([0-9]+)\.\s*([0-9]+)%/i);
+      if (match) {
+        result.erpAsOf = match[1].trim();
+        result.equityRiskPremium = Number(`${match[2]}.${match[3]}`);
+      }
+    }
+    result.source = result.riskFreeAsOf || result.erpAsOf ? "FRED 10-year Treasury + Damodaran implied ERP" : fallback.source;
+    return result;
+  } catch {
+    return fallback;
+  }
+}
 
 const median = (values: Array<number | null>) => {
   const valid = values.filter((value): value is number => value !== null && Number.isFinite(value)).sort((a, b) => a - b);
@@ -113,9 +174,18 @@ const peerSets: PeerSet[] = [
 
 const exactPeerSet: Record<string, string> = {
   CRWV: "ai-cloud", NBIS: "ai-cloud", IREN: "ai-cloud", APLD: "ai-cloud",
-  SNPS: "eda", CDNS: "eda", NVDA: "gpu-semiconductors", AMD: "gpu-semiconductors",
-  PANW: "cybersecurity", CRWD: "cybersecurity", EQIX: "data-centers", DLR: "data-centers",
+  SNPS: "eda", CDNS: "eda", ADSK: "eda", PTC: "eda", NVDA: "gpu-semiconductors", AMD: "gpu-semiconductors", AVGO: "gpu-semiconductors", INTC: "gpu-semiconductors",
+  PANW: "cybersecurity", CRWD: "cybersecurity", FTNT: "cybersecurity", ZS: "cybersecurity", EQIX: "data-centers", DLR: "data-centers", IRM: "data-centers",
   AAPL: "consumer-ecosystems", TSLA: "electric-vehicles", RIVN: "electric-vehicles", LCID: "electric-vehicles",
+  XOM: "energy", CVX: "energy", COP: "energy", EOG: "energy",
+  JPM: "banks", BAC: "banks", WFC: "banks", C: "banks",
+  CB: "insurance", PGR: "insurance", ALL: "insurance", TRV: "insurance",
+  WMT: "retail", COST: "retail", TGT: "retail",
+  GOOGL: "public-cloud", GOOG: "public-cloud", MSFT: "public-cloud", AMZN: "public-cloud", ORCL: "public-cloud",
+  NEE: "utilities", DUK: "utilities", SO: "utilities", AEP: "utilities",
+  VZ: "telecom", T: "telecom", TMUS: "telecom", CHTR: "telecom",
+  MRK: "pharma", PFE: "pharma", ABBV: "pharma", BMY: "pharma", JNJ: "pharma",
+  AMGN: "biotech", GILD: "biotech", REGN: "biotech", VRTX: "biotech",
 };
 
 function selectPeerSet(company: { symbol: string; sector: string; industry: string; name: string; description: string }) {
@@ -124,11 +194,37 @@ function selectPeerSet(company: { symbol: string; sector: string; industry: stri
   const ranked = peerSets
     .map((set) => ({ set, score: set.patterns.reduce((sum, pattern) => sum + (pattern.test(text) ? 1 : 0), 0) + (set.id === exact ? 100 : 0) }))
     .sort((a, b) => b.score - a.score);
-  const selected = ranked[0]?.score > 0 ? ranked[0].set : peerSets.find((set) => set.id === "enterprise-software")!;
+  const sectorFallback = /energy|oil|gas/i.test(text) ? "energy"
+    : /bank/i.test(text) ? "banks"
+      : /insurance/i.test(text) ? "insurance"
+        : /utility/i.test(text) ? "utilities"
+          : /telecom/i.test(text) ? "telecom"
+            : /pharma/i.test(text) ? "pharma"
+              : /biotech/i.test(text) ? "biotech"
+                : /retail/i.test(text) ? "retail"
+                  : /aerospace|defense/i.test(text) ? "aerospace"
+                    : /industrial|manufactur/i.test(text) ? "industrials"
+                      : null;
+  const selectedId = exact || (ranked[0]?.score > 0 ? ranked[0].set.id : sectorFallback);
+  const selected = selectedId ? peerSets.find((set) => set.id === selectedId) : undefined;
+  if (!selected) {
+    return {
+      id: "unclassified",
+      label: `${company.industry || company.sector || "Company"}—peer set not validated`,
+      basis: "The automatic classifier did not find a sufficiently specific business-model match, so it did not substitute an unrelated software peer group. Select comparables manually before relying on relative valuation.",
+      symbols: [] as string[],
+      patterns: [] as RegExp[],
+      rationales: undefined,
+      operatingCompetitors: [] as string[],
+      industryExplanation: `${company.industry} is the reported market classification. A narrower public-company peer group could not be validated automatically.`,
+      classificationConfidence: "low" as const,
+    };
+  }
   const symbols = selected.symbols.filter((candidate) => candidate !== company.symbol).slice(0, 3);
   return {
     ...selected,
     symbols,
+    classificationConfidence: exact ? "high" as const : "medium" as const,
     industryExplanation: /prepackaged software/i.test(company.industry)
       ? `“Prepackaged software” is a broad legacy classification for standardized software developed for multiple customers. It does not mean boxed software, and it may not describe ${selected.label} economics very well.`
       : `${company.industry} is the reported market classification. The peer set is narrowed using the company description and business model: ${selected.label.toLowerCase()}.`,
@@ -268,7 +364,7 @@ async function analystRevenueForecast(symbol: string, latestRevenue: number): Pr
       year2Growth: year2.growth,
       source: "S&P Global consensus via Stock Analysis",
       sourceUrl,
-      asOf: new Date().toISOString().slice(0, 10),
+      asOf: todayPacific(),
     };
   } catch {
     return null;
@@ -344,7 +440,7 @@ function customerConcentration(text: string) {
       const customer = customerLabels[index] || customerLabels[0] || (percentages.length > 1 ? `Disclosed customer ${index + 1}` : "Disclosed customer");
       const key = `${customer}-${revenuePercent}`;
       if (!disclosures.some((item) => `${item.customer}-${item.revenuePercent}` === key)) {
-        disclosures.push({ customer, revenuePercent, disclosure: "Latest annual filing" });
+        disclosures.push({ customer, revenuePercent, disclosure: sentence.trim().slice(0, 420) });
       }
     });
   }
@@ -498,23 +594,14 @@ function secSupplyChainStages(description: string, filing: string) {
   return profiles.find((profile) => profile.match.test(text))?.stages || [];
 }
 
-async function secDataset(symbol: string) {
-  try {
-    const headers = {
-      "User-Agent": "DCF-Automater clairekyuh@users.noreply.github.com",
-      "Accept-Encoding": "gzip, deflate",
-    };
-    const tickerResponse = await fetch("https://www.sec.gov/files/company_tickers.json", { headers, next: { revalidate: 604800 } });
-    if (!tickerResponse.ok) return null;
+async function secDatasetRaw(symbol: string) {
+  const tickerResponse = await secFetch("https://www.sec.gov/files/company_tickers.json", 604800);
     const tickers = await tickerResponse.json() as Record<string, { cik_str: number; ticker: string }>;
     const match = Object.values(tickers).find((company) => company.ticker.toUpperCase() === symbol);
     if (!match) return null;
     const cik = String(match.cik_str).padStart(10, "0");
-    const [factsResponse, submissionsResponse] = await Promise.all([
-      fetch(`https://data.sec.gov/api/xbrl/companyfacts/CIK${cik}.json`, { headers, next: { revalidate: 86400 } }),
-      fetch(`https://data.sec.gov/submissions/CIK${cik}.json`, { headers, next: { revalidate: 86400 } }),
-    ]);
-    if (!factsResponse.ok || !submissionsResponse.ok) return null;
+    const factsResponse = await secFetch(`https://data.sec.gov/api/xbrl/companyfacts/CIK${cik}.json`, 86400);
+    const submissionsResponse = await secFetch(`https://data.sec.gov/submissions/CIK${cik}.json`, 86400);
     const facts = await factsResponse.json();
     const submissions = await submissionsResponse.json();
     const recent = submissions.filings?.recent;
@@ -538,7 +625,12 @@ async function secDataset(symbol: string) {
       return undefined;
     };
 
-    const cash = fact(["CashAndCashEquivalentsAtCarryingValue"]);
+    const cashOnly = fact(["CashAndCashEquivalentsAtCarryingValue"]);
+    const shortTermInvestments = fact(["ShortTermInvestments", "MarketableSecuritiesCurrent", "AvailableForSaleSecuritiesDebtSecuritiesCurrent"]);
+    const longTermInvestments = fact(["LongTermInvestments", "MarketableSecuritiesNoncurrent", "AvailableForSaleSecuritiesDebtSecuritiesNoncurrent"]);
+    const cash = cashOnly !== undefined || shortTermInvestments !== undefined || longTermInvestments !== undefined
+      ? (cashOnly || 0) + (shortTermInvestments || 0) + (longTermInvestments || 0)
+      : undefined;
     const currentDebt = fact(["LongTermDebtAndFinanceLeaseObligationsCurrent", "LongTermDebtCurrent", "ShortTermBorrowings"]);
     const noncurrentDebt = fact(["LongTermDebtAndFinanceLeaseObligationsNoncurrent", "LongTermDebtNoncurrent"]);
     const totalDebt = fact(["LongTermDebtAndFinanceLeaseObligations", "LongTermDebt"]);
@@ -569,6 +661,9 @@ async function secDataset(symbol: string) {
       costOfRevenue,
       grossProfit: reportedGrossProfit ?? (revenue !== undefined && costOfRevenue !== undefined ? revenue - Math.abs(costOfRevenue) : undefined),
       interestExpense: fact(["InterestExpenseNonOperating", "InterestExpense"], "USD", true),
+      preferredInterest: (fact(["PreferredStocksIncludingAdditionalPaidInCapital", "PreferredStockValue"]) || 0)
+        + (fact(["MinorityInterest", "MinorityInterestInConsolidatedEntity"]) || 0),
+      dilutedShares: fact(["WeightedAverageNumberOfDilutedSharesOutstanding"], "shares", true),
     };
     const accession = String(recent.accessionNumber[filingIndex]);
     const primaryDocument = String(recent.primaryDocument[filingIndex]);
@@ -580,7 +675,7 @@ async function secDataset(symbol: string) {
       : primaryUrl;
     let text = "";
     try {
-      const filingResponse = await fetch(documentUrl, { headers, next: { revalidate: 86400 } });
+      const filingResponse = await secFetch(documentUrl, 86400);
       if (filingResponse.ok) text = filingText(await filingResponse.text());
     } catch {
       // Structured SEC facts remain usable if narrative filing retrieval fails.
@@ -606,8 +701,16 @@ async function secDataset(symbol: string) {
         supplyChainStages: text ? secSupplyChainStages(businessDescription, text) : [],
       },
     };
-  } catch {
-    return null;
+}
+
+async function secDataset(symbol: string) {
+  try {
+    const data = await secDatasetRaw(symbol);
+    return data
+      ? { data, status: "available" as const, reason: null }
+      : { data: null, status: "unavailable" as const, reason: "No matching SEC registrant or annual filing was returned." };
+  } catch (error) {
+    return { data: null, status: "unavailable" as const, reason: error instanceof Error ? error.message : "SEC EDGAR was unavailable." };
   }
 }
 
@@ -620,13 +723,15 @@ export async function GET(request: NextRequest) {
   try {
     const primaryPromise = nasdaqFundamentals(symbol);
     const revenueForecastPromise = primaryPromise.then((company) => analystRevenueForecast(symbol, company.historical[0].revenue));
-    const [primary, priceHistory, sec, ipoDate, revenueForecast] = await Promise.all([
+    const [primary, priceHistory, secResult, ipoDate, revenueForecast, marketInputs] = await Promise.all([
       primaryPromise,
       nasdaqPriceHistory(symbol).catch(() => []),
       secDataset(symbol),
       publicMarketDebutDate(symbol),
       revenueForecastPromise,
+      currentMarketInputs(),
     ]);
+    const sec = secResult.data;
     const historical = primary.historical;
     const latest = historical[0];
     const peerSet = selectPeerSet({
@@ -665,7 +770,12 @@ export async function GET(request: NextRequest) {
     const revenueGrowth = growthRate(historical.map((row) => row.revenue));
     const marketCap = primary.marketCap;
     const estimatedPrice = priceHistory.at(-1)?.close || primary.previousClose;
-    const shares = marketCap > 0 && estimatedPrice > 0 ? marketCap / estimatedPrice : 1;
+    const marketCapShares = marketCap > 0 && estimatedPrice > 0 ? marketCap / estimatedPrice : 1;
+    const secDilutedShares = secMetric("dilutedShares");
+    const shares = secDilutedShares && secDilutedShares > 0 ? secDilutedShares : marketCapShares;
+    const sharesSource = secDilutedShares && secDilutedShares > 0
+      ? `Latest annual SEC weighted-average diluted shares (${sec?.reportDate}); update for post-filing issuance or repurchases`
+      : "Market capitalization ÷ latest price proxy; not a verified fully diluted count";
     const ratio = (numerator: number | null, denominator: number | null) => numerator !== null && denominator !== null && denominator !== 0 ? numerator / denominator : null;
     const secRevenue = secMetric("revenue");
     const secOperatingIncome = secMetric("operatingIncome");
@@ -685,7 +795,12 @@ export async function GET(request: NextRequest) {
     const currentRatio = ratio(secCurrentAssets, secCurrentLiabilities);
     const interestCoverage = ratio(secOperatingIncome, secInterestExpense);
     const fcfToDebt = ratio(secFreeCashFlow, secDebt);
-    const defaultRisk = defaultRiskScreen({ debtToRevenue, netDebtToEbitda, currentRatio, interestCoverage, fcfToDebt, ebitda: secEbitda, freeCashFlow: secFreeCashFlow });
+    const financialCompany = /\bbanks?\b|\bbanking\b|\binsurance\b|brokerage|investment banking|consumer finance|financial services/i.test(`${primary.sector} ${primary.industry} ${primary.description}`);
+    const defaultRisk = !sec
+      ? { level: "insufficient" as const, points: 0, availableChecks: 0, drivers: [`No SEC credit screen was calculated because ${secResult.reason || "SEC annual facts were unavailable"}`] }
+      : financialCompany
+      ? { level: "insufficient" as const, points: 0, availableChecks: 0, drivers: ["Generic corporate leverage ratios are not used for banks or insurers. Review regulatory capital, asset quality, reserves, funding mix, liquidity coverage, and stress-test results instead."] }
+      : defaultRiskScreen({ debtToRevenue, netDebtToEbitda, currentRatio, interestCoverage, fcfToDebt, ebitda: secEbitda, freeCashFlow: secFreeCashFlow });
     const customerData = sec?.filing.customerConcentration || { disclosures: [], noMajorCustomer: false };
     const maxCustomerPercent = customerData.disclosures.length ? Math.max(...customerData.disclosures.map((item) => item.revenuePercent)) : null;
     const supplySignals = [...(sec?.filing.supplyChainSignals || [])];
@@ -700,20 +815,20 @@ export async function GET(request: NextRequest) {
     if (secCapexPercentRevenue !== null && secCapexPercentRevenue > 10) {
       supplySignals.push({ level: secCapexPercentRevenue > 25 ? "high" as const : "medium" as const, title: "Capital-intensive capacity", detail: `SEC-reported capital spending equals ${secCapexPercentRevenue.toFixed(1)}% of revenue, increasing execution, utilization, and financing exposure in the operating supply chain.` });
     }
-    const usedSec = Boolean(sec);
+    const usedSec = secResult.status === "available" && Boolean(sec);
     const qualityNotes = [
       "No Alpha Vantage requests are used. Nasdaq financial statements and cached Nasdaq price history build the DCF without an API key or a 25-request daily quota.",
       "Operating income is used as EBIT; non-operating income and interest are excluded from the EBIT starting point.",
-      usedSec ? "The company description, operating analysis, customer concentration, COGS, and default-risk screen use only the latest SEC annual filing and SEC Company Facts." : "SEC annual data was unavailable for this ticker; the separate business-analysis page will show unavailable fields rather than substitute provider estimates.",
+      usedSec ? "The company description, operating analysis, customer concentration, COGS, and credit screen use the latest SEC annual filing and SEC Company Facts." : `SEC annual data was unavailable (${secResult.reason}); the analysis page shows unavailable fields rather than substitute provider estimates.`,
     ];
-    if (latest.capexPercentRevenue > 50) qualityNotes.push("Latest capex is unusually high and is shown historically, but the starting forecast normalizes it rather than projecting it unchanged forever.");
+    if (latest.capexPercentRevenue > 50) qualityNotes.push("Latest capex is unusually high. The explicit forecast begins near the latest reported intensity and fades only through the visible, editable annual capex assumptions.");
     if (!priceHistory.length) qualityNotes.push("Monthly stock-price history was unavailable, so the price chart could not be populated for this request.");
     if (peers.length < selectedPeerSymbols.length) qualityNotes.push(`Comparable-company data is partial: Nasdaq returned ${peers.length} of ${selectedPeerSymbols.length} selected peers. Peer failures do not block the main DCF.`);
     if (industryGrowthRate !== null) qualityNotes.push(`Niche growth is represented by median latest annual revenue growth for the returned ${peerSet.label.toLowerCase()} peer group; it is a near-term benchmark, not a perpetual-growth forecast.`);
-    if (revenueForecast) qualityNotes.push(`Years 1 and 2 revenue use current S&P Global analyst consensus surfaced by Stock Analysis; Years 3 through 6 are explicitly modeled to fade toward mature growth. Consensus is a forecast, not a fact, and remains stress-testable.`);
-    else qualityNotes.push("A validated two-year analyst revenue forecast was unavailable, so all six revenue forecast rows use a clearly labeled historical-growth fallback that fades toward maturity.");
+    if (revenueForecast) qualityNotes.push(`Years 1 and 2 revenue use current S&P Global analyst consensus surfaced by Stock Analysis; Years 3 through 6 are explicitly labeled model estimates. Perpetual growth does not change those operating forecasts.`);
+    else qualityNotes.push("A validated two-year analyst revenue forecast was unavailable, so all six revenue forecast rows are clearly labeled editable model estimates.");
     if (secCash === null) qualityNotes.push("SEC cash was unavailable; the DCF cash assumption uses Nasdaq's displayed cash and short-term investments and stays editable.");
-    qualityNotes.push("Nasdaq does not return beta in this dataset, so the WACC reference build uses a neutral beta of 1.0; the editable WACC should reflect your risk assessment.");
+    qualityNotes.push(`WACC uses ${marketInputs.source}. Nasdaq does not return beta in this dataset, so beta starts at a disclosed neutral 1.0 and remains editable.`);
     const latestTaxRate = latest.earningsBeforeTax > 0 ? Math.min(40, Math.max(0, latest.incomeTax / latest.earningsBeforeTax * 100)) : 21;
     const descriptionFromSec = Boolean(sec?.company.description);
     const companyName = sec?.company.name || primary.name;
@@ -747,10 +862,17 @@ export async function GET(request: NextRequest) {
       market: {
         marketCap,
         shares,
+        sharesSource,
         estimatedPrice,
         priceDate: priceHistory.at(-1)?.date || null,
         priceBasis: priceHistory.length ? "Latest available Nasdaq closing price" : "Nasdaq previous close",
         beta: 1,
+        betaSource: "Neutral 1.0 fallback because the free Nasdaq dataset does not include beta",
+        riskFreeRate: marketInputs.riskFreeRate,
+        riskFreeAsOf: marketInputs.riskFreeAsOf,
+        equityRiskPremium: marketInputs.equityRiskPremium,
+        erpAsOf: marketInputs.erpAsOf,
+        marketInputsSource: marketInputs.source,
         priceHistory,
       },
       metrics: {
@@ -763,6 +885,7 @@ export async function GET(request: NextRequest) {
         debt: latest.debt,
         shortDebt: latest.shortDebt || 0,
         longDebt: latest.longDebt ?? latest.debt,
+        preferredInterest: secMetric("preferredInterest") || 0,
         taxRate: latestTaxRate,
       },
       forecast: revenueForecast,
@@ -777,7 +900,9 @@ export async function GET(request: NextRequest) {
         operatingCompetitors: peerSet.operatingCompetitors || [],
       },
       businessAnalysis: {
-        source: "SEC Company Facts and latest annual filing",
+        source: usedSec ? "SEC Company Facts and latest annual filing" : `SEC unavailable: ${secResult.reason}`,
+        secStatus: secResult.status,
+        secUnavailableReason: secResult.reason,
         asOf: sec?.reportDate || null,
         companyDescription: secCompanyDescription,
         financials: {
@@ -810,8 +935,14 @@ export async function GET(request: NextRequest) {
           altmanZ: null,
           altmanZone: null,
           altmanApplicable: false,
-          altmanReason: "Not calculated in SEC-only mode because the original score requires the market value of equity, which SEC Company Facts does not provide as a current market-data field.",
-          methodology: "Automated historical screen calculated only from the latest SEC annual facts: leverage, liquidity, interest coverage, and free-cash-flow coverage. It is not a credit rating or a probability of default.",
+          altmanReason: !sec
+            ? "Not calculated because SEC annual facts were unavailable."
+            : "Not calculated in SEC-only mode because the original score requires the market value of equity, which SEC Company Facts does not provide as a current market-data field.",
+          methodology: !sec
+            ? "No credit screen was calculated because SEC annual facts were unavailable. Missing inputs were not replaced with provider estimates."
+            : financialCompany
+            ? "Standard corporate leverage screening is not applicable to financial institutions. This page does not estimate a probability of default or credit rating."
+            : "Automated historical credit and liquidity screen calculated from the latest SEC annual facts: leverage, liquidity, interest coverage, and free-cash-flow coverage. It is not a credit rating or a probability of default.",
         },
         filing: sec?.filing ? { form: sec.filing.form, filingDate: sec.filing.filingDate, reportDate: sec.filing.reportDate, url: sec.filing.url } : null,
       },
