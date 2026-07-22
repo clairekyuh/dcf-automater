@@ -221,6 +221,19 @@ export function calculateDcf(
 }
 
 export function isStandardDcfUnsupported(company: { sector?: string; industry?: string; description?: string }) {
-  const text = `${company.sector || ""} ${company.industry || ""} ${company.description || ""}`;
-  return /\bbanks?\b|\bbanking\b|\binsurance\b|brokerage|investment banking|consumer finance|financial services/i.test(text);
+  const primaryClassification = `${company.sector || ""} ${company.industry || ""}`;
+  const financialInstitution = /\bbanks?\b|\bbanking\b|\bbancorp\b|\binsurance\b|\binsurer\b|brokerage|investment banking|consumer finance/i;
+
+  if (financialInstitution.test(primaryClassification)) return true;
+
+  // Some providers use “financial services” as the actual industry label. Do
+  // not apply that phrase to the business description: retailers and other
+  // operating companies can offer ancillary financial services without being
+  // financial institutions.
+  const industry = company.industry?.trim() || "";
+  if (/^(?:diversified )?financial services$/i.test(industry)) return true;
+
+  // Description is only a fallback for specific institution language, never
+  // the generic phrase “financial services.”
+  return financialInstitution.test(company.description || "");
 }

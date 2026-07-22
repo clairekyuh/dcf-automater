@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { conciseBusinessDescription } from "@/lib/company-description";
 import { buildPeerSimilarityRationale } from "@/lib/business-comparison";
+import { isStandardDcfUnsupported } from "@/lib/dcf-engine";
 
 export const runtime = "nodejs";
 
@@ -828,7 +829,7 @@ export async function GET(request: NextRequest) {
     const currentRatio = ratio(secCurrentAssets, secCurrentLiabilities);
     const interestCoverage = ratio(secOperatingIncome, secInterestExpense);
     const fcfToDebt = ratio(secFreeCashFlow, secDebt);
-    const financialCompany = /\bbanks?\b|\bbanking\b|\binsurance\b|brokerage|investment banking|consumer finance|financial services/i.test(`${primary.sector} ${primary.industry} ${primary.description}`);
+    const financialCompany = isStandardDcfUnsupported(primary);
     const defaultRisk = !sec
       ? { level: "insufficient" as const, points: 0, availableChecks: 0, drivers: [`No SEC credit screen was calculated because ${secResult.reason || "SEC annual facts were unavailable"}`] }
       : financialCompany

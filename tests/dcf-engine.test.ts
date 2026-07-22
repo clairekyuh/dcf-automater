@@ -75,5 +75,20 @@ test("selected WACC reconciles to formula WACC plus the visible company premium"
 test("standard unlevered DCF is blocked for banks and insurers", () => {
   assert.equal(isStandardDcfUnsupported({ sector: "Finance", industry: "National commercial banks" }), true);
   assert.equal(isStandardDcfUnsupported({ sector: "Finance", industry: "Property & casualty insurance" }), true);
+  assert.equal(isStandardDcfUnsupported({ sector: "Finance", industry: "Diversified Financial Services" }), true);
   assert.equal(isStandardDcfUnsupported({ sector: "Energy", industry: "Integrated oil companies" }), false);
+});
+
+test("ancillary financial services do not disable Walmart's unlevered DCF", () => {
+  assert.equal(isStandardDcfUnsupported({
+    sector: "Consumer Discretionary",
+    industry: "Department/Specialty Retail Stores",
+    description: "Walmart operates stores and e-commerce platforms and also provides advertising, fulfillment, membership, and financial services.",
+  }), false);
+  assert.equal(isStandardDcfUnsupported({
+    description: "A retailer that offers groceries, general merchandise, memberships, and financial services.",
+  }), false);
+  assert.equal(isStandardDcfUnsupported({
+    description: "The company provides consumer and commercial banking services.",
+  }), true);
 });
