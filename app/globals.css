@@ -107,19 +107,19 @@ table{border-collapse:collapse;width:100%}
 .sensitivity-table th:first-child{text-align:left}
 .sensitivity-table td{background:#f1f4e9;color:var(--navy-dark)}
 .sensitivity-table td.active{background:var(--teal);color:var(--ink);font-weight:700;outline:2px solid var(--navy-dark);outline-offset:-3px}
-.model-table-wrap{overflow:auto;border:1px solid var(--grid-dark)}
+.model-table-wrap{position:relative;isolation:isolate;overflow:auto;border:1px solid var(--grid-dark)}
 .model-table{min-width:850px;font:11px DM Mono}
 .historical-model-table{min-width:1500px}
 .model-table th,.model-table td{border-right:1px solid var(--grid);border-bottom:1px solid var(--grid);padding:9px;text-align:right;white-space:nowrap}
 .model-table th{background:var(--navy);color:white}
-.model-table th:first-child,.model-table td:first-child{text-align:left;position:sticky;left:0;z-index:2}
+.model-table th:first-child,.model-table td:first-child{text-align:left;position:sticky;left:0;z-index:3;background-clip:padding-box;box-shadow:2px 0 0 var(--grid-dark)}
 .model-table th:first-child{background:var(--navy)}
 .model-table td:first-child{background:var(--paper);font-weight:500}
 .model-table td:not(:first-child):not(.actual){color:var(--blue)}
 .model-table .actual{color:var(--green);background:#f7fbf7}
 .model-table .forecast-start{border-left:3px solid var(--navy-dark)}
-.model-table .period-group-row th{position:static;text-align:center;padding:7px 9px;background:#e7ebe5;color:#68766f;font:600 7px DM Mono;letter-spacing:.08em}
-.model-table .period-group-row th:first-child{text-align:left;background:#e7ebe5;color:#68766f}.model-table .period-group-row .actual-group{background:#edf4e9;color:var(--green)}.model-table .period-group-row .forecast-group{background:var(--navy-dark);color:white}
+.model-table .period-group-row th{position:relative;z-index:1;text-align:center;padding:7px 9px;background:#e7ebe5;color:#68766f;font:600 7px DM Mono;letter-spacing:.08em}
+.model-table .period-group-row th:first-child{position:sticky;left:0;z-index:5;text-align:left;background:#e7ebe5;color:#68766f}.model-table .period-group-row .actual-group{background:#edf4e9;color:var(--green)}.model-table .period-group-row .forecast-group{background:var(--navy-dark);color:white}
 .historical-model-note{margin:0;padding:13px 15px;border-top:1px solid var(--grid);background:#f4f3ed;color:#68756e;font:8px/1.6 DM Mono}.historical-model-note b{color:var(--navy-dark)}
 .model-table tr.total td{font-weight:700;background:#eef0f2;border-top:1px solid var(--navy-dark)}
 .model-table tr.total td:first-child{background:#eef0f2}
