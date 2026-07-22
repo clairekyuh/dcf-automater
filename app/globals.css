@@ -139,6 +139,15 @@ table{border-collapse:collapse;width:100%}
 .formula-bar code{padding:8px 12px;color:#35443d;font:9px/1.45 DM Mono;white-space:normal}
 .workbook-panel{min-height:370px;background:var(--paper)}
 .workbook-panel .model-table-wrap{border:0}
+.wacc-workbook{background:var(--paper)}
+.wacc-intro{display:flex;justify-content:space-between;align-items:center;gap:30px;padding:22px 24px;background:var(--teal-soft);border-bottom:1px solid var(--grid-dark)}
+.wacc-intro>div{max-width:760px}.wacc-intro span{color:var(--navy);font:600 8px DM Mono;letter-spacing:.1em}.wacc-intro h3{margin:7px 0 8px;color:var(--navy-dark);font-size:19px}.wacc-intro p{margin:0;color:#536159;font-size:10px;line-height:1.6}
+.wacc-intro>strong{min-width:170px;color:var(--navy-dark);font-size:32px;text-align:right}.wacc-intro>strong small{display:block;margin-top:4px;color:#6c7972;font:7px DM Mono;letter-spacing:.08em}
+.wacc-steps{display:grid;grid-template-columns:repeat(5,1fr);border-bottom:1px solid var(--grid-dark)}
+.wacc-steps article{position:relative;min-height:205px;padding:18px 15px;border-right:1px solid var(--grid)}.wacc-steps article:last-child{border-right:0}
+.wacc-steps article>span{display:grid;place-items:center;width:25px;height:25px;background:var(--navy-dark);color:var(--teal);font:600 8px DM Mono}
+.wacc-steps h4{min-height:34px;margin:12px 0 8px;color:var(--navy-dark);font-size:11px;line-height:1.35}.wacc-steps code{display:block;min-height:48px;padding:8px;background:#f4f3ed;border:1px solid var(--grid);color:var(--blue);font:8px/1.5 DM Mono;white-space:normal}.wacc-steps p{margin:9px 0 0;color:#617068;font-size:8px;line-height:1.55}
+.wacc-source-table td:nth-child(3){min-width:380px}
 .workbook-table{min-width:720px;font:10px DM Mono}
 .workbook-table th,.workbook-table td{padding:10px 12px;border-right:1px solid var(--grid);border-bottom:1px solid var(--grid);text-align:right;vertical-align:top}
 .workbook-table th{background:var(--navy);color:white;font-weight:500}
@@ -341,6 +350,7 @@ footer{display:flex;justify-content:space-between;padding:23px 5vw;background:va
 .analysis-missing p{font-size:13px;line-height:1.65;color:var(--muted);max-width:650px}.analysis-missing a{display:inline-block;margin-top:15px;padding:10px 12px;background:var(--teal);border:1px solid var(--ink);color:var(--ink);text-decoration:none;font:600 9px DM Mono}
 
 @media(max-width:1050px){
+.wacc-steps{grid-template-columns:repeat(2,1fr)}.wacc-steps article:nth-child(2n){border-right:0}.wacc-steps article:last-child{grid-column:1/-1;min-height:0;border-top:1px solid var(--grid)}
 .six-step-grid{grid-template-columns:repeat(2,1fr)}.six-step-grid article:nth-child(3n){border-right:1px solid var(--grid)}.six-step-grid article:nth-child(2n){border-right:0}.six-step-grid article:nth-last-child(-n+3){border-bottom:1px solid var(--grid)}.six-step-grid article:nth-last-child(-n+2){border-bottom:0}
 .assumption-grid{grid-template-columns:repeat(3,1fr)}
 .risk-grid{grid-template-columns:1fr 1fr}
@@ -368,6 +378,7 @@ footer{display:flex;justify-content:space-between;padding:23px 5vw;background:va
 .analysis-nav{padding:0 20px}.analysis-nav span{display:none}.analysis-hero{padding:45px 20px}.analysis-section,.analysis-sources{margin-left:20px;margin-right:20px}.analysis-heading{display:block}.analysis-heading>p,.default-verdict{margin-top:17px}.analysis-risk-grid,.analysis-metrics.four,.analysis-metrics.five{grid-template-columns:1fr 1fr}.customer-row{grid-template-columns:1fr 1fr}.customer-row>*:last-child{grid-column:1/-1}.default-detail,.analysis-sources{grid-template-columns:1fr}.default-detail>div:first-child{border-right:0;border-bottom:1px solid var(--grid)}
 }
 @media(max-width:540px){
+.wacc-intro{display:block;padding:18px}.wacc-intro>strong{display:block;margin-top:16px;text-align:left}.wacc-steps{grid-template-columns:1fr}.wacc-steps article,.wacc-steps article:nth-child(2n),.wacc-steps article:last-child{grid-column:auto;min-height:0;border-right:0;border-top:0;border-bottom:1px solid var(--grid)}.wacc-steps article:last-child{border-bottom:0}.wacc-steps h4,.wacc-steps code{min-height:0}
 .ticker-search{display:block}.ticker-search label{display:block}.ticker-search label span{display:block;padding:10px 13px 0}.ticker-search button{width:100%;height:46px;border-left:0;border-top:2px solid var(--navy-dark)}
 .company-summary dl{grid-template-columns:1fr}.company-summary dl div{border-right:0!important;border-bottom:1px solid var(--grid)!important}.company-summary dl div:last-child{border-bottom:0!important}
 .sheet-section{padding:20px 15px}.section-heading>div:first-child{padding-left:44px}.section-heading h2{font-size:25px}
