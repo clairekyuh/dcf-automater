@@ -25,7 +25,7 @@ const establishedSummaries: Record<string, string> = {
   XOM: "Exxon Mobil produces and sells crude oil, natural gas, fuels, lubricants, and chemical products. Its operations cover oil and gas production, refining, transportation, product marketing, petrochemicals, and lower-carbon projects.",
 };
 
-const marketingLanguage = /\b(?:mission|vision|committed|dedicated|empower(?:s|ed|ing)?|pioneer(?:s|ed|ing)?|revolutioni[sz]|innovati(?:on|ve)|industry-leading|world-class|best-in-class|leading(?: company| provider| platform| the world)?|essential|strategy|strategic|trusted by|force multiplier|breakthrough|with confidence|better than we found|learn more|visit (?:our|the) website)\b/i;
+const marketingLanguage = /\b(?:mission|vision|committed|dedicated|empower(?:s|ed|ing)?|pioneer(?:s|ed|ing)?|revolutioni[sz]|innovations?|innovative|industry-leading|world-class|best-in-class|leading(?: company| provider| platform| the world)?|essential|strategy|strategic|trusted by|force multiplier|breakthrough|with confidence|better than we found|learn more|visit (?:our|the) website)\b/i;
 const corporateBiography = /\b(?:was founded|founded in|established in|headquartered in|employees|public listing|listed on|nasdaq|new york stock exchange|nyse)\b/i;
 const operatingLanguage = /\b(?:operates? through|operates?|provides?|offers?|develops?|designs?|manufactures?|produces?|sells?|distributes?|licenses?|owns?|leases?|runs?|generates?|specializes? in|serves? customers)\b/i;
 const businessNouns = /\b(?:segment|product|service|software|platform|cloud|subscription|hardware|infrastructure|customer|business|revenue|marketplace|banking|insurance|retail|energy|semiconductor|vehicle|medicine|drug)\b/i;

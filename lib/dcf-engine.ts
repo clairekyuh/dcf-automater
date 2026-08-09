@@ -23,6 +23,7 @@ export type DcfModel = {
   preTaxCostDebt: number;
   companyRiskPremium: number;
   terminalGrowth: number;
+  terminalRoic: number;
   exitMultiple: number;
   cash: number;
   shortDebt: number;
@@ -88,13 +89,12 @@ export function calculateWacc(model: DcfModel) {
 }
 
 export function forecastTiming(model: Pick<DcfModel, "forecastDrivers" | "valuationDate">) {
-  if (model.forecastDrivers.length < 6) throw new Error("The DCF requires six fiscal forecast periods.");
+  if (model.forecastDrivers.length !== 6) throw new Error("The DCF requires exactly six fiscal forecast periods to value an exact five-year window.");
   const latestFiscalEnd = new Date(`${addYears(model.forecastDrivers[0].periodEnd, -1)}T00:00:00Z`).getTime();
   const firstForecastEnd = new Date(`${model.forecastDrivers[0].periodEnd}T00:00:00Z`).getTime();
   const valuationDate = new Date(`${model.valuationDate}T00:00:00Z`).getTime();
   const daysInFirstPeriod = Math.max(1, (firstForecastEnd - latestFiscalEnd) / DAY);
-  // Exclude the valuation date itself from the remaining-period fraction.
-  const firstYearWeight = clampNumber(((firstForecastEnd - valuationDate) / DAY - 1) / daysInFirstPeriod, 0, 1);
+  const firstYearWeight = clampNumber(((firstForecastEnd - valuationDate) / DAY) / daysInFirstPeriod, 0, 1);
   const lastYearWeight = 1 - firstYearWeight;
   return {
     firstYearWeight,
@@ -111,12 +111,35 @@ export function forecastTiming(model: Pick<DcfModel, "forecastDrivers" | "valuat
   };
 }
 
+export function validateModelInputs(data: DcfData, model: DcfModel) {
+  if (!Number.isFinite(data.metrics.revenue) || data.metrics.revenue <= 0) return "Starting revenue must be a positive finite number.";
+  if (model.forecastDrivers.length !== 6) return "The DCF requires exactly six fiscal forecast periods.";
+  const percentageFields: Array<keyof Omit<ForecastDriver, "periodEnd" | "source">> = [
+    "revenueGrowth", "grossMargin", "ebitMargin", "taxRate", "daPercent", "capexPercent", "changeNwcPercent", "deferredTaxPercent", "otherNonCashPercent",
+  ];
+  for (let index = 0; index < model.forecastDrivers.length; index += 1) {
+    const driver = model.forecastDrivers[index];
+    if (!driver.periodEnd || !Number.isFinite(new Date(`${driver.periodEnd}T00:00:00Z`).getTime())) return `Forecast Year ${index + 1} needs a valid fiscal period end.`;
+    for (const field of percentageFields) if (!Number.isFinite(driver[field])) return `Forecast Year ${index + 1} ${field} must be a finite number.`;
+    if (driver.revenueGrowth <= -100) return `Forecast Year ${index + 1} revenue growth must be greater than -100%.`;
+    if (driver.grossMargin > 100) return `Forecast Year ${index + 1} gross margin cannot exceed 100%.`;
+    if (driver.ebitMargin > driver.grossMargin) return `Forecast Year ${index + 1} EBIT margin cannot exceed gross margin.`;
+    if (driver.taxRate < 0 || driver.taxRate > 100) return `Forecast Year ${index + 1} tax rate must be between 0% and 100%.`;
+    if (driver.daPercent < 0 || driver.capexPercent < 0) return `Forecast Year ${index + 1} D&A and capex cannot be negative.`;
+  }
+  const scalarValues = [model.normalizedTaxRate, model.riskFreeRate, model.beta, model.equityRiskPremium, model.preTaxCostDebt, model.companyRiskPremium, model.terminalGrowth, model.terminalRoic, model.exitMultiple, model.cash, model.shortDebt, model.longDebt, model.preferredInterest, model.shares, model.marketPrice];
+  if (!scalarValues.every(Number.isFinite)) return "All valuation assumptions must be finite numbers.";
+  if ([model.cash, model.shortDebt, model.longDebt, model.preferredInterest].some((value) => value < 0)) return "Cash, debt, and other non-equity claims cannot be negative.";
+  return null;
+}
+
 export function calculateDcf(
   data: DcfData,
   model: DcfModel,
   method: DcfMethod,
   overrides: { wacc?: number; terminalGrowth?: number; exitMultiple?: number } = {},
 ) {
+  const inputError = validateModelInputs(data, model);
   const waccPercent = overrides.wacc ?? calculateWacc(model).selectedWacc;
   const terminalGrowth = overrides.terminalGrowth ?? model.terminalGrowth;
   const exitMultiple = overrides.exitMultiple ?? model.exitMultiple;
@@ -176,13 +199,24 @@ export function calculateDcf(
     return row;
   });
 
-  const terminalFcf = years[4].fcf * timing.firstYearWeight + years[5].fcf * timing.lastYearWeight;
+  const terminalForecastFcf = years[4].fcf * timing.firstYearWeight + years[5].fcf * timing.lastYearWeight;
   const terminalEbitda = years[4].ebitda * timing.firstYearWeight + years[5].ebitda * timing.lastYearWeight;
   const terminalNopat = years[4].nopat * timing.firstYearWeight + years[5].nopat * timing.lastYearWeight;
-  const valid = method === "multiple" || (waccPercent > terminalGrowth && terminalFcf > 0);
+  const terminalReinvestmentRate = model.terminalRoic > 0 ? terminalGrowth / model.terminalRoic : null;
+  const normalizedTerminalFcf = terminalReinvestmentRate === null ? 0 : terminalNopat * (1 - terminalReinvestmentRate);
+  const terminalFcf = method === "perpetuity" ? normalizedTerminalFcf : terminalForecastFcf;
+  const commonValid = inputError === null && waccPercent > 0 && model.shares > 0;
+  const valid = method === "perpetuity"
+    ? commonValid
+      && waccPercent > terminalGrowth
+      && model.terminalRoic > 0
+      && (terminalGrowth <= 0 || model.terminalRoic > terminalGrowth)
+      && terminalNopat > 0
+      && terminalFcf > 0
+    : commonValid && exitMultiple > 0 && terminalEbitda > 0;
   const terminalValue = method === "perpetuity"
     ? valid ? terminalFcf * (1 + terminalGrowth / 100) / (wacc - terminalGrowth / 100) : 0
-    : Math.max(0, terminalEbitda * exitMultiple);
+    : valid ? terminalEbitda * exitMultiple : 0;
   const pvTerminal = terminalValue / Math.pow(1 + wacc, 5);
   const pvForecast = years.reduce((sum, year) => sum + year.pv, 0);
   const enterpriseValue = pvForecast + pvTerminal;
@@ -191,20 +225,26 @@ export function calculateDcf(
   const equityValue = Math.max(0, rawEquityValue);
   const perShare = equityValue / Math.max(model.shares, 1);
   const terminalReinvestment = terminalNopat - terminalFcf;
-  const terminalReinvestmentRate = terminalNopat > 0 ? terminalReinvestment / terminalNopat : null;
-  const impliedTerminalRoic = terminalReinvestmentRate && terminalReinvestmentRate > 0
-    ? terminalGrowth / 100 / terminalReinvestmentRate * 100
-    : null;
+  const impliedTerminalRoic = method === "perpetuity" && terminalReinvestmentRate !== null ? model.terminalRoic : null;
 
   return {
     valid,
-    invalidReason: valid ? null : waccPercent <= terminalGrowth
-      ? "WACC must be greater than perpetual growth."
-      : "Terminal free cash flow must be positive for the perpetual-growth method.",
+    invalidReason: valid ? null
+      : inputError
+      || (waccPercent <= 0 ? "WACC must be positive."
+      : model.shares <= 0 ? "The diluted share count must be positive."
+      : method === "multiple" && exitMultiple <= 0 ? "The exit multiple must be positive."
+      : method === "multiple" && terminalEbitda <= 0 ? "Year-5 EBITDA must be positive for the exit-multiple method."
+      : waccPercent <= terminalGrowth ? "WACC must be greater than perpetual growth."
+      : model.terminalRoic <= 0 ? "Terminal ROIC must be positive."
+      : terminalGrowth > 0 && model.terminalRoic <= terminalGrowth ? "Terminal ROIC must exceed positive perpetual growth so reinvestment remains below 100% of NOPAT."
+      : terminalNopat <= 0 ? "Year-5 NOPAT must be positive for a going-concern perpetuity."
+      : "Normalized terminal free cash flow must be positive."),
     years,
     ...timing,
     waccPercent,
     terminalFcf,
+    terminalForecastFcf,
     terminalEbitda,
     terminalNopat,
     terminalValue,

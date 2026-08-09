@@ -25,6 +25,17 @@ export function historicalEffectiveTaxRate(row: HistoricalDcfInput) {
   return clamp(Math.abs(row.incomeTax) / row.earningsBeforeTax * 100, 0, 50);
 }
 
+export function normalizedHistoricalTaxRate(rows: HistoricalDcfInput[], fallback = 21) {
+  const rates = rows
+    .map(historicalEffectiveTaxRate)
+    .filter((value): value is number => value !== null && Number.isFinite(value))
+    .sort((a, b) => a - b);
+  if (!rates.length) return clamp(fallback, 0, 40);
+  const middle = Math.floor(rates.length / 2);
+  const median = rates.length % 2 ? rates[middle] : (rates[middle - 1] + rates[middle]) / 2;
+  return clamp(median, 0, 40);
+}
+
 export function historicalUfcf(row: HistoricalDcfInput, fallbackTaxRate: number) {
   if (!Number.isFinite(row.operatingCashFlow) || !Number.isFinite(row.capex)) return null;
   const taxRate = historicalEffectiveTaxRate(row) ?? clamp(fallbackTaxRate, 0, 50);

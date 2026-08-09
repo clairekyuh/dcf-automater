@@ -24,6 +24,7 @@ function model(periodEnd = "2026-12-31"): DcfModel {
     preTaxCostDebt: 6,
     companyRiskPremium: 0.5,
     terminalGrowth: 2.5,
+    terminalRoic: 12,
     exitMultiple: 12,
     cash: 200,
     shortDebt: 25,
@@ -37,7 +38,7 @@ function model(periodEnd = "2026-12-31"): DcfModel {
 
 test("calendar-period convention preserves the exact partial-year weight", () => {
   const timing = forecastTiming(model());
-  assert.ok(Math.abs(timing.firstYearWeight - 161 / 365) < 1e-10);
+  assert.ok(Math.abs(timing.firstYearWeight - 162 / 365) < 1e-10);
   assert.ok(Math.abs(timing.firstYearWeight + timing.lastYearWeight - 1) < 1e-12);
   assert.ok(Math.abs(timing.periods[5] - (5 - timing.lastYearWeight / 2)) < 1e-12);
 });
@@ -67,9 +68,48 @@ test("perpetuity result is invalid rather than displayed as zero when WACC is no
   assert.match(result.invalidReason || "", /WACC must be greater/);
 });
 
+test("perpetuity terminal cash flow links growth, reinvestment, and terminal ROIC", () => {
+  const data = { metrics: { revenue: 1_000 } };
+  const base = model();
+  const result = calculateDcf(data, base, "perpetuity");
+  const expectedReinvestmentRate = base.terminalGrowth / base.terminalRoic;
+  assert.ok(Math.abs(result.terminalReinvestmentRate! - expectedReinvestmentRate) < 1e-12);
+  assert.ok(Math.abs(result.terminalFcf - result.terminalNopat * (1 - expectedReinvestmentRate)) < 1e-9);
+});
+
+test("positive perpetual growth is invalid when terminal ROIC cannot support it", () => {
+  const data = { metrics: { revenue: 1_000 } };
+  const result = calculateDcf(data, { ...model(), terminalGrowth: 3, terminalRoic: 2 }, "perpetuity");
+  assert.equal(result.valid, false);
+  assert.match(result.invalidReason || "", /Terminal ROIC must exceed/);
+});
+
+test("exit-multiple method is invalid when Year-5 EBITDA is non-positive", () => {
+  const data = { metrics: { revenue: 1_000 } };
+  const negative = model();
+  negative.forecastDrivers = negative.forecastDrivers.map((driver) => ({ ...driver, ebitMargin: -10, daPercent: 2 }));
+  const result = calculateDcf(data, negative, "multiple");
+  assert.equal(result.valid, false);
+  assert.match(result.invalidReason || "", /Year-5 EBITDA/);
+});
+
 test("selected WACC reconciles to formula WACC plus the visible company premium", () => {
   const details = calculateWacc(model());
   assert.ok(Math.abs(details.selectedWacc - details.baseWacc - 0.5) < 1e-12);
+});
+
+test("invalid operating assumptions are rejected instead of producing confident values", () => {
+  const impossibleGrowth = model();
+  impossibleGrowth.forecastDrivers[0].revenueGrowth = -100;
+  const growthResult = calculateDcf({ metrics: { revenue: 1_000 } }, impossibleGrowth, "perpetuity");
+  assert.equal(growthResult.valid, false);
+  assert.match(growthResult.invalidReason || "", /greater than -100%/);
+
+  const negativeCapex = model();
+  negativeCapex.forecastDrivers[2].capexPercent = -1;
+  const capexResult = calculateDcf({ metrics: { revenue: 1_000 } }, negativeCapex, "multiple");
+  assert.equal(capexResult.valid, false);
+  assert.match(capexResult.invalidReason || "", /cannot be negative/);
 });
 
 test("standard unlevered DCF is blocked for banks and insurers", () => {

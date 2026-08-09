@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { conciseBusinessDescription } from "@/lib/company-description";
 import { buildPeerSimilarityRationale } from "@/lib/business-comparison";
 import { isStandardDcfUnsupported } from "@/lib/dcf-engine";
+import { normalizedHistoricalTaxRate } from "@/lib/historical-dcf";
+import { estimateMarketBeta } from "@/lib/market-beta";
+import { selectShareCount } from "@/lib/valuation-inputs";
 
 export const runtime = "nodejs";
 
@@ -67,7 +70,11 @@ async function currentMarketInputs() {
         result.equityRiskPremium = Number(`${match[2]}.${match[3]}`);
       }
     }
-    result.source = result.riskFreeAsOf || result.erpAsOf ? "FRED 10-year Treasury + Damodaran implied ERP" : fallback.source;
+    const sourceParts = [
+      result.riskFreeAsOf ? "FRED 10-year Treasury" : "editable risk-free-rate fallback",
+      result.erpAsOf ? "Damodaran implied ERP" : "editable ERP fallback",
+    ];
+    result.source = result.riskFreeAsOf || result.erpAsOf ? sourceParts.join(" + ") : fallback.source;
     return result;
   } catch {
     return fallback;
@@ -261,8 +268,10 @@ async function nasdaqFundamentals(symbol: string) {
     const depreciation = Math.abs(tableValue(cashFlow, ["Depreciation"], key) || 0);
     const capex = Math.abs(tableValue(cashFlow, ["Capital Expenditures"], key) || 0);
     const operatingCashFlow = tableValue(cashFlow, ["Net Cash Flow-Operating"], key) || 0;
-    const cogs = Math.abs(tableValue(income, ["Cost of Revenue"], key) || 0);
-    const grossProfit = tableValue(income, ["Gross Profit"], key) ?? revenue - cogs;
+    const reportedCogs = tableValue(income, ["Cost of Revenue", "Cost of Goods Sold"], key);
+    const cogs = reportedCogs === null ? undefined : Math.abs(reportedCogs);
+    const reportedGrossProfit = tableValue(income, ["Gross Profit"], key);
+    const grossProfit = reportedGrossProfit ?? (cogs === undefined ? undefined : revenue - cogs);
     const cash = (tableValue(balance, ["Cash and Cash Equivalents"], key) || 0) + (tableValue(balance, ["Short-Term Investments"], key) || 0);
     const shortDebt = Math.abs(tableValue(balance, ["Short-Term Debt / Current Portion of Long-Term Debt"], key) || 0);
     const longDebt = Math.abs(tableValue(balance, ["Long-Term Debt"], key) || 0);
@@ -281,7 +290,7 @@ async function nasdaqFundamentals(symbol: string) {
       freeCashFlow: operatingCashFlow - capex,
       cogs,
       grossProfit,
-      grossMargin: revenue ? grossProfit / revenue * 100 : 0,
+      grossMargin: revenue && grossProfit !== undefined ? grossProfit / revenue * 100 : undefined,
       interestExpense: Math.abs(tableValue(income, ["Interest Expense"], key) || 0),
       cash,
       debt,
@@ -304,7 +313,7 @@ async function nasdaqFundamentals(symbol: string) {
     description: String(profile.CompanyDescription || ""),
     sector: String(profile.Sector || summary.Sector || "Unclassified"),
     industry: String(profile.Industry || summary.Industry || "Unclassified"),
-    country: String(profile.Region || "Unclassified"),
+    region: String(profile.Region || "Unclassified"),
     exchange: String(summary.Exchange || "US market"),
     marketCap: (rawNumber(summary.MarketCap) || 0) / 1_000_000,
     previousClose: rawNumber(summary.PreviousClose) || 0,
@@ -312,14 +321,14 @@ async function nasdaqFundamentals(symbol: string) {
   };
 }
 
-async function nasdaqPriceHistory(symbol: string) {
+async function nasdaqPriceHistory(symbol: string, assetClass: "stocks" | "etf" = "stocks") {
   const end = new Date();
   const start = new Date(end);
   // Nasdaq currently returns at most roughly ten years through this endpoint.
   // Request that full window so the chart's MAX tab reflects all available data.
   start.setUTCFullYear(start.getUTCFullYear() - 10);
   const date = (value: Date) => value.toISOString().slice(0, 10);
-  const data = await nasdaq(`/quote/${encodeURIComponent(symbol)}/historical?assetclass=stocks&fromdate=${date(start)}&todate=${date(end)}&limit=5000`, 3600);
+  const data = await nasdaq(`/quote/${encodeURIComponent(symbol)}/historical?assetclass=${assetClass}&fromdate=${date(start)}&todate=${date(end)}&limit=5000`, 3600);
   const daily = (data.tradesTable?.rows || []) as Array<{ date: string; close: string }>;
   return daily
     .map((row) => ({ date: isoDate(row.date), close: rawNumber(row.close) || 0 }))
@@ -373,21 +382,24 @@ async function analystRevenueForecast(symbol: string, latestRevenue: number): Pr
   }
 }
 
-async function publicMarketDebutDate(symbol: string) {
+async function publicCompanyMetadata(symbol: string) {
   try {
     const response = await fetch(`https://stockanalysis.com/stocks/${encodeURIComponent(symbol.toLowerCase())}/company/`, {
       headers: { "User-Agent": NASDAQ_HEADERS["User-Agent"], Accept: "text/html" },
       next: { revalidate: 2592000 },
     });
-    if (!response.ok) return null;
+    if (!response.ok) return { ipoDate: null, country: null };
     const html = await response.text();
-    const value = html.match(/IPO Date<\/td><td[^>]*>([^<]+)<\/td>/i)?.[1]?.trim();
-    if (!value) return null;
-    const parsed = Date.parse(value);
-    return Number.isFinite(parsed) ? new Date(parsed).toISOString().slice(0, 10) : null;
+    const ipoValue = html.match(/IPO Date<\/td><td[^>]*>([^<]+)<\/td>/i)?.[1]?.trim();
+    const country = html.match(/Country<\/td><td[^>]*>([^<]+)<\/td>/i)?.[1]?.trim() || null;
+    const parsed = ipoValue ? Date.parse(ipoValue) : Number.NaN;
+    return {
+      ipoDate: Number.isFinite(parsed) ? new Date(parsed).toISOString().slice(0, 10) : null,
+      country,
+    };
   } catch {
-    // IPO context is supplemental and must never prevent the DCF from loading.
-    return null;
+    // Supplemental company metadata must never prevent the DCF from loading.
+    return { ipoDate: null, country: null };
   }
 }
 
@@ -725,11 +737,12 @@ export async function GET(request: NextRequest) {
   try {
     const primaryPromise = nasdaqFundamentals(symbol);
     const revenueForecastPromise = primaryPromise.then((company) => analystRevenueForecast(symbol, company.historical[0].revenue));
-    const [primary, priceHistory, secResult, ipoDate, revenueForecast, marketInputs] = await Promise.all([
+    const [primary, priceHistory, marketHistory, secResult, publicMetadata, revenueForecast, marketInputs] = await Promise.all([
       primaryPromise,
       nasdaqPriceHistory(symbol).catch(() => []),
+      nasdaqPriceHistory("SPY", "etf").catch(() => []),
       secDataset(symbol),
-      publicMarketDebutDate(symbol),
+      publicCompanyMetadata(symbol),
       revenueForecastPromise,
       currentMarketInputs(),
     ]);
@@ -804,12 +817,21 @@ export async function GET(request: NextRequest) {
     const revenueGrowth = growthRate(historical.map((row) => row.revenue));
     const marketCap = primary.marketCap;
     const estimatedPrice = priceHistory.at(-1)?.close || primary.previousClose;
+    const betaEstimate = estimateMarketBeta(priceHistory, marketHistory);
+    const beta = betaEstimate?.beta ?? 1;
+    const betaSource = betaEstimate
+      ? `Adjusted beta ${betaEstimate.beta.toFixed(2)} = ⅔ × raw five-year monthly price-return regression beta ${betaEstimate.rawBeta.toFixed(2)} + ⅓ × 1.0 (${betaEstimate.observations} observations versus SPY, ${betaEstimate.startMonth} to ${betaEstimate.endMonth}); price-only series and split outliers above 60% excluded`
+      : "Neutral 1.0 fallback because at least 24 matched monthly stock and SPY returns were unavailable";
     const marketCapShares = marketCap > 0 && estimatedPrice > 0 ? marketCap / estimatedPrice : 1;
     const secDilutedShares = secMetric("dilutedShares");
-    const shares = secDilutedShares && secDilutedShares > 0 ? secDilutedShares : marketCapShares;
-    const sharesSource = secDilutedShares && secDilutedShares > 0
-      ? `Latest annual SEC weighted-average diluted shares (${sec?.reportDate}); update for post-filing issuance or repurchases`
-      : "Market capitalization ÷ latest price proxy; not a verified fully diluted count";
+    const shareSelection = selectShareCount({
+      country: publicMetadata.country,
+      secDilutedShares,
+      marketCapShares,
+      secReportDate: sec?.reportDate,
+    });
+    const shares = shareSelection.shares;
+    const sharesSource = shareSelection.source;
     const ratio = (numerator: number | null, denominator: number | null) => numerator !== null && denominator !== null && denominator !== 0 ? numerator / denominator : null;
     const secRevenue = secMetric("revenue");
     const secOperatingIncome = secMetric("operatingIncome");
@@ -862,8 +884,10 @@ export async function GET(request: NextRequest) {
     if (revenueForecast) qualityNotes.push(`Years 1 and 2 revenue use current S&P Global analyst consensus surfaced by Stock Analysis; Years 3 through 6 are explicitly labeled model estimates. Perpetual growth does not change those operating forecasts.`);
     else qualityNotes.push("A validated two-year analyst revenue forecast was unavailable, so all six revenue forecast rows are clearly labeled editable model estimates.");
     if (secCash === null) qualityNotes.push("SEC cash was unavailable; the DCF cash assumption uses Nasdaq's displayed cash and short-term investments and stays editable.");
-    qualityNotes.push(`WACC uses ${marketInputs.source}. Nasdaq does not return beta in this dataset, so beta starts at a disclosed neutral 1.0 and remains editable.`);
-    const latestTaxRate = latest.earningsBeforeTax > 0 ? Math.min(40, Math.max(0, latest.incomeTax / latest.earningsBeforeTax * 100)) : 21;
+    if (!/^(?:united states(?: of america)?|u\.?s\.?a?\.?)$/i.test(publicMetadata.country || "")) qualityNotes.push("The automatic WACC does not add a country-risk premium. For a foreign issuer, reflect material country risk either in cash-flow scenarios or in the visible company-specific premium—not in both.");
+    qualityNotes.push("Operating-lease liabilities are not automatically added to debt because consistent lease capitalization also requires lease-adjusted EBIT, D&A, capex, and cash flow. Preferred stock and non-controlling interests are included when SEC facts identify them.");
+    qualityNotes.push(`WACC uses ${marketInputs.source}. Beta uses ${betaSource.toLowerCase()} and remains editable.`);
+    const latestTaxRate = normalizedHistoricalTaxRate(historical);
     const descriptionFromSec = Boolean(sec?.company.description);
     const secCompanyDescription = sec?.company.description
       ? conciseBusinessDescription({ symbol, name: companyName, description: sec.company.description, sector: primary.sector, industry: primary.industry })
@@ -878,10 +902,10 @@ export async function GET(request: NextRequest) {
         name: companyName,
         description: companyDescription,
         descriptionSource: descriptionFromSec ? "SEC filing" : "Nasdaq company profile",
-        ipoDate,
+        ipoDate: publicMetadata.ipoDate,
         exchange: primary.exchange,
         currency: "USD",
-        country: primary.country,
+        country: publicMetadata.country || "Domicile unavailable",
         sector: primary.sector,
         industry: primary.industry,
       },
@@ -892,8 +916,8 @@ export async function GET(request: NextRequest) {
         estimatedPrice,
         priceDate: priceHistory.at(-1)?.date || null,
         priceBasis: priceHistory.length ? "Latest available Nasdaq closing price" : "Nasdaq previous close",
-        beta: 1,
-        betaSource: "Neutral 1.0 fallback because the free Nasdaq dataset does not include beta",
+        beta,
+        betaSource,
         riskFreeRate: marketInputs.riskFreeRate,
         riskFreeAsOf: marketInputs.riskFreeAsOf,
         equityRiskPremium: marketInputs.equityRiskPremium,

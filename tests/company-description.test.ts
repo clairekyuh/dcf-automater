@@ -13,3 +13,13 @@ test("marketing-only provider copy falls back to an honest classification", () =
   assert.match(result, /operates in Manufacturing/);
   assert.doesNotMatch(result, /mission|empower/i);
 });
+
+test("generic company summaries remove promotional innovation claims", () => {
+  const result = conciseBusinessDescription({
+    name: "Example EV",
+    description: "Example EV designs and sells smart electric vehicles, driving innovations in next-generation technology. It sells battery-electric passenger vehicles and charging services.",
+    sector: "Consumer Discretionary",
+    industry: "Auto Manufacturing",
+  });
+  assert.equal(result, "It sells battery-electric passenger vehicles and charging services.");
+});

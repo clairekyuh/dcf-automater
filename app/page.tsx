@@ -16,6 +16,7 @@ import {
   type DcfModel,
   type ForecastDriver,
 } from "@/lib/dcf-engine";
+import { betaCoveragePremium } from "@/lib/valuation-inputs";
 
 type PricePoint = { date: string; close: number };
 type HistoricalRow = {
@@ -261,11 +262,7 @@ function recommendations(data: CompanyData) {
   const da = "da" in rule && typeof rule.da === "number" ? rule.da : currentDa;
   const currentCapex = data.metrics.capexPercentRevenue > 50 ? clamp(currentDa * 1.05, 20, 50) : clamp(data.metrics.capexPercentRevenue, 1, 30);
   const capex = "capex" in rule && typeof rule.capex === "number" ? rule.capex : currentCapex;
-  const leverage = data.metrics.debt / Math.max(data.metrics.revenue, 1);
-  const leveragePremium = leverage > 2 ? 1.5 : leverage > 1 ? .75 : leverage > .5 ? .35 : 0;
-  const businessPremium = /AI-native GPU cloud/i.test(text) ? 1.5 : 0;
-  const riskPremium = .25 + leveragePremium + businessPremium;
-  return { ...rule, growth: Math.round(clamp(growth, -30, 200) * 10) / 10, margin: Math.round(margin * 10) / 10, da: Math.round(da * 10) / 10, capex: Math.round(capex * 10) / 10, companyRiskPremium: riskPremium };
+  return { ...rule, growth: Math.round(clamp(growth, -30, 200) * 10) / 10, margin: Math.round(margin * 10) / 10, da: Math.round(da * 10) / 10, capex: Math.round(capex * 10) / 10, companyRiskPremium: 0 };
 }
 
 function buildModel(data: CompanyData): Model {
@@ -275,7 +272,7 @@ function buildModel(data: CompanyData): Model {
   const yearOneGrowth = data.forecast?.year1Growth ?? rec.growth;
   const yearTwoGrowth = data.forecast?.year2Growth ?? Math.max(rec.terminal + 1, yearOneGrowth * .75);
   const matureExplicitGrowth = clamp(Math.min(Math.max(yearTwoGrowth * .45, rec.terminal + 1), 10), rec.terminal + .5, 12);
-  const latestGrossMargin = latest?.grossMargin ?? (latest?.cogs && latest.revenue ? (latest.revenue - latest.cogs) / latest.revenue * 100 : Math.max(rec.margin + 12, 30));
+  const latestGrossMargin = latest?.grossMargin ?? (latest?.cogs !== undefined && latest.revenue ? (latest.revenue - latest.cogs) / latest.revenue * 100 : Math.max(rec.margin + 12, 30));
   const startingDa = clamp(data.metrics.daPercentRevenue || rec.da, 0, 100);
   const startingCapex = clamp(data.metrics.capexPercentRevenue || rec.capex, 0, 300);
   const forecastDrivers: ForecastDriver[] = Array.from({ length: 6 }, (_, index) => {
@@ -312,7 +309,7 @@ function buildModel(data: CompanyData): Model {
   const latestDebt = latest?.debt || data.metrics.debt;
   const averageDebt = priorDebt && latestDebt ? (priorDebt + latestDebt) / 2 : latestDebt;
   const observedCostDebt = latest?.interestExpense && averageDebt ? latest.interestExpense / averageDebt * 100 : null;
-  return {
+  const baseModel: Model = {
     forecastDrivers,
     normalizedTaxRate: data.metrics.taxRate || 21,
     riskFreeRate: data.market.riskFreeRate ?? 4.5,
@@ -321,6 +318,7 @@ function buildModel(data: CompanyData): Model {
     preTaxCostDebt: observedCostDebt && Number.isFinite(observedCostDebt) ? clamp(observedCostDebt, 3, 20) : 6,
     companyRiskPremium: rec.companyRiskPremium,
     terminalGrowth: rec.terminal,
+    terminalRoic: 10,
     exitMultiple: rec.multiple,
     cash: data.metrics.cash,
     shortDebt: data.metrics.shortDebt || 0,
@@ -330,6 +328,9 @@ function buildModel(data: CompanyData): Model {
     marketPrice: Math.round(data.market.estimatedPrice * 100) / 100,
     valuationDate: localValuationDate(),
   };
+  baseModel.companyRiskPremium = betaCoveragePremium(data.market.betaSource, rec.wacc, calculateWacc(baseModel).baseWacc);
+  baseModel.terminalRoic = calculateWacc(baseModel).selectedWacc;
+  return baseModel;
 }
 
 const calculate = (data: CompanyData, model: Model, method: Method, overrides: { wacc?: number; terminalGrowth?: number; exitMultiple?: number } = {}) =>
@@ -341,7 +342,8 @@ function moveFromPrice(value: number, price: number) {
 }
 
 function geopoliticalExposure(data: CompanyData) {
-  const country = data.company.country || "Unknown domicile";
+  const country = data.company.country || "Domicile unavailable";
+  const domicileKnown = !/unavailable|unknown|unclassified/i.test(country);
   const businessNiche = data.comparison?.nicheLabel || data.company.industry || data.company.sector;
   const context = `${businessNiche} ${data.company.industry} ${data.company.sector} ${data.company.description}`;
   const filingSignal = data.businessAnalysis?.supplyChain.signals.find((signal) =>
@@ -349,7 +351,9 @@ function geopoliticalExposure(data: CompanyData) {
   );
   const countryRisk = /china|russia|taiwan|ukraine|israel/i.test(country);
   let sensitiveIndustry = false;
-  let channel = `The automated data does not identify an obvious geopolitically sensitive business model. The main unanswered questions are how much revenue, sourcing, and operating capacity sit outside ${country}.`;
+  let channel = domicileKnown
+    ? `The automated data does not identify an obvious geopolitically sensitive business model. The main unanswered questions are how much revenue, sourcing, and operating capacity sit outside ${country}.`
+    : "The company domicile could not be verified from the available metadata, so the model cannot reliably classify country-specific sanctions, trade, tax, or operating exposure.";
 
   if (/ai[- ]native|gpu cloud|accelerated[- ]compute|data center/i.test(context)) {
     sensitiveIndustry = true;
@@ -371,20 +375,29 @@ function geopoliticalExposure(data: CompanyData) {
     channel = "The practical exposures are wars and sanctions that close trade routes, port restrictions, and disruption at shipping chokepoints. These can lengthen routes, raise fuel and insurance costs, or reduce shipment volumes.";
   } else if (/cloud|software|internet|telecom/i.test(context)) {
     channel = "The main cross-border exposures are data-localization laws, privacy rules, sanctions, and government restrictions on digital services. These can require local infrastructure, increase compliance costs, or block service in a market.";
+  } else if (/electric[- ]vehicle|automotive|automobile|vehicle manufactur|auto manufactur/i.test(context)) {
+    sensitiveIndustry = true;
+    channel = "The practical exposures are tariffs and local-content rules on vehicles and batteries, export controls affecting advanced chips, and dependence on cross-border battery-material and semiconductor supply chains. These can restrict market access, raise component costs, or require additional local manufacturing investment.";
+  }
+
+  if (/china/i.test(country)) {
+    channel = `As a China-domiciled issuer, the company may also be affected by U.S.–China trade restrictions, Chinese industrial and data regulation, U.S. listing and audit requirements, and RMB/USD movements. ${channel}`;
+  } else if (/russia|ukraine|israel|taiwan/i.test(country)) {
+    channel = `The stated domicile itself creates elevated conflict, sanctions, trade-route, or market-access exposure. ${channel}`;
   }
 
   if (filingSignal) {
     channel = `${filingSignal.detail} ${channel}`;
   }
 
-  const level: "high" | "medium" | "low" = countryRisk ? "high" : filingSignal || sensitiveIndustry ? "medium" : "low";
+  const level: "high" | "medium" | "low" = countryRisk ? "high" : !domicileKnown || filingSignal || sensitiveIndustry ? "medium" : "low";
   const evidenceLimit = data.businessAnalysis?.supplyChain.filingReviewed
     ? "This screen reviewed the latest annual filing, but it does not calculate revenue or supplier percentages by country."
-    : "A parseable annual filing was not available, so this screen uses only the reported region and business type—not revenue or supplier percentages by country.";
+    : "A parseable annual filing was not available, so this screen uses only the reported domicile and business type—not revenue or supplier percentages by country.";
   return {
     level,
     title: "Geopolitical and cross-border exposure",
-    detail: `For ${data.company.symbol}, the dataset lists ${country} as its region and identifies the business as ${businessNiche}. ${channel} This matters to the DCF because it can lower revenue growth or increase capex and operating costs. ${evidenceLimit}`,
+    detail: `For ${data.company.symbol}, the available company metadata lists the domicile as ${country} and identifies the business as ${businessNiche}. ${channel} This matters to the DCF because it can lower revenue growth or increase capex and operating costs. ${evidenceLimit}`,
   };
 }
 
@@ -394,8 +407,20 @@ function riskAnalysis(data: CompanyData, model: Model, perpetuity: ReturnType<ty
   risks.push({ level: capex > 12 ? "high" : capex > 6 ? "medium" : "low", title: "Capital intensity", detail: `${fmt.format(capex)}% of latest revenue was spent on capex. High reinvestment can prevent accounting profit from becoming distributable cash.` });
   const leverage = data.metrics.debt / Math.max(data.metrics.revenue, 1);
   risks.push({ level: leverage > 1 ? "high" : leverage > .45 ? "medium" : "low", title: "Balance-sheet leverage", detail: `Debt equals ${fmt.format(leverage * 100)}% of annual revenue. Refinancing risk rises if rates increase or earnings deteriorate.` });
-  const terminalShare = Math.max(perpetuity.valid ? perpetuity.terminalShare : 0, multiple.terminalShare);
-  risks.push({ level: terminalShare > 80 ? "high" : terminalShare > 65 ? "medium" : "low", title: "Terminal-value dependence", detail: `${fmt.format(perpetuity.terminalShare)}% of perpetual-growth enterprise value and ${fmt.format(multiple.terminalShare)}% of exit-multiple enterprise value come from value beyond Year 5.` });
+  const terminalShares = [perpetuity.valid ? perpetuity.terminalShare : null, multiple.valid ? multiple.terminalShare : null].filter((value): value is number => value !== null);
+  const terminalShare = terminalShares.length ? Math.max(...terminalShares) : 100;
+  const terminalDetail = `${perpetuity.valid ? `${fmt.format(perpetuity.terminalShare)}% of perpetual-growth enterprise value` : "The perpetual-growth method is currently invalid"}; ${multiple.valid ? `${fmt.format(multiple.terminalShare)}% of exit-multiple enterprise value` : "the exit-multiple method is currently invalid"}. Terminal value represents cash flows beyond Year 5.`;
+  risks.push({ level: terminalShare > 80 ? "high" : terminalShare > 65 ? "medium" : "low", title: "Terminal-value dependence", detail: terminalDetail });
+  if (perpetuity.valid && Math.abs(perpetuity.terminalForecastFcf) > 1) {
+    const normalizationChange = (perpetuity.terminalFcf / perpetuity.terminalForecastFcf - 1) * 100;
+    if (Math.abs(normalizationChange) > 25) {
+      risks.push({
+        level: Math.abs(normalizationChange) > 75 ? "high" : "medium",
+        title: "Terminal cash-flow normalization",
+        detail: `The explicit Year-5 forecast produces ${usd0.format(perpetuity.terminalForecastFcf)}M of UFCF, while the perpetual formula uses ${usd0.format(perpetuity.terminalFcf)}M after linking mature growth to required reinvestment at terminal ROIC—a ${fmt.format(Math.abs(normalizationChange))}% ${normalizationChange >= 0 ? "increase" : "decrease"}. A large step means explicit capex, D&A, working capital, or margins have not fully converged to the terminal economics. Extend or revise the fade rather than accepting the jump without evidence.`,
+      });
+    }
+  }
   risks.push(geopoliticalExposure(data));
   const marginRows = data.historical.filter((row) => Number.isFinite(row.ebitMargin));
   const lowMarginRow = marginRows.reduce<HistoricalRow | null>((lowest, row) => !lowest || row.ebitMargin < lowest.ebitMargin ? row : lowest, null);
@@ -406,7 +431,29 @@ function riskAnalysis(data: CompanyData, model: Model, perpetuity: ReturnType<ty
     ? `EBIT margin ranged from ${fmt.format(lowMarginRow.ebitMargin)}% in ${lowMarginRow.year} to ${fmt.format(highMarginRow.ebitMargin)}% in ${highMarginRow.year}, a ${fmt.format(spread)} percentage-point swing. The final explicit forecast assumes ${fmt.format(modeledMargin)}%. A wide historical range means operating profit—and therefore free cash flow—may be harder to forecast reliably.`
     : `There was not enough historical EBIT-margin data to judge stability. The final explicit forecast assumes ${fmt.format(modeledMargin)}%, so verify that assumption against company guidance and a full business cycle.`;
   risks.push({ level: spread > 15 ? "high" : spread > 7 ? "medium" : "low", title: "Operating-margin consistency", detail: marginDetail });
-  const validValues = [multiple.perShare, ...(perpetuity.valid ? [perpetuity.perShare] : [])];
+  const marginExpansion = modeledMargin - data.metrics.ebitMargin;
+  if (data.metrics.ebitMargin < 0 || marginExpansion > 10) {
+    risks.push({
+      level: "high",
+      title: "Turnaround assumption",
+      detail: `The automatic scenario moves EBIT margin from ${fmt.format(data.metrics.ebitMargin)}% in the latest reported period to ${fmt.format(modeledMargin)}% in the final explicit year, a ${fmt.format(marginExpansion)} percentage-point change. This is a website-generated scenario—not analyst consensus. Validate the timing, capacity utilization, pricing, cost structure, and funding needed to achieve it before relying on either valuation method.`,
+    });
+  }
+  if (perpetuity.valid && multiple.valid) {
+    const methodSpread = Math.abs(perpetuity.perShare - multiple.perShare) / Math.max(Math.min(perpetuity.perShare, multiple.perShare), .01) * 100;
+    if (methodSpread > 25) {
+      risks.push({
+        level: methodSpread > 75 ? "high" : "medium",
+        title: "Terminal-method disagreement",
+        detail: `The perpetual-growth scenario gives ${usd.format(perpetuity.perShare)} per share while the exit-multiple scenario gives ${usd.format(multiple.perShare)}, a ${fmt.format(methodSpread)}% spread relative to the lower result. This usually means the selected terminal multiple implies different mature growth, margins, reinvestment, or returns than the perpetual model. Do not average the two mechanically; reconcile the terminal assumptions first.`,
+      });
+    }
+  }
+  const validValues = [...(multiple.valid ? [multiple.perShare] : []), ...(perpetuity.valid ? [perpetuity.perShare] : [])];
+  if (!validValues.length) {
+    risks.push({ level: "high", title: "Room for forecast error", detail: "Neither terminal method currently has valid assumptions, so the model cannot calculate a valuation cushion. Correct the invalid WACC, growth, ROIC, EBITDA, multiple, or share-count input first." });
+    return risks;
+  }
   const lowValue = Math.min(...validValues);
   const highValue = Math.max(...validValues);
   const conservativeMove = moveFromPrice(lowValue, model.marketPrice);
@@ -415,8 +462,52 @@ function riskAnalysis(data: CompanyData, model: Model, perpetuity: ReturnType<ty
     : conservativeMove.change >= 0
       ? `The lower of the two DCF estimates is ${usd.format(lowValue)}, which is ${fmt.format(conservativeMove.change)}% above the ${usd.format(model.marketPrice)} market-price input. That difference is the room for forecast error: the conservative estimate exceeds the price by ${usd.format(lowValue - model.marketPrice)} per share. The other method gives ${usd.format(highValue)}.`
       : `The lower of the two DCF estimates is ${usd.format(lowValue)}, which is ${fmt.format(Math.abs(conservativeMove.change))}% below the ${usd.format(model.marketPrice)} market-price input. On the more conservative method, the stock price already exceeds estimated value, so there is no margin of safety. The other method gives ${usd.format(highValue)}.`;
-  risks.push({ level: conservativeMove.change < 10 ? "high" : conservativeMove.change < 25 ? "medium" : "low", title: "Room for forecast error", detail: valuationDetail });
+  const evidenceLevel: "high" | "medium" | "low" = !data.forecast ? "high" : data.businessAnalysis?.filing ? "low" : "medium";
+  const priceLevel: "high" | "medium" | "low" = conservativeMove.change < 10 ? "high" : conservativeMove.change < 25 ? "medium" : "low";
+  const rank = { low: 0, medium: 1, high: 2 } as const;
+  const level = rank[evidenceLevel] > rank[priceLevel] ? evidenceLevel : priceLevel;
+  const evidenceDetail = !data.forecast
+    ? " No validated revenue forecast was available, so a large numerical upside does not create a dependable margin of safety."
+    : data.businessAnalysis?.filing
+      ? " Filing data was available for historical cross-checks, but the forecast still requires analyst judgment."
+      : " SEC filing data was unavailable for this load, so the apparent cushion receives at least a medium-risk label.";
+  risks.push({ level, title: "Room for forecast error", detail: `${valuationDetail}${evidenceDetail}` });
   return risks;
+}
+
+function financialSectorRiskAnalysis(data: CompanyData) {
+  const filingAvailable = Boolean(data.businessAnalysis?.filing);
+  const evidence = filingAvailable
+    ? "The latest filing was available, but this screen does not extract regulatory schedules or loan/insurance reserve tables."
+    : "The SEC filing feed was unavailable, so no institution-specific regulatory ratios were verified.";
+  return [
+    {
+      level: "high" as const,
+      title: "Valuation-method limitation",
+      detail: "A standard enterprise-value UFCF DCF is intentionally disabled because debt and interest are operating inputs for banks and insurers. Use residual income, dividend discount, excess return, or price-to-tangible-book analysis tied to regulatory capital instead.",
+    },
+    {
+      level: "medium" as const,
+      title: "Capital adequacy",
+      detail: `Review CET1 and total capital ratios, risk-weighted-asset growth, stress-test buffers, and the capacity to return capital. A thin buffer can constrain dividends and balance-sheet growth. ${evidence}`,
+    },
+    {
+      level: "medium" as const,
+      title: "Credit quality and reserves",
+      detail: `Review nonperforming assets, net charge-offs, criticized loans, reserve coverage, underwriting vintages, and sector concentrations. Losses above reserved levels reduce book value and distributable earnings. ${evidence}`,
+    },
+    {
+      level: "medium" as const,
+      title: "Funding, liquidity, and rate sensitivity",
+      detail: `Review uninsured deposits, deposit beta, wholesale funding, available liquidity, securities duration, accumulated other comprehensive income, and net-interest-income sensitivity. Deposit flight or adverse rate moves can compress earnings or force asset sales. ${evidence}`,
+    },
+    {
+      level: "medium" as const,
+      title: "Regulatory and conduct exposure",
+      detail: "Capital rules, consumer-protection actions, anti-money-laundering controls, litigation, and resolution requirements can change allowable growth, expenses, and capital distributions.",
+    },
+    geopoliticalExposure(data),
+  ];
 }
 
 const TERM_DEFINITIONS = {
@@ -430,7 +521,7 @@ const TERM_DEFINITIONS = {
   nwc: "Net working capital: short-term operating assets minus short-term operating liabilities. Growth can consume cash when receivables or inventory rise faster than payables.",
   pv: "Present value: what a future cash flow is worth today after discounting it for time and risk.",
   terminalValue: "Terminal value: the estimated value of all cash flows after the explicit five-year forecast. It often represents a large share of a DCF.",
-  terminalRoic: "Implied terminal return on invested capital: the return suggested by the relationship between perpetual growth and the reinvestment embedded in terminal free cash flow. Very low or extreme values signal inconsistent terminal economics.",
+  terminalRoic: "Terminal return on invested capital: the return assumed on new long-run investment. Perpetual reinvestment equals growth divided by terminal ROIC. Setting terminal ROIC equal to WACC assumes new investment creates no excess value in perpetuity.",
   yearFive: "Year 5 is the point exactly five years after the valuation date. When that date falls between two fiscal year-ends, the model blends the fifth and sixth forecast periods. That blended UFCF or EBITDA is used to calculate terminal value.",
   perpetualGrowth: "Perpetual growth method: assumes cash flow grows at a stable rate forever after Year 5. The growth rate must stay below WACC.",
   exitMultiple: "Exit multiple method: estimates the company’s Year 5 value by multiplying Year 5 EBITDA by a market valuation multiple.",
@@ -441,18 +532,18 @@ const TERM_DEFINITIONS = {
   revenueGrowth: "Starting revenue growth: the expected percentage increase in sales during Year 1. The model gradually fades this rate toward the long-run terminal growth rate.",
   ebitMargin: "Target EBIT margin: the percentage of revenue expected to remain as operating profit before interest and taxes by Year 5.",
   taxRate: "Tax rate: the normalized cash tax percentage applied to positive operating profit. It should reflect a sustainable rate rather than a one-time tax benefit or charge.",
-  terminalGrowth: "Terminal growth: the annual rate the company is assumed to grow forever after Year 5. It must remain below WACC and should resemble a mature long-run growth rate.",
+  terminalGrowth: "Terminal growth: the annual rate the company is assumed to grow forever after Year 5. It must remain below WACC, should generally not exceed the same-currency risk-free rate, and should resemble mature long-run nominal growth.",
   marketPrice: "Market price: the current or reference share price used only to calculate potential upside or downside. Changing it does not change the DCF’s intrinsic value.",
   cash: "Cash: cash considered available to shareholders. It is added to enterprise value when calculating equity value.",
   fundedDebt: "Funded debt: interest-bearing borrowings that must be repaid. It is subtracted from enterprise value before calculating equity value.",
   riskFreeRate: "Risk-free rate: the return investors could earn with minimal default risk, commonly approximated with a long-term U.S. Treasury yield. It forms the starting point for required returns.",
-  beta: "Beta: an estimate of how sensitive the stock has been to broad market movements. A beta of 1.0 moves roughly with the market; above 1.0 implies greater market sensitivity.",
+  beta: "Beta: an estimate of how sensitive the stock has been to broad market movements. When sufficient history exists, this site adjusts the raw regression beta one-third toward 1.0 to reduce sampling noise. A beta of 1.0 moves roughly with the market.",
   equityRiskPremium: "Equity risk premium: the additional annual return investors require for owning stocks instead of a risk-free asset.",
   costOfEquity: "Cost of equity: the return shareholders require for taking the company’s risk. This reference uses risk-free rate + beta × equity risk premium.",
   equityWeight: "Equity / capital: the percentage of the company’s financing represented by equity market value. It determines how much the cost of equity influences WACC.",
   preTaxCostOfDebt: "Pre-tax cost of debt: the estimated interest rate the company pays or would pay on borrowings before the tax benefit of deductible interest.",
   debtWeight: "Debt / capital: the percentage of financing represented by funded debt. It determines how much the after-tax cost of debt influences WACC.",
-  companySpecificPremium: "Company-specific premium: an optional judgment adjustment added after the standard WACC formula for risks not already captured in beta, debt cost, or cash-flow forecasts. Set it to 0% if those risks are already reflected elsewhere.",
+  companySpecificPremium: "Company-specific premium: a visible judgment adjustment added after the standard WACC formula. It starts at 0% when beta history is sufficient. If beta history is insufficient, the automatic starting value only fills the gap to the disclosed industry WACC; replace it with a bottom-up beta when possible and avoid double counting risk in cash flows.",
 } as const;
 
 type DefinedTermKey = keyof typeof TERM_DEFINITIONS;
@@ -524,22 +615,23 @@ function ValuationBridge({ title, result, model, method, data }: { title: string
   const impliedExitMultiple = result.terminalEbitda > 0 ? result.terminalValue / result.terminalEbitda : null;
   const terminalFcfYield = result.terminalValue > 0 ? result.terminalFcf / result.terminalValue : null;
   const impliedGrowth = terminalFcfYield === null ? null : (result.waccPercent / 100 - terminalFcfYield) / (1 + terminalFcfYield) * 100;
+  const validMoney = (value: number) => result.valid ? `${usd0.format(value)}M` : "—";
   return <div className="bridge-table">
     <div className="sheet-bar">{title}</div>
-    {!result.valid && <div className="invalid-method"><b>No valid perpetual-growth value</b><p>{result.invalidReason} Change the WACC, terminal-growth rate, or explicit cash-flow forecast before relying on this method.</p></div>}
+    {!result.valid && <div className="invalid-method"><b>No valid {method === "perpetuity" ? "perpetual-growth" : "exit-multiple"} value</b><p>{result.invalidReason} Correct the highlighted valuation assumptions before relying on this method.</p></div>}
     {method === "perpetuity" ? <>
-      <div className="method-explainer"><span>WHAT THIS METHOD DOES</span><p>The model blends the two fiscal forecasts surrounding the exact five-year valuation date. That Year-5 <DefinedTerm term="ufcf">free cash flow</DefinedTerm> grows at a stable rate forever and is discounted back exactly five years.</p><code>{fmt.format(result.terminalFcf)} × (1 + {fmt.format(model.terminalGrowth)}%) ÷ ({fmt.format(result.waccPercent)}% − {fmt.format(model.terminalGrowth)}%) = {result.valid ? fmt.format(result.terminalValue) : "invalid"}</code><small>Year-5 FCF × growth adjustment ÷ (<DefinedTerm term="wacc">WACC</DefinedTerm> − perpetual growth)</small></div>
+      <div className="method-explainer"><span>WHAT THIS METHOD DOES</span><p>The model normalizes Year-5 cash flow by linking perpetual growth to the reinvestment required at the selected terminal <DefinedTerm term="terminalRoic">ROIC</DefinedTerm>. It then applies the growing-perpetuity formula and discounts terminal value back exactly five years.</p><code>{fmt.format(result.terminalNopat)} × (1 − {fmt.format(model.terminalGrowth)}% ÷ {fmt.format(model.terminalRoic)}%) = {result.valid ? fmt.format(result.terminalFcf) : "invalid"} normalized FCF<br/>{fmt.format(result.terminalFcf)} × (1 + {fmt.format(model.terminalGrowth)}%) ÷ ({fmt.format(result.waccPercent)}% − {fmt.format(model.terminalGrowth)}%) = {result.valid ? fmt.format(result.terminalValue) : "invalid"}</code><small>Terminal FCF = NOPAT × (1 − g ÷ ROIC); Terminal value = FCF × (1 + g) ÷ (<DefinedTerm term="wacc">WACC</DefinedTerm> − g)</small></div>
       <div className="reference-row"><span>Observed niche-peer growth</span><b>{industryGrowth === null ? "—" : `${fmt.format(industryGrowth)}%`}</b></div>
       <div><span>Selected perpetual growth</span><b>{fmt.format(model.terminalGrowth)}%</b></div>
-      <div><span>Year 5 <DefinedTerm term="ufcf">FCF</DefinedTerm></span><b>{usd0.format(result.terminalFcf)}M</b></div>
+      <div><span>Selected terminal <DefinedTerm term="terminalRoic">ROIC</DefinedTerm></span><b>{fmt.format(model.terminalRoic)}%</b></div>
+      <div><span>Required terminal reinvestment</span><b>{result.terminalReinvestmentRate === null ? "—" : `${fmt.format(result.terminalReinvestmentRate * 100)}% of NOPAT`}</b></div>
+      <div><span>Year-5 forecast <DefinedTerm term="ufcf">FCF</DefinedTerm> before normalization</span><b>{usd0.format(result.terminalForecastFcf)}M</b></div>
+      <div><span>Normalized terminal <DefinedTerm term="ufcf">FCF</DefinedTerm></span><b>{usd0.format(result.terminalFcf)}M</b></div>
       <div><span>Implied exit <DefinedTerm term="exitMultiple">multiple</DefinedTerm></span><b>{impliedExitMultiple === null ? "—" : `${fmt.format(impliedExitMultiple)}×`}</b></div>
-      <div><span><DefinedTerm term="terminalRoic">Implied terminal ROIC</DefinedTerm></span><b>{result.impliedTerminalRoic === null ? "—" : `${fmt.format(result.impliedTerminalRoic)}%`}</b></div>
-      <p className="bridge-note">Peer growth is median recent year-over-year revenue growth for the selected business niche. It is context—not a perpetual forecast—and the perpetual rate must remain below <DefinedTerm term="wacc">WACC</DefinedTerm>. The implied exit multiple is the cross-check against the exit-multiple method.</p>
-      {result.terminalReinvestmentRate !== null && result.terminalReinvestmentRate <= 0
-        ? <p className="bridge-note terminal-warning">Terminal consistency warning: terminal free cash flow exceeds terminal NOPAT, which implies zero or negative continuing reinvestment. Review D&A, capex, working capital, deferred tax, and other non-cash adjustments before treating that cash flow as perpetual.</p>
-        : result.impliedTerminalRoic !== null && (result.impliedTerminalRoic < 8 || result.impliedTerminalRoic > 50) && <p className="bridge-note terminal-warning">Terminal consistency warning: the cash flow, growth, and reinvestment assumptions imply a {fmt.format(result.impliedTerminalRoic)}% terminal ROIC. Review the final-year D&A, capex, working capital, margin, and growth assumptions together.</p>}
+      <p className="bridge-note">Peer growth is median recent year-over-year revenue growth for the selected niche. It is context—not a perpetual forecast. Terminal ROIC defaults to WACC, which assumes new investment earns no excess return in perpetuity; raise it only with evidence of durable long-run excess returns.</p>
+      {model.terminalRoic < result.waccPercent && <p className="bridge-note terminal-warning">Terminal review: ROIC is below WACC, so perpetual reinvestment destroys value. That can be modeled deliberately, but it should not be an accidental assumption.</p>}
     </> : <>
-      <div className="method-explainer"><span>WHAT THIS METHOD DOES</span><p>The model blends EBITDA at the exact five-year valuation date, applies the selected enterprise-value multiple, and discounts that terminal value back exactly five years.</p><code>{fmt.format(result.terminalEbitda)} × {fmt.format(model.exitMultiple)} = {fmt.format(result.terminalValue)}</code><small>Year-5 <DefinedTerm term="ebitda">EBITDA</DefinedTerm> × selected <DefinedTerm term="exitMultiple">exit multiple</DefinedTerm></small></div>
+      <div className="method-explainer"><span>WHAT THIS METHOD DOES</span><p>The model blends EBITDA at the exact five-year valuation date, applies the selected enterprise-value multiple, and discounts that terminal value back exactly five years.</p><code>{fmt.format(result.terminalEbitda)} × {fmt.format(model.exitMultiple)} = {result.valid ? fmt.format(result.terminalValue) : "invalid"}</code><small>Year-5 <DefinedTerm term="ebitda">EBITDA</DefinedTerm> × selected <DefinedTerm term="exitMultiple">exit multiple</DefinedTerm></small></div>
       <div><span>Year 5 <DefinedTerm term="ebitda">EBITDA</DefinedTerm></span><b>{usd0.format(result.terminalEbitda)}M</b></div>
       <div><span>Selected exit multiple</span><b>{fmt.format(model.exitMultiple)}×</b></div>
       <div className="reference-row"><span>Peer median EV / <DefinedTerm term="ebitda">EBITDA</DefinedTerm></span><b>{medianMultiple === null ? "—" : `${fmt.format(medianMultiple)}×`}</b></div>
@@ -548,15 +640,15 @@ function ValuationBridge({ title, result, model, method, data }: { title: string
       <p className="bridge-note">The selected exit multiple stays editable. The peer reference is shown only when at least two direct or close peers have positive latest-fiscal EBITDA. These free-data ratios are not LTM or forward multiples, so verify them before relying on the comparison.</p>
     </>}
     <div><span><DefinedTerm term="pv">PV</DefinedTerm> of forecast <DefinedTerm term="ufcf">UFCF</DefinedTerm></span><b>{usd0.format(result.pvForecast)}M</b></div>
-    <div><span><DefinedTerm term="pv">PV</DefinedTerm> of <DefinedTerm term="terminalValue">terminal value</DefinedTerm></span><b>{usd0.format(result.pvTerminal)}M</b></div>
-    <div className="total"><span><DefinedTerm term="enterpriseValue">Enterprise value</DefinedTerm></span><b>{usd0.format(result.enterpriseValue)}M</b></div>
+    <div><span><DefinedTerm term="pv">PV</DefinedTerm> of <DefinedTerm term="terminalValue">terminal value</DefinedTerm></span><b>{validMoney(result.pvTerminal)}</b></div>
+    <div className="total"><span><DefinedTerm term="enterpriseValue">Enterprise value</DefinedTerm></span><b>{validMoney(result.enterpriseValue)}</b></div>
     <div><span>Plus: Cash</span><b>{usd0.format(model.cash)}M</b></div>
     <div><span>Less: Short-term debt</span><b>({usd0.format(model.shortDebt)}M)</b></div>
     <div><span>Less: Long-term debt</span><b>({usd0.format(model.longDebt)}M)</b></div>
-    <div><span>Less: Leases, preferred and minority interest</span><b>({usd0.format(model.preferredInterest)}M)</b></div>
-    <div className="total"><span><DefinedTerm term="equityValue">Equity value</DefinedTerm></span><b>{usd0.format(result.equityValue)}M</b></div>
+    <div><span>Less: Other non-equity claims</span><b>({usd0.format(model.preferredInterest)}M)</b></div>
+    <div className="total"><span><DefinedTerm term="equityValue">Equity value</DefinedTerm></span><b>{validMoney(result.equityValue)}</b></div>
     <div><span><DefinedTerm term="dilutedShares">Share count used</DefinedTerm></span><b>{fmt.format(model.shares)}M</b></div>
-    <div className="answer"><span>Implied price per share</span><b>{usd.format(result.perShare)}</b></div>
+    <div className="answer"><span>Implied price per share</span><b>{result.valid ? usd.format(result.perShare) : "—"}</b></div>
   </div>;
 }
 
@@ -572,8 +664,7 @@ function SensitivityTable({ data, model, method }: { data: CompanyData; model: M
       {waccs.map((wacc) => <tr key={wacc}><th>{fmt.format(wacc)}%</th>{columns.map((column) => {
         const result = calculate(data, model, method, method === "perpetuity" ? { wacc, terminalGrowth: column } : { wacc, exitMultiple: column });
         const active = Math.abs(wacc - selectedWacc) < .01 && Math.abs(column - (method === "perpetuity" ? model.terminalGrowth : model.exitMultiple)) < .01;
-        const invalid = method === "perpetuity" && wacc <= column;
-        return <td className={active ? "active" : ""} key={column}>{invalid ? "—" : usd.format(result.perShare)}</td>;
+        return <td className={active ? "active" : ""} key={column}>{result.valid ? usd.format(result.perShare) : "—"}</td>;
       })}</tr>)}
     </tbody></table></div>
   </div>;
@@ -746,16 +837,22 @@ export default function Home() {
   const perpetuity = useMemo(() => calculate(data, model, "perpetuity"), [data, model]);
   const multiple = useMemo(() => calculate(data, model, "multiple"), [data, model]);
   const result = perpetuity;
-  const risks = useMemo(() => riskAnalysis(data, model, perpetuity, multiple), [data, model, perpetuity, multiple]);
+  const financialUnsupported = isStandardDcfUnsupported(data.company);
+  const risks = useMemo(
+    () => financialUnsupported ? financialSectorRiskAnalysis(data) : riskAnalysis(data, model, perpetuity, multiple),
+    [data, financialUnsupported, model, perpetuity, multiple],
+  );
   const latest = data.historical[data.historical.length - 1];
   const priceContext = marketPriceContext(data);
-  const financialUnsupported = isStandardDcfUnsupported(data.company);
   const forecastConfidence = data.forecast
     ? data.businessAnalysis?.filing ? "Moderate" : "Low"
     : "Low";
+  const turnaroundCaveat = data.metrics.ebitMargin < 0 && (model.forecastDrivers.at(-1)?.ebitMargin ?? 0) > 0
+    ? ` The automatic scenario assumes EBIT margin improves from ${fmt.format(data.metrics.ebitMargin)}% in the latest period to ${fmt.format(model.forecastDrivers.at(-1)!.ebitMargin)}% in the final explicit year; that turnaround is not analyst consensus and should be replaced with a defensible operating plan.`
+    : "";
   const forecastConfidenceDetail = data.forecast
-    ? `Only the first two revenue years use an external consensus source; Years 3–6 and all margin, tax, D&A, capex, and working-capital drivers are editable model estimates.${data.businessAnalysis?.filing ? " Filing data was available for historical cross-checks." : " SEC filing data was unavailable for additional cross-checks."}`
-    : "No validated analyst revenue forecast was available; all six annual operating forecasts are editable model estimates.";
+    ? `Only the first two revenue years use an external consensus source; Years 3–6 and all margin, tax, D&A, capex, and working-capital drivers are editable model estimates.${data.businessAnalysis?.filing ? " Filing data was available for historical cross-checks." : " SEC filing data was unavailable for additional cross-checks."}${turnaroundCaveat}`
+    : `No validated analyst revenue forecast was available; all six annual operating forecasts are editable model estimates.${turnaroundCaveat}`;
   const rotatingExample = LARGE_COMPANY_EXAMPLES[exampleIndex];
   type NumericModelKey = Exclude<keyof Model, "valuationDate" | "forecastDrivers">;
   const update = (key: NumericModelKey, value: number) => setModel((current) => ({ ...current, [key]: value }));
@@ -847,7 +944,7 @@ export default function Home() {
     { label: "Operating Margin", actuals: actualValues((row) => row.ebitMargin), values: result.years.map((year) => year.margin), type: "percent" },
     { label: "Less: Tax on Operating Income", actuals: actualValues(operatingTax), values: result.years.map((year) => year.tax), type: "negative" },
     { label: "Operating Tax Rate", actuals: actualValues(historicalEffectiveTaxRate), values: result.years.map((year) => year.taxRate), type: "percent" },
-    { label: "NOPAT", actuals: actualValues((row) => { const tax = operatingTax(row); return tax === null ? null : row.ebit - tax; }), values: result.years.map((year) => year.nopat), type: "total" },
+    { label: "NOPAT", actuals: actualValues((row) => { const tax = operatingTax(row); return tax === null ? null : row.ebit - tax; }), values: result.years.map((year) => year.nopat), terminal: result.terminalNopat, type: "total" },
     { label: "Plus: Depreciation & Amortization", actuals: actualValues((row) => row.depreciation), values: result.years.map((year) => year.depreciation) },
     { label: "D&A / Revenue", actuals: actualValues((row) => row.revenue ? row.depreciation / row.revenue * 100 : null), values: result.years.map((year) => year.daPercent), type: "percent" },
     { label: "Less: Capital Expenditure", actuals: actualValues((row) => row.capex), values: result.years.map((year) => year.capex), type: "negative" },
@@ -857,6 +954,7 @@ export default function Home() {
     { label: "Plus: Changes in Net Long-Term Deferred Tax Liabilities", actuals: actualValues(() => null), values: result.years.map((year) => year.deferredTax) },
     { label: "Deferred Tax Change / Revenue", actuals: actualValues(() => null), values: result.years.map((year) => year.deferredTaxPercent), type: "percent" },
     { label: "Plus: Other Estimated Non-Cash Adjustments", actuals: actualValues(() => null), values: result.years.map((year) => year.otherNonCash) },
+    { label: "Terminal Reinvestment / NOPAT", actuals: actualValues(() => null), values: result.years.map(() => null), terminal: result.terminalReinvestmentRate === null ? null : result.terminalReinvestmentRate * 100, type: "percent" },
     { label: "Unlevered Free Cash Flow (UFCF)", actuals: actualValues((row) => historicalUfcf(row, model.normalizedTaxRate)), values: result.years.map((year) => year.fcf), terminal: result.terminalFcf, type: "total" },
     { label: "% of FCF Discounted", actuals: actualValues(() => null), values: result.years.map((year) => year.weight * 100), type: "percent" },
     { label: "Mid-Year Discount Period", actuals: actualValues(() => null), values: result.years.map((year) => year.discountPeriod), type: "factor" },
@@ -881,8 +979,8 @@ export default function Home() {
   const equityContribution = costEquity * equityWeight;
   const debtContribution = afterTaxDebt * debtWeight;
   const workbookFormula: Record<WorkbookTab, string> = {
-    dcf: "UFCF = EBIT × (1 − Tax Rate) + D&A − Capex − ΔNWC",
-    assumptions: "Blue cells link to the editable inputs below the workbook",
+    dcf: "UFCF = EBIT × (1 − Tax Rate) + D&A − Capex − ΔNWC + Δ Deferred Tax + Other Non-Cash Adjustments",
+    assumptions: "Green cells link to the editable inputs below the workbook",
     wacc: "Selected WACC = [E/(D+E) × (Risk-free rate + Beta × ERP)] + [D/(D+E) × Pre-tax debt cost × (1−Tax rate)] + Company-specific premium",
     valuation: "Equity Value = Enterprise Value + Cash − Debt − Other Non-Equity Claims",
     sensitivity: "Implied Share Price = Equity Value ÷ Fully Diluted Shares",
@@ -896,14 +994,16 @@ export default function Home() {
     ["Forecast tax rates", model.forecastDrivers.map((driver) => `${fmt.format(driver.taxRate)}%`).join(" · "), "Editable by fiscal year"],
     ["Forecast D&A / revenue", model.forecastDrivers.map((driver) => `${fmt.format(driver.daPercent)}%`).join(" · "), "Editable by fiscal year"],
     ["Forecast capex / revenue", model.forecastDrivers.map((driver) => `${fmt.format(driver.capexPercent)}%`).join(" · "), "Editable by fiscal year"],
-    ["Forecast ΔNWC / revenue", model.forecastDrivers.map((driver) => `${fmt.format(driver.changeNwcPercent)}%`).join(" · "), "Editable by fiscal year"],
+    ["Forecast ΔNWC / revenue", model.forecastDrivers.map((driver) => `${fmt.format(driver.changeNwcPercent)}%`).join(" · "), "Automatic shortcut starts at 2% of incremental revenue; replace with a company-specific working-capital forecast"],
+    ["Deferred tax & other non-cash", model.forecastDrivers.map((driver) => `${fmt.format(driver.deferredTaxPercent + driver.otherNonCashPercent)}%`).join(" · "), "Starts at 0%; add only documented non-cash items and keep dilution treatment consistent"],
     ["Selected WACC", `${fmt.format(selectedWacc)}%`, "Formula WACC plus the disclosed company-specific premium"],
     ["Perpetual growth", `${fmt.format(model.terminalGrowth)}%`, "Must remain below WACC"],
+    ["Terminal ROIC", `${fmt.format(model.terminalRoic)}%`, "Terminal reinvestment equals perpetual growth ÷ terminal ROIC"],
     ["Exit EBITDA multiple", `${fmt.format(model.exitMultiple)}×`, "Compare with niche peers"],
     ["Cash & included investments", `${usd0.format(model.cash)}M`, "Latest available balance-sheet proxy"],
     ["Debt", `${usd0.format(model.shortDebt + model.longDebt)}M`, "Short-term plus long-term funded debt"],
-    ["Other non-equity claims", `${usd0.format(model.preferredInterest)}M`, "Preferred stock, leases, and minority interest input"],
-    ["Share count used", `${fmt.format(model.shares)}M`, "Market-cap-derived proxy; verify full dilution"],
+    ["Other non-equity claims", `${usd0.format(model.preferredInterest)}M`, "Preferred stock and non-controlling interests when identified; operating leases are not automatically capitalized"],
+    ["Share count used", `${fmt.format(model.shares)}M`, data.market.sharesSource || "Unverified free-data share-count proxy"],
   ];
   const valuationSheet = [
     ["Terminal value at Year 5", perpetuity.terminalValue, multiple.terminalValue],
@@ -938,11 +1038,11 @@ export default function Home() {
 
     {!financialUnsupported && <section className="sheet-section" id="valuation">
       <div className="section-heading"><div><span className="section-index">01</span><p>OUTPUT</p><h2>DCF valuation</h2></div><div className="unit-note">BOTH TERMINAL METHODS SHOWN TOGETHER</div></div>
-      <div className="valuation-cards"><div><span>{priceContext.label}</span><strong>{usd.format(model.marketPrice)}</strong><small>{priceContext.detail}</small></div><div><span><DefinedTerm term="perpetualGrowth">Perpetual growth</DefinedTerm> scenario value</span><strong>{perpetuity.valid ? usd.format(perpetuity.perShare) : "—"}</strong>{perpetuity.valid && <ValueMove value={perpetuity.perShare} price={model.marketPrice}/>}</div><div><span><DefinedTerm term="exitMultiple">Exit multiple</DefinedTerm> scenario value</span><strong>{usd.format(multiple.perShare)}</strong><ValueMove value={multiple.perShare} price={model.marketPrice}/></div></div>
+      <div className="valuation-cards"><div><span>{priceContext.label}</span><strong>{usd.format(model.marketPrice)}</strong><small>{priceContext.detail}</small></div><div><span><DefinedTerm term="perpetualGrowth">Perpetual growth</DefinedTerm> scenario value</span><strong>{perpetuity.valid ? usd.format(perpetuity.perShare) : "—"}</strong>{perpetuity.valid && <ValueMove value={perpetuity.perShare} price={model.marketPrice}/>}</div><div><span><DefinedTerm term="exitMultiple">Exit multiple</DefinedTerm> scenario value</span><strong>{multiple.valid ? usd.format(multiple.perShare) : "—"}</strong>{multiple.valid && <ValueMove value={multiple.perShare} price={model.marketPrice}/>}</div></div>
       <div className={`forecast-confidence ${forecastConfidence.toLowerCase()}`}><b>FORECAST CONFIDENCE · {forecastConfidence.toUpperCase()}</b><p>{forecastConfidenceDetail} The outputs are scenario results, not price targets.</p></div>
       {selectedWacc <= model.terminalGrowth && <div className="api-error valuation-warning"><b>Assumption error:</b> WACC must be greater than terminal growth for the perpetual-growth method.</div>}
-      {(model.terminalGrowth < 2 || model.terminalGrowth > 4) && <div className="api-error valuation-warning"><b>Terminal-growth review:</b> This assumption should represent a sustainable long-run nominal growth rate. Because it appears in the denominator of TV = Year-5 UFCF × (1 + g) ÷ (WACC − g), even a small change can materially affect terminal value.</div>}
-      {(perpetuity.rawEquityValue < 0 || multiple.rawEquityValue < 0) && <div className="negative-explainer"><b>WHY A METHOD CAN SHOW $0 FOR COMMON EQUITY</b><p>Under at least one terminal method, enterprise value plus cash does not cover funded debt. The mathematical bridge is negative, but common stock has limited liability, so the displayed value stops at $0 rather than showing a negative share price.</p></div>}
+      {(model.terminalGrowth < 2 || model.terminalGrowth > 4 || model.terminalGrowth > model.riskFreeRate) && <div className="api-error valuation-warning"><b>Terminal-growth review:</b> This assumption should represent a sustainable long-run nominal growth rate and should generally not exceed the same-currency risk-free rate. Because it appears in the denominator of TV = Year-5 UFCF × (1 + g) ÷ (WACC − g), even a small change can materially affect terminal value.</div>}
+      {((perpetuity.valid && perpetuity.rawEquityValue < 0) || (multiple.valid && multiple.rawEquityValue < 0)) && <div className="negative-explainer"><b>WHY A METHOD CAN SHOW $0 FOR COMMON EQUITY</b><p>Under at least one valid terminal method, enterprise value plus cash does not cover funded debt. The mathematical bridge is negative, but common stock has limited liability, so the displayed value stops at $0 rather than showing a negative share price.</p></div>}
       <div className="bridge-grid"><ValuationBridge title="Perpetual Growth Method" result={perpetuity} model={model} method="perpetuity" data={data}/><ValuationBridge title="Exit Multiple Method" result={multiple} model={model} method="multiple" data={data}/></div>
     </section>}
 
@@ -951,8 +1051,8 @@ export default function Home() {
       <div className="method-audit">
         <div className="audit-heading"><div><span>FORMULA CHECK</span><h3>Standard unlevered DCF calculation</h3></div></div>
         <div className="six-step-grid">
-          <article><span>01</span><b>Forecast UFCF</b><code>EBIT × (1−T) + D&A − Capex − ΔNWC</code></article>
-          <article><span>02</span><b>Calculate terminal value</b><code>PG: UFCF₅ × (1+g) ÷ (WACC−g)<br/>Exit: EBITDA₅ × selected multiple</code></article>
+          <article><span>01</span><b>Forecast UFCF</b><code>EBIT × (1−T) + D&amp;A − Capex − ΔNWC + deferred tax + other non-cash items</code></article>
+          <article><span>02</span><b>Calculate terminal value</b><code>PG FCF: NOPAT₅ × (1−g/ROIC)<br/>PG TV: FCF₅ × (1+g) ÷ (WACC−g)<br/>Exit: EBITDA₅ × selected multiple</code></article>
           <article><span>03</span><b>Discount at WACC</b><code>EV = Σ[UFCFₜ ÷ (1+WACC)ᵗ] + TV ÷ (1+WACC)⁵</code></article>
           <article><span>04</span><b>Add non-operating assets</b><code>Enterprise value + cash &amp; included investments</code></article>
           <article><span>05</span><b>Subtract non-equity claims</b><code>− short debt − long debt − other non-equity claims</code></article>
@@ -965,7 +1065,7 @@ export default function Home() {
         <div className="workbook-panel" role="tabpanel" aria-label={`${workbookTab} worksheet`}>
           {workbookTab === "dcf" && <><div className="model-table-wrap"><table className="model-table historical-model-table"><thead><tr className="period-group-row"><th>PERIOD TYPE</th><th className="actual-group" colSpan={actualPeriods.length}>HISTORICAL ACTUALS / DERIVED RATIOS · REFERENCE ONLY</th><th className="forecast-group" colSpan={result.years.length}>FORECAST ESTIMATES · INCLUDED IN DCF</th><th>TERMINAL</th></tr><tr><th>DCF line item</th>{actualPeriods.map((period) => <th className="actual" key={period.fiscalDate || period.year}>{actualFiscalLabel(period)}</th>)}{result.years.map((year, index) => <th className={index === 0 ? "forecast-start" : ""} key={year.periodEnd}>{fiscalPeriodLabel(year.periodEnd)}</th>)}<th><DefinedTerm term="yearFive">AT YEAR 5</DefinedTerm></th></tr></thead><tbody>
             {tableRows.map((row) => <tr className={`${row.type === "total" ? "total" : ""} ${row.type === "percent" ? "percent-row" : ""}`} key={row.label}><td><DcfRowLabel label={row.label}/></td>{row.actuals.map((value, index) => <td className="actual" key={`${actualPeriods[index]?.fiscalDate || actualPeriods[index]?.year}-${row.label}`}>{formatCell(value, row.type)}</td>)}{row.values.map((value, index) => <td className={index === 0 ? "forecast-start" : ""} key={index}>{formatCell(value, row.type)}</td>)}<td>{formatCell(row.terminal ?? null, row.type)}</td></tr>)}
-          </tbody></table></div><p className="historical-model-note"><b>Historical actuals are context—not valuation cash flows.</b> They are not discounted or included in enterprise value. Historical UFCF is approximated as reported operating cash flow − capex + after-tax interest; working-capital and other non-cash movements remain embedded in operating cash flow. Historical operating tax uses a capped effective-tax proxy when available. Forecast UFCF uses the visible line-by-line formula.</p></>}
+          </tbody></table></div><p className="historical-model-note"><b>Historical actuals are context—not valuation cash flows.</b> They are not discounted or included in enterprise value. Historical UFCF is approximated as reported operating cash flow − capex + after-tax interest; working-capital and other non-cash movements remain embedded in operating cash flow. Historical operating tax uses a capped effective-tax proxy when available. Forecast UFCF uses the visible line-by-line formula. The perpetuity terminal column normalizes reinvestment as growth ÷ terminal ROIC rather than carrying a temporary capex cycle forever.</p></>}
           {workbookTab === "assumptions" && <div className="model-table-wrap"><table className="workbook-table"><thead><tr><th>Assumption</th><th>Linked value</th><th>Source / treatment</th></tr></thead><tbody>{assumptionSheet.map(([label, value, source]) => <tr key={label}><td>{label}</td><td className="linked-cell">{value}</td><td>{source}</td></tr>)}</tbody></table></div>}
           {workbookTab === "wacc" && <div className="wacc-workbook">
             <div className="wacc-intro"><div><span>WHAT WACC ANSWERS</span><h3>What return do common-equity and funded-debt providers require?</h3><p>UFCF belongs to both shareholders and lenders, so this simplified model combines their required returns according to how much of the company is financed by common equity and funded debt. That combined rate discounts future cash flow into today’s value.</p></div><strong>{pct2.format(selectedWacc)}%<small>SELECTED MODEL WACC</small></strong></div>
@@ -974,7 +1074,7 @@ export default function Home() {
               <article><span>02</span><h4>Calculate lenders’ after-tax return</h4><code>{pct2.format(preTaxDebt)}% × (1 − {pct2.format(model.normalizedTaxRate)}%) = {pct2.format(afterTaxDebt)}%</code><p>Interest can create a tax benefit, so debt cost is reduced by the normalized tax rate.</p></article>
               <article><span>03</span><h4>Measure the financing mix</h4><code>Equity {pct2.format(equityWeight * 100)}% · Debt {pct2.format(debtWeight * 100)}%</code><p>Equity value is market price × shares. Debt is short-term + long-term funded debt.</p></article>
               <article><span>04</span><h4>Weight and combine both returns</h4><code>({pct2.format(equityWeight * 100)}% × {pct2.format(costEquity)}%) + ({pct2.format(debtWeight * 100)}% × {pct2.format(afterTaxDebt)}%) = {pct2.format(referenceWacc)}%</code><p>The two contributions are {pct2.format(equityContribution)}% from equity and {pct2.format(debtContribution)}% from debt.</p></article>
-              <article><span>05</span><h4>Apply the disclosed judgment overlay</h4><code>{pct2.format(referenceWacc)}% + {pct2.format(model.companyRiskPremium)}% = {pct2.format(selectedWacc)}%</code><p>The company-specific premium is optional and is not part of textbook CAPM. Set it to 0% if the same risks are already reflected in beta or the cash-flow forecast.</p></article>
+              <article><span>05</span><h4>Apply the disclosed risk overlay</h4><code>{pct2.format(referenceWacc)}% + {pct2.format(model.companyRiskPremium)}% = {pct2.format(selectedWacc)}%</code><p>{/fallback|insufficient/i.test(data.market.betaSource || "") ? "Price history was insufficient for a regression beta, so the starting overlay fills the gap to the disclosed industry WACC. It is a data-coverage adjustment—not textbook CAPM—and should be replaced with a peer-derived bottom-up beta when possible." : "The company-specific premium is optional and is not part of textbook CAPM. Set it to 0% if the same risks are already reflected in beta or the cash-flow forecast."}</p></article>
             </div>
             <div className="model-table-wrap"><table className="workbook-table wacc-source-table"><thead><tr><th>WACC component</th><th>Value</th><th>How this number is obtained</th></tr></thead><tbody>
               <tr><td>Risk-free rate</td><td className="linked-cell">{pct2.format(riskFree)}%</td><td>{data.market.riskFreeAsOf ? `Long-term U.S. Treasury observation through ${data.market.riskFreeAsOf}. This is the starting return before equity risk.` : "Editable fallback because a current Treasury observation was unavailable."}</td></tr>
@@ -988,11 +1088,11 @@ export default function Home() {
               <tr><td>After-tax cost of debt</td><td>{pct2.format(afterTaxDebt)}%</td><td>{pct2.format(preTaxDebt)}% × (1 − {pct2.format(model.normalizedTaxRate)}%) = {pct2.format(afterTaxDebt)}%</td></tr>
               <tr><td>Debt weight</td><td>{pct2.format(debtWeight * 100)}%</td><td>{workbookMoney(debt)} ÷ ({workbookMoney(equity)} + {workbookMoney(debt)}) = {pct2.format(debtWeight * 100)}%</td></tr>
               <tr className="workbook-total"><td>Base formula WACC</td><td>{pct2.format(referenceWacc)}%</td><td>{pct2.format(equityContribution)}% equity contribution + {pct2.format(debtContribution)}% debt contribution = {pct2.format(referenceWacc)}%</td></tr>
-              <tr><td><DefinedTerm term="companySpecificPremium">Company-specific premium</DefinedTerm></td><td className="linked-cell">{pct2.format(model.companyRiskPremium)}%</td><td>Optional visible judgment adjustment for risks not already included elsewhere. Using it and also reducing cash flows for the same risk would double count.</td></tr>
+              <tr><td><DefinedTerm term="companySpecificPremium">Company-specific premium</DefinedTerm></td><td className="linked-cell">{pct2.format(model.companyRiskPremium)}%</td><td>{/fallback|insufficient/i.test(data.market.betaSource || "") ? `Automatic insufficient-beta-history adjustment to the ${pct2.format(rec.wacc)}% industry WACC starting point. Replace with a peer-derived bottom-up beta when available.` : "Optional visible judgment adjustment for risks not already included elsewhere. Using it and also reducing cash flows for the same risk would double count."}</td></tr>
               <tr className="workbook-answer"><td>Selected model WACC</td><td>{pct2.format(selectedWacc)}%</td><td>{pct2.format(referenceWacc)}% base formula + {pct2.format(model.companyRiskPremium)}% premium = {pct2.format(selectedWacc)}%</td></tr>
-            </tbody></table></div><p className="workbook-warning">The clearest items to verify are beta and pre-tax debt cost. Beta is currently a neutral 1.0 fallback when Nasdaq does not provide it. For a transaction-grade WACC, use a current regression or peer beta and replace trailing interest expense with a forward bond yield, borrowing rate, or credit-spread estimate.</p>
+            </tbody></table></div><p className="workbook-warning">The clearest items to verify are beta and pre-tax debt cost. When sufficient price history exists, beta starts with a five-year monthly price-return regression against SPY and is adjusted one-third toward 1.0; otherwise the model identifies a neutral 1.0 fallback and a separate industry-risk overlay. For a transaction-grade WACC, use split- and dividend-adjusted total returns or a peer-derived bottom-up beta, and replace trailing interest expense with a forward bond yield, borrowing rate, or credit-spread estimate.</p>
           </div>}
-          {workbookTab === "valuation" && <div className="model-table-wrap"><table className="workbook-table valuation-workbook"><thead><tr><th>Valuation bridge</th><th>Perpetual growth</th><th>Exit multiple</th></tr></thead><tbody>{valuationSheet.map(([label, perpetuityValue, multipleValue]) => <tr className={["Enterprise value", "Equity value"].includes(String(label)) ? "workbook-total" : ""} key={String(label)}><td>{label}</td><td>{perpetuity.valid ? workbookMoney(Number(perpetuityValue)) : "—"}</td><td>{workbookMoney(Number(multipleValue))}</td></tr>)}<tr><td>Share count used</td><td>{fmt.format(model.shares)}M</td><td>{fmt.format(model.shares)}M</td></tr><tr className="workbook-answer"><td>Implied value per share</td><td>{perpetuity.valid ? usd.format(perpetuity.perShare) : "—"}</td><td>{usd.format(multiple.perShare)}</td></tr></tbody></table><p className="workbook-warning">Share source: {data.market.sharesSource || "market-cap-derived proxy; verify current and fully diluted shares"}. Per-share value equals common-equity value divided by the current fully diluted share count, including options, warrants, restricted stock, convertibles, and other dilutive securities where applicable.</p></div>}
+          {workbookTab === "valuation" && <div className="model-table-wrap"><table className="workbook-table valuation-workbook"><thead><tr><th>Valuation bridge</th><th>Perpetual growth</th><th>Exit multiple</th></tr></thead><tbody>{valuationSheet.map(([label, perpetuityValue, multipleValue]) => <tr className={["Enterprise value", "Equity value"].includes(String(label)) ? "workbook-total" : ""} key={String(label)}><td>{label}</td><td>{perpetuity.valid ? workbookMoney(Number(perpetuityValue)) : "—"}</td><td>{multiple.valid ? workbookMoney(Number(multipleValue)) : "—"}</td></tr>)}<tr><td>Share count used</td><td>{fmt.format(model.shares)}M</td><td>{fmt.format(model.shares)}M</td></tr><tr className="workbook-answer"><td>Implied value per share</td><td>{perpetuity.valid ? usd.format(perpetuity.perShare) : "—"}</td><td>{multiple.valid ? usd.format(multiple.perShare) : "—"}</td></tr></tbody></table><p className="workbook-warning">Share source: {data.market.sharesSource || "market-cap-derived proxy; verify current and fully diluted shares"}. Per-share value equals common-equity value divided by the current fully diluted share count, including options, warrants, restricted stock, convertibles, and other dilutive securities where applicable.</p></div>}
           {workbookTab === "sensitivity" && <div className="sensitivity-grid workbook-sensitivity"><SensitivityTable data={data} model={model} method="perpetuity"/><SensitivityTable data={data} model={model} method="multiple"/></div>}
         </div>
         <div className="workbook-tabs" role="tablist" aria-label="DCF workbook sheets">{([
@@ -1004,7 +1104,7 @@ export default function Home() {
 
     {!financialUnsupported && <section className="sheet-section" id="assumptions">
       <div className="section-heading"><div><span className="section-index">03</span><p>INPUTS</p><h2>Editable assumptions</h2></div><div className="unit-note">GREEN CELLS ARE EDITABLE</div></div>
-      <div className="recommendation"><b>{data.comparison?.nicheLabel || data.company.industry} starting point</b><p>{rec.note}</p>{data.forecast ? <span>Years 1–2 start with {data.forecast.source} revenue estimates as of {data.forecast.asOf || "the displayed source date"}. Years 3–6 are clearly labeled website estimates. Every annual driver is editable below, and perpetual growth does not alter any explicit forecast year.</span> : <span>No validated analyst forecast was available. All six years begin as visible, editable model estimates rather than being presented as consensus.</span>}</div>
+      <div className="recommendation"><b>{data.comparison?.nicheLabel || data.company.industry} starting point</b><p>{rec.note}</p>{data.forecast ? <span>Years 1–2 start with {data.forecast.source} revenue estimates as of {data.forecast.asOf || "the displayed source date"}. Years 3–6 are clearly labeled website estimates. Every annual driver is editable below, and perpetual growth does not alter any explicit forecast year.</span> : <span>No validated analyst forecast was available. All six years begin as visible, editable model estimates rather than being presented as consensus.</span>}<span> The automatic working-capital shortcut assumes 2% of incremental revenue. Deferred tax and other non-cash adjustments start at 0%; replace these with a company-specific balance-sheet build and documented items such as stock compensation when material, while also updating dilution consistently.</span></div>
       <div className="forecast-editor"><div className="sheet-bar">Fiscal forecast drivers · each green cell is editable</div><div className="table-scroll"><table><thead><tr><th>Driver</th>{model.forecastDrivers.map((driver) => <th key={driver.periodEnd}>{fiscalPeriodLabel(driver.periodEnd)}</th>)}</tr></thead><tbody>{([
         ["Revenue growth", "revenueGrowth"], ["Gross margin", "grossMargin"], ["EBIT margin", "ebitMargin"], ["Tax rate", "taxRate"], ["D&A / revenue", "daPercent"], ["Capex / revenue", "capexPercent"], ["ΔNWC / revenue", "changeNwcPercent"], ["Deferred tax / revenue", "deferredTaxPercent"], ["Other non-cash / revenue", "otherNonCashPercent"],
       ] as Array<[string, Exclude<keyof ForecastDriver, "periodEnd" | "source">]>).map(([label, key]) => <tr key={key}><th><DcfRowLabel label={label}/></th>{model.forecastDrivers.map((driver, index) => <td key={driver.periodEnd}><input aria-label={`${label} ${driver.periodEnd}`} type="number" step="0.1" value={driver[key]} onChange={(event) => updateForecastDriver(index, key, Number(event.target.value))}/><span>%</span></td>)}</tr>)}<tr className="forecast-source-row"><th>Source status</th>{model.forecastDrivers.map((driver) => <td key={driver.periodEnd}>{driver.source}</td>)}</tr></tbody></table></div></div>
@@ -1015,14 +1115,15 @@ export default function Home() {
         <NumberField label="Beta" term="beta" value={model.beta} suffix="×" help="Equity market sensitivity. Verify the period, frequency, and peer unlevering method before using it in a high-stakes valuation." onChange={(value) => update("beta", value)}/>
         <NumberField label="Equity risk premium" term="equityRiskPremium" value={model.equityRiskPremium} suffix="%" help="Current implied market premium when available; editable." onChange={(value) => update("equityRiskPremium", value)}/>
         <NumberField label="Pre-tax cost of debt" term="preTaxCostOfDebt" value={model.preTaxCostDebt} suffix="%" help="Use a forward borrowing rate or bond yield when available. The automatic value may be a trailing interest-expense proxy." onChange={(value) => update("preTaxCostDebt", value)}/>
-        <NumberField label="Company-specific risk premium" value={model.companyRiskPremium} suffix="%" help="A visible adjustment for concentration, execution, size, country, or data risk. Selected WACC equals formula WACC plus this premium." onChange={(value) => update("companyRiskPremium", value)}/>
-        <NumberField label="Terminal growth" term="terminalGrowth" value={model.terminalGrowth} suffix="%" help="Long-run growth after Year 5. It must remain below WACC." onChange={(value) => update("terminalGrowth", value)}/>
+        <NumberField label="Company-specific risk premium" value={model.companyRiskPremium} suffix="%" help={/fallback|insufficient/i.test(data.market.betaSource || "") ? `Beta history was insufficient, so this starts at the gap between formula WACC and the ${pct2.format(rec.wacc)}% industry WACC starting point. Replace it with a bottom-up beta when possible; do not also penalize the same risk in cash flows.` : "Optional judgment adjustment. It starts at 0% to avoid automatically double counting risks already reflected in beta, borrowing costs, or cash-flow forecasts."} onChange={(value) => update("companyRiskPremium", value)}/>
+        <NumberField label="Terminal growth" term="terminalGrowth" value={model.terminalGrowth} suffix="%" help="Long-run growth after Year 5. It must remain below WACC and should generally not exceed the same-currency risk-free rate." onChange={(value) => update("terminalGrowth", value)}/>
+        <NumberField label="Terminal ROIC" term="terminalRoic" value={model.terminalRoic} suffix="%" help="Long-run return on new invested capital. The automatic starting point equals WACC, so new perpetual investment creates no excess value. Use a higher value only when durable competitive advantages support it." onChange={(value) => update("terminalRoic", value)}/>
         <NumberField label="Exit EBITDA multiple" term="exitMultiple" value={model.exitMultiple} suffix="×" help="Year 5 EBITDA valuation multiple used in the exit-multiple method." onChange={(value) => update("exitMultiple", value)}/>
         <NumberField label="Market price used for comparison" term="marketPrice" value={model.marketPrice} suffix="$" help={`${priceContext.detail}. This input only calculates upside or downside; it does not change intrinsic value.`} onChange={(value) => update("marketPrice", value)}/>
-        <NumberField label="Cash" term="cash" value={model.cash} suffix="$M" help="Available cash added in the enterprise-to-equity bridge." onChange={(value) => update("cash", value)}/>
+        <NumberField label="Cash and included investments" term="cash" value={model.cash} suffix="$M" help="Cash and marketable investments added in the enterprise-to-equity bridge. Reduce this input if part of the balance is required to operate the business rather than being excess cash." onChange={(value) => update("cash", value)}/>
         <NumberField label="Short-term debt" term="fundedDebt" value={model.shortDebt} suffix="$M" help="Current borrowings subtracted in the enterprise-to-equity bridge." onChange={(value) => update("shortDebt", value)}/>
         <NumberField label="Long-term debt" term="fundedDebt" value={model.longDebt} suffix="$M" help="Non-current borrowings subtracted in the enterprise-to-equity bridge." onChange={(value) => update("longDebt", value)}/>
-        <NumberField label="Leases, preferred & minority" term="fundedDebt" value={model.preferredInterest} suffix="$M" help="Other non-equity claims subtracted after funded debt. Include material capital leases, preferred stock, and non-controlling interests that are not already captured in debt." onChange={(value) => update("preferredInterest", value)}/>
+        <NumberField label="Preferred & minority interests" term="fundedDebt" value={model.preferredInterest} suffix="$M" help="Other non-equity claims subtracted after funded debt. Preferred stock and non-controlling interests are included when SEC facts identify them. Operating leases are not automatically added because consistent capitalization also requires lease-adjusted EBIT, D&A, capex, and cash flow." onChange={(value) => update("preferredInterest", value)}/>
         <NumberField label="Share count used" term="dilutedShares" value={model.shares} suffix="M" help={`${data.market.sharesSource || "Free-data proxy"}. Replace it when a newer fully diluted share count is available.`} onChange={(value) => update("shares", value)}/>
       </div>
       <div className="assumption-bottom"><div className="wacc-table"><div className="sheet-bar"><DefinedTerm term="wacc">WACC</DefinedTerm> formula reconciliation</div><div><span><DefinedTerm term="riskFreeRate">Risk-free rate</DefinedTerm></span><b>{pct2.format(riskFree)}%</b></div><div><span><DefinedTerm term="beta">Beta</DefinedTerm></span><b>{pct2.format(beta)}×</b></div><div><span><DefinedTerm term="equityRiskPremium">Equity risk premium</DefinedTerm></span><b>{pct2.format(equityRiskPremium)}%</b></div><div><span><DefinedTerm term="costOfEquity">Cost of equity</DefinedTerm> = Rf + β × ERP</span><b>{pct2.format(costEquity)}%</b></div><div><span><DefinedTerm term="equityWeight">Equity / capital</DefinedTerm></span><b>{pct2.format(equityWeight * 100)}%</b></div><div><span>Equity contribution = cost × weight</span><b>{pct2.format(equityContribution)}%</b></div><div><span><DefinedTerm term="preTaxCostOfDebt">Pre-tax cost of debt</DefinedTerm></span><b>{pct2.format(preTaxDebt)}%</b></div><div><span>After-tax debt cost</span><b>{pct2.format(afterTaxDebt)}%</b></div><div><span><DefinedTerm term="debtWeight">Debt / capital</DefinedTerm></span><b>{pct2.format(debtWeight * 100)}%</b></div><div><span>Debt contribution = cost × weight</span><b>{pct2.format(debtContribution)}%</b></div><div><span>Base formula WACC</span><b>{pct2.format(referenceWacc)}%</b></div><div><span><DefinedTerm term="companySpecificPremium">Company-specific premium</DefinedTerm></span><b>{pct2.format(model.companyRiskPremium)}%</b></div><div className="total"><span>Selected <DefinedTerm term="wacc">WACC</DefinedTerm></span><b>{pct2.format(selectedWacc)}%</b></div><small>Base WACC equals the equity contribution plus the debt contribution. The selected WACC then adds the visible optional premium. Open the WACC workbook tab to see every formula with the actual numbers used.</small></div>
@@ -1039,11 +1140,11 @@ export default function Home() {
 
     <CompetitorComparison data={data}/>
 
-    {!financialUnsupported && <section className="sheet-section" id="risks">
-      <div className="section-heading"><div><span className="section-index">07</span><h2>Potential risks</h2></div><p className="section-description">Each card explains the available evidence, what the risk means for the business, and how it could affect the DCF. Verify material risks in company filings.</p></div>
+    <section className="sheet-section" id="risks">
+      <div className="section-heading"><div><span className="section-index">07</span><h2>Potential risks</h2></div><p className="section-description">{financialUnsupported ? "These are sector-specific review areas, not outputs from the disabled corporate DCF. Verify regulatory capital, asset quality, funding, liquidity, and material risks in company filings." : "Each card explains the available evidence, what the risk means for the business, and how it could affect the DCF. Verify material risks in company filings."}</p></div>
       <div className="risk-grid">{risks.map((risk) => <article key={risk.title}><span className={`risk-pill ${risk.level}`}>{risk.level}</span><h3>{risk.title}</h3><p>{risk.detail}</p></article>)}</div>
       <div className="decision-checklist"><h3>Investment-decision checklist</h3><ul><li>Read the latest annual report, risk factors, and management guidance.</li><li>Map revenue, suppliers, and operations by country.</li><li>Compare assumptions with direct peers and a full business cycle.</li><li>Stress-test dilution, acquisitions, regulation, and refinancing.</li><li>Define the evidence that would invalidate the thesis.</li><li>Require a margin of safety appropriate for forecast uncertainty.</li></ul></div>
-    </section>}
+    </section>
 
     <footer><span>Educational decision support only—not personalized investment advice.</span><span>MODEL V2 · DATA MAY BE DELAYED</span></footer>
     </>}
