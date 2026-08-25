@@ -72,8 +72,9 @@ export default function CompanyAnalysisPage() {
   }, []);
 
   useEffect(() => {
-    if (!data || activeView !== "credit") return;
-    requestAnimationFrame(() => document.getElementById("credit-screen")?.scrollIntoView({ block: "start" }));
+    if (!data) return;
+    const target = activeView === "credit" ? "credit-screen" : "analysis-top";
+    requestAnimationFrame(() => document.getElementById(target)?.scrollIntoView({ block: "start" }));
   }, [activeView, data]);
 
   if (!data || !data.businessAnalysis) return <main className="analysis-page"><CompanyNavigation active={activeView}/><section className="analysis-missing"><span>COMPANY ANALYSIS</span><h1>{missing ? "Load a ticker first" : "Preparing analysis…"}</h1><p>The separate analysis page uses the company most recently loaded in the DCF calculator. Return to the calculator, build a ticker analysis, then open this page from the company summary.</p><Link href="/">Return to calculator →</Link></section></main>;
@@ -91,8 +92,8 @@ export default function CompanyAnalysisPage() {
   const monetary = (value: number | null) => value === null || !Number.isFinite(value) ? "—" : `${money.format(value)}M`;
 
   return <main className="analysis-page">
-    <CompanyNavigation symbol={data.company.symbol} name={data.company.name} active={activeView}/>
-    <header className="analysis-hero"><p>{isSample ? "ILLUSTRATIVE COMPANY ANALYSIS" : analysis.filing ? "FILING-BASED COMPANY ANALYSIS" : "COMPANY ANALYSIS · SEC DATA UNAVAILABLE"}</p><h1>{data.company.name}</h1><div><span>{data.company.sector}</span><span>{data.company.industry}</span><span>{data.company.country}</span></div><h2>What the company does</h2><p>{shortDescription(analysis.filing ? analysis.companyDescription : data.company.description)}</p>{!isSample && !analysis.filing && <div className="api-error"><b>SEC status:</b> {analysis.secUnavailableReason || analysis.source}</div>}</header>
+    <CompanyNavigation symbol={data.company.symbol} name={data.company.name} active={activeView} onViewChange={(view) => { if (view === "company" || view === "credit") setActiveView(view); }}/>
+    <header className="analysis-hero" id="analysis-top"><p>{isSample ? "ILLUSTRATIVE COMPANY ANALYSIS" : analysis.filing ? "FILING-BASED COMPANY ANALYSIS" : "COMPANY ANALYSIS · SEC DATA UNAVAILABLE"}</p><h1>{data.company.name}</h1><div><span>{data.company.sector}</span><span>{data.company.industry}</span><span>{data.company.country}</span></div><h2>What the company does</h2><p>{shortDescription(analysis.filing ? analysis.companyDescription : data.company.description)}</p>{!isSample && !analysis.filing && <div className="api-error"><b>SEC status:</b> {analysis.secUnavailableReason || analysis.source}</div>}</header>
 
     <section className="analysis-section">
       <div className="analysis-heading"><div><span>01</span><p>OPERATING CHAIN</p><h2>Supply chain analysis</h2></div><p>{isSample ? "This sample demonstrates the operating-chain profile and dependency flags." : analysis.filing ? "The dependency signals come from the latest annual filing. The four-stage map is a filing-informed business-model framework, not a company-reported supply-chain diagram." : "SEC narrative data was unavailable, so no filing-based supply-chain conclusion is presented."}</p></div>

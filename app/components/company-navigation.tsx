@@ -14,10 +14,12 @@ export default function CompanyNavigation({
   symbol,
   name,
   active,
+  onViewChange,
 }: {
   symbol?: string;
   name?: string;
   active: CompanyNavView;
+  onViewChange?: (view: CompanyNavView) => void;
 }) {
   const router = useRouter();
   const [transition, setTransition] = useState<{ key: number; mode: "soft" | "model" } | null>(null);
@@ -33,10 +35,12 @@ export default function CompanyNavigation({
     if (view === active || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      onViewChange?.(view);
       router.push(href);
       return;
     }
     const mode = view === "model" ? "model" : "soft";
+    onViewChange?.(view);
     setTransition((current) => ({ key: (current?.key || 0) + 1, mode }));
     window.setTimeout(() => router.push(href), mode === "model" ? 300 : 180);
   };

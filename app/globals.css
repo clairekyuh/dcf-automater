@@ -593,7 +593,7 @@ html,body{height:100%;overflow:hidden}
 .company-view-news .sheet-section{min-height:0;height:auto;max-height:none;overflow:visible}
 .company-view-page footer{width:min(1180px,calc(100% - 48px));margin:0 auto 30px;color:#647068}.company-view-page footer a{color:var(--green);text-decoration:none}
 .company-view-missing{width:min(760px,calc(100% - 48px));margin:70px auto;padding:42px;border-radius:22px;background:var(--paper);box-shadow:0 20px 55px rgba(20,30,24,.12)}.company-view-missing>span{color:var(--green);font:600 8px DM Mono;letter-spacing:.1em}.company-view-missing h1{margin:9px 0;color:var(--navy-dark)}.company-view-missing p{color:var(--muted)}.company-view-missing a{color:var(--green);font:600 9px DM Mono;text-decoration:none}
-#credit-screen{scroll-margin-top:92px}
+#analysis-top,#credit-screen{scroll-margin-top:92px}
 @keyframes company-route-line{from{transform:scaleX(0)}to{transform:scaleX(1)}}
 @keyframes company-route-wash{0%{opacity:0}45%{opacity:1}100%{opacity:0}}
 @keyframes model-return-fade{from{opacity:0}to{opacity:1}}
