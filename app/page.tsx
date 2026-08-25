@@ -1305,16 +1305,27 @@ export default function Home() {
     ["Equity value", perpetuity.equityValue, multiple.equityValue],
   ];
   const workbookMoney = (value: number) => value < 0 ? `(${usd0.format(Math.abs(value))}M)` : `${usd0.format(value)}M`;
-  return <main>
-    <nav className="top-nav"><a href="#top" className="brand">DCF CALCULATOR</a><span>Interactive valuation workbook</span></nav>
+  return <main className="sleek-app">
+    <div className="site-intro" aria-hidden="true"><div><span>DCF</span><i/></div></div>
+    <nav className="top-nav"><a href="#top" className="brand"><b>DCF</b><span>Valuation Studio</span></a><div className="nav-status"><i/>Public data · editable model</div></nav>
     <header id="top" className="calculator-header">
-      <p>DISCOUNTED CASH FLOW</p>
-      <h1>DCF Calculator</h1>
-      <div className="instructions"><b>Instructions</b><span>Enter a public-company ticker below. The calculator builds six fiscal-year operating forecasts, applies a five-year mid-year-convention valuation, and shows separate perpetual-growth and EBITDA-multiple outputs.</span></div>
-      <form className="ticker-search" onSubmit={search}><label><span>TICKER SYMBOL</span><input aria-label="Ticker symbol" value={ticker} onChange={(event) => setTicker(event.target.value.toUpperCase())} placeholder={`Type a ticker — try ${rotatingExample.symbol}`} /></label><button disabled={loading || !ticker.trim()}>{loading ? companyReady ? "BUILDING DCF…" : "LOADING EXAMPLE…" : "BUILD DCF →"}</button></form>
-      {error && <div className="api-error"><b>Data connection:</b> {error}</div>}
-      <small>Rotating ticker idea: {rotatingExample.name} ({rotatingExample.symbol}) · Current public data and visible, editable estimates populate each ticker.</small>
+      <div className="hero-grid" aria-hidden="true"/><div className="hero-orbit orbit-one" aria-hidden="true"/><div className="hero-orbit orbit-two" aria-hidden="true"/>
+      <div className="hero-copy">
+        <p>PUBLIC-COMPANY VALUATION · INTERACTIVE MODEL</p>
+        <h1><span>Value the business.</span><em>Price the cash flow.</em></h1>
+        <div className="instructions"><b>Start with a ticker</b><span>The calculator builds six fiscal forecasts, values an exact five-year window, and shows perpetual-growth and exit-multiple scenarios side by side.</span></div>
+        <form className="ticker-search" onSubmit={search}><label><span>TICKER</span><input aria-label="Ticker symbol" value={ticker} onChange={(event) => setTicker(event.target.value.toUpperCase())} placeholder={`Try ${rotatingExample.symbol}`} /></label><button disabled={loading || !ticker.trim()}>{loading ? companyReady ? "BUILDING…" : "LOADING…" : "RUN MODEL"}<span>↗</span></button></form>
+        {error && <div className="api-error"><b>Data connection:</b> {error}</div>}
+        <small>Now rotating: {rotatingExample.name} ({rotatingExample.symbol}) · Every estimate remains visible and editable.</small>
+      </div>
+      <aside className="hero-methods" aria-label="Calculator coverage">
+        <article><span>01</span><div><b>Forecast</b><small>Six fiscal periods</small></div></article>
+        <article><span>02</span><div><b>Discount</b><small>Exact five-year window</small></div></article>
+        <article><span>03</span><div><b>Stress test</b><small>Two terminal methods</small></div></article>
+      </aside>
+      <a className="hero-scroll" href="#output" aria-label="Scroll to calculator output">SCROLL <i>↓</i></a>
     </header>
+    <div className="model-marquee" aria-hidden="true"><div><span>REVENUE</span><i>→</i><span>EBIT</span><i>→</i><span>NOPAT</span><i>→</i><span>UFCF</span><i>→</i><span>ENTERPRISE VALUE</span><i>→</i><span>EQUITY VALUE</span><i>→</i><span>IMPLIED VALUE / SHARE</span><i>→</i><span>REVENUE</span><i>→</i><span>EBIT</span><i>→</i><span>NOPAT</span><i>→</i><span>UFCF</span><i>→</i><span>ENTERPRISE VALUE</span><i>→</i><span>EQUITY VALUE</span><i>→</i><span>IMPLIED VALUE / SHARE</span><i>→</i></div></div>
 
     {!companyReady ? <section className="example-loader" aria-live="polite"><span>LOADING A REAL-COMPANY EXAMPLE</span><h2>{startingExample.name} · {startingExample.symbol}</h2><p>The calculator opens with a current large-company example. Type any supported public-company ticker above when you are ready.</p></section> : <>
     <section className="company-summary">
