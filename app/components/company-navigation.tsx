@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, type MouseEvent } from "react";
 
 export type CompanyNavView = "model" | "company" | "credit" | "price" | "news" | "risks";
 
@@ -20,7 +20,7 @@ export default function CompanyNavigation({
   active: CompanyNavView;
 }) {
   const router = useRouter();
-  const [transitionKey, setTransitionKey] = useState(0);
+  const [transition, setTransition] = useState<{ key: number; mode: "soft" | "model" } | null>(null);
   const links: Array<{ view: CompanyNavView; label: string; href: string }> = [
     { view: "model", label: "DCF model", href: companyHref("/", symbol) },
     { view: "company", label: "Company analysis", href: companyHref("/company-analysis", symbol) },
@@ -29,26 +29,31 @@ export default function CompanyNavigation({
     { view: "news", label: "News", href: companyHref("/news", symbol) },
     { view: "risks", label: "Risks", href: companyHref("/risks", symbol) },
   ];
+  const navigate = (event: MouseEvent<HTMLAnchorElement>, view: CompanyNavView, href: string) => {
+    if (view === active || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      router.push(href);
+      return;
+    }
+    const mode = view === "model" ? "model" : "soft";
+    setTransition((current) => ({ key: (current?.key || 0) + 1, mode }));
+    window.setTimeout(() => router.push(href), mode === "model" ? 300 : 180);
+  };
 
-  return <nav className="top-nav company-nav" aria-label="Company workspace">
-    <Link href={companyHref("/", symbol)} className="brand" aria-label="Open DCF model"><b>DCF</b></Link>
+  return <><nav className="top-nav company-nav" aria-label="Company workspace">
+    <Link href={companyHref("/", symbol)} className="brand" aria-label="Open DCF model" onClick={(event) => navigate(event, "model", companyHref("/", symbol))}><b>DCF</b></Link>
     <div className="company-nav-links">
       {links.map((link) => <Link
         href={link.href}
         className={active === link.view ? "active" : ""}
         aria-current={active === link.view ? "page" : undefined}
         key={link.view}
-        onClick={(event) => {
-          if (link.view === "model" || link.view === active || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-          event.preventDefault();
-          setTransitionKey((current) => current + 1);
-          window.setTimeout(() => router.push(link.href), 180);
-        }}
+        onClick={(event) => navigate(event, link.view, link.href)}
       >{link.label}</Link>)}
     </div>
     <div className="company-nav-context" title={name || "Load a ticker in the DCF model"}>
       <span>COMPANY</span><b>{symbol || "NO TICKER"}</b>{name && <small>{name}</small>}
     </div>
-    {transitionKey > 0 && <div className="company-route-transition" key={transitionKey} aria-hidden="true"><i/></div>}
-  </nav>;
+  </nav>{transition && <div className={`company-route-transition ${transition.mode === "model" ? "model-return" : ""}`} key={transition.key} aria-hidden="true"><i/></div>}</>;
 }
