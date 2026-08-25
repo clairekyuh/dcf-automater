@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import CompanyNavigation, { type CompanyNavView } from "@/app/components/company-navigation";
 
 type CustomerDisclosure = { customer: string; revenuePercent: number; disclosure: string };
 type Signal = { level: "high" | "medium" | "low"; title: string; detail: string };
@@ -48,6 +49,7 @@ function Metric({ label, value, detail }: { label: string; value: string; detail
 export default function CompanyAnalysisPage() {
   const [data, setData] = useState<CompanyAnalysisData | null>(null);
   const [missing, setMissing] = useState(false);
+  const [activeView, setActiveView] = useState<CompanyNavView>("company");
 
   useEffect(() => {
     const requested = new URLSearchParams(window.location.search).get("symbol")?.toUpperCase();
@@ -62,7 +64,19 @@ export default function CompanyAnalysisPage() {
     }
   }, []);
 
-  if (!data || !data.businessAnalysis) return <main className="analysis-page"><nav className="analysis-nav"><Link href="/">← DCF Calculator</Link></nav><section className="analysis-missing"><span>COMPANY ANALYSIS</span><h1>{missing ? "Load a ticker first" : "Preparing analysis…"}</h1><p>The separate analysis page uses the company most recently loaded in the DCF calculator. Return to the calculator, build a ticker analysis, then open this page from the company summary.</p><Link href="/">Return to calculator →</Link></section></main>;
+  useEffect(() => {
+    const updateActiveView = () => setActiveView(window.location.hash === "#credit-screen" ? "credit" : "company");
+    updateActiveView();
+    window.addEventListener("hashchange", updateActiveView);
+    return () => window.removeEventListener("hashchange", updateActiveView);
+  }, []);
+
+  useEffect(() => {
+    if (!data || activeView !== "credit") return;
+    requestAnimationFrame(() => document.getElementById("credit-screen")?.scrollIntoView({ block: "start" }));
+  }, [activeView, data]);
+
+  if (!data || !data.businessAnalysis) return <main className="analysis-page"><CompanyNavigation active={activeView}/><section className="analysis-missing"><span>COMPANY ANALYSIS</span><h1>{missing ? "Load a ticker first" : "Preparing analysis…"}</h1><p>The separate analysis page uses the company most recently loaded in the DCF calculator. Return to the calculator, build a ticker analysis, then open this page from the company summary.</p><Link href="/">Return to calculator →</Link></section></main>;
 
   const analysis = data.businessAnalysis;
   const financials = analysis.financials;
@@ -77,7 +91,7 @@ export default function CompanyAnalysisPage() {
   const monetary = (value: number | null) => value === null || !Number.isFinite(value) ? "—" : `${money.format(value)}M`;
 
   return <main className="analysis-page">
-    <nav className="analysis-nav"><Link href="/">← DCF Calculator</Link><span>{data.company.symbol} · Operating &amp; credit analysis</span></nav>
+    <CompanyNavigation symbol={data.company.symbol} name={data.company.name} active={activeView}/>
     <header className="analysis-hero"><p>{isSample ? "ILLUSTRATIVE COMPANY ANALYSIS" : analysis.filing ? "FILING-BASED COMPANY ANALYSIS" : "COMPANY ANALYSIS · SEC DATA UNAVAILABLE"}</p><h1>{data.company.name}</h1><div><span>{data.company.sector}</span><span>{data.company.industry}</span><span>{data.company.country}</span></div><h2>What the company does</h2><p>{shortDescription(analysis.filing ? analysis.companyDescription : data.company.description)}</p>{!isSample && !analysis.filing && <div className="api-error"><b>SEC status:</b> {analysis.secUnavailableReason || analysis.source}</div>}</header>
 
     <section className="analysis-section">
@@ -99,7 +113,7 @@ export default function CompanyAnalysisPage() {
       <p className="analysis-note">For banks, insurers, and some service companies, “COGS” may not be a meaningful or separately reported line. If a named customer is public, its own COGS would require a separate analysis of that customer’s filings.</p>
     </section>
 
-    <section className="analysis-section default-section">
+    <section className="analysis-section default-section" id="credit-screen">
       <div className="analysis-heading"><div><span>04</span><p>CREDIT</p><h2>Credit and liquidity screen</h2></div><div className={`default-verdict ${riskClass}`}><span>AUTOMATED SCREEN</span><strong>{defaultRisk.level === "insufficient" ? financialScreenNotApplicable ? "not applicable" : "insufficient data" : `${defaultRisk.level} flags`}</strong><small>{defaultRisk.level === "insufficient" ? `${defaultRisk.availableChecks || 0} of 5 corporate checks used` : `${defaultRisk.points} screening points`}</small></div></div>
       <div className="analysis-metrics five"><Metric label="Debt / revenue" value={financialScreenNotApplicable ? "n/m" : ratio(defaultRisk.ratios.debtToRevenue)} detail="1.0× means debt equals one full year of revenue. This is a rough scale check—not a repayment forecast and not meaningful for banks."/><Metric label="Net debt / EBITDA" value={financialScreenNotApplicable ? "n/m" : ratio(defaultRisk.ratios.netDebtToEbitda)} detail="A rough leverage measure after subtracting cash. It ignores debt maturities, lease claims, working-capital seasonality, and differences in EBITDA quality."/><Metric label="Current ratio" value={financialScreenNotApplicable ? "n/m" : ratio(defaultRisk.ratios.currentRatio)} detail="$1.50 means $1.50 of near-term accounting assets for every $1 of near-term liabilities. Asset liquidity and timing still require filing review."/><Metric label="Interest coverage" value={financialScreenNotApplicable ? "n/m" : ratio(defaultRisk.ratios.interestCoverage)} detail="How many times operating profit covers trailing interest. It does not capture future refinancing rates, covenant tests, or scheduled maturities."/><Metric label="FCF / debt" value={financialScreenNotApplicable ? "n/m" : percentageRatio(defaultRisk.ratios.fcfToDebt)} detail="The share of funded debt one year of reported CFO minus capex could cover. It can swing with working capital and is not forecast debt paydown."/></div>
       <div className="default-detail"><div><h3>What drives the result</h3><ul>{defaultRisk.drivers.map((driver) => <li key={driver}>{driver}</li>)}</ul></div><div><h3>Checking the Altman Z-score</h3>{defaultRisk.altmanApplicable && defaultRisk.altmanZ !== null ? <><strong>{fmt.format(defaultRisk.altmanZ)}</strong><p>Zone: {defaultRisk.altmanZone}. The original model was developed for publicly traded manufacturers and is less reliable outside that setting.</p></> : <p>{defaultRisk.altmanReason || "Not shown because the company’s sector or available facts do not fit the original model well."}</p>}</div></div>

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import CompanyNews from "@/app/components/company-news";
+import CompanyNavigation from "@/app/components/company-navigation";
 import { buildBusinessComparison } from "@/lib/business-comparison";
 import { actualFiscalLabel, historicalEffectiveTaxRate, historicalRevenueGrowth, historicalUfcf } from "@/lib/historical-dcf";
 import {
@@ -1152,12 +1152,16 @@ export default function Home() {
   }));
 
   useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get("symbol")?.trim().toUpperCase();
     const previousIndex = sessionStorage.getItem("dcf:example-index");
     const initialIndex = previousIndex === null ? 0 : (Number(previousIndex) + 1) % LARGE_COMPANY_EXAMPLES.length;
     sessionStorage.setItem("dcf:example-index", String(initialIndex));
     setExampleIndex(initialIndex);
-    setStartingExample(LARGE_COMPANY_EXAMPLES[initialIndex]);
-    void loadCompany(LARGE_COMPANY_EXAMPLES[initialIndex].symbol);
+    const initialCompany = requested && /^[A-Z0-9.\-]{1,12}$/.test(requested)
+      ? { symbol: requested, name: requested }
+      : LARGE_COMPANY_EXAMPLES[initialIndex];
+    setStartingExample(initialCompany);
+    void loadCompany(initialCompany.symbol);
     const rotation = window.setInterval(() => {
       setExampleIndex((current) => (current + 1) % LARGE_COMPANY_EXAMPLES.length);
     }, 3200);
@@ -1170,6 +1174,13 @@ export default function Home() {
     sessionStorage.setItem("dcf:last-company", serialized);
     localStorage.setItem("dcf:last-company", serialized);
   }, [companyReady, data]);
+
+  useEffect(() => {
+    if (!companyReady) return;
+    const serialized = JSON.stringify({ symbol: data.company.symbol, risks });
+    sessionStorage.setItem("dcf:last-research", serialized);
+    localStorage.setItem("dcf:last-research", serialized);
+  }, [companyReady, data.company.symbol, risks]);
 
   useEffect(() => {
     if (!companyReady || data.source === "Sample data") return;
@@ -1192,6 +1203,7 @@ export default function Home() {
       setModel(buildModel(json));
       setResearchView("comps");
       setCompanyReady(true);
+      window.history.replaceState(null, "", `/?symbol=${encodeURIComponent(json.company.symbol)}`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to load company.");
     } finally {
@@ -1355,7 +1367,7 @@ export default function Home() {
   const workbookMoney = (value: number) => value < 0 ? `(${usd0.format(Math.abs(value))}M)` : `${usd0.format(value)}M`;
   return <main className="sleek-app">
     <div className="site-intro" aria-hidden="true"><div><span>DCF</span><i/></div></div>
-    <nav className="top-nav"><a href="#top" className="brand"><b>DCF</b><span>Valuation Studio</span></a><div className="nav-status"><i/>Public data · editable model</div></nav>
+    <CompanyNavigation symbol={companyReady ? data.company.symbol : undefined} name={companyReady ? data.company.name : undefined} active="model"/>
     <header id="top" className="calculator-header">
       <div className="hero-grid" aria-hidden="true"/><div className="hero-orbit orbit-one" aria-hidden="true"/><div className="hero-orbit orbit-two" aria-hidden="true"/>
       <div className="hero-copy">
@@ -1493,19 +1505,6 @@ export default function Home() {
         <div className="data-check"><div className="sheet-bar">Checking the data</div><ul>{(data.qualityNotes?.length ? data.qualityNotes : ["Sample data is active. Enter a ticker to load current public-company data."]).map((note) => <li key={note}>{note}</li>)}</ul></div>
       </div>
     </section>}
-
-    <section className="sheet-section" id="price-history">
-      <div className="section-heading"><div><span className="section-index">05</span><p>MARKET DATA</p><h2>Stock price history</h2></div><p className="section-description">{data.source === "Sample data" ? "This is an illustrative company, so it does not have a real IPO date." : data.company.ipoDate ? `${data.company.name} first traded publicly on ${longDate(data.company.ipoDate)}.` : `A reliable public-market debut date was not available for ${data.company.name}.`} Select a time range and switch between daily, weekly, or monthly closing prices.</p></div>
-      <StockPriceChart points={data.market.priceHistory || []} symbol={data.company.symbol}/>
-    </section>
-
-    <CompanyNews symbol={data.company.symbol} name={data.company.name}/>
-
-    <section className="sheet-section" id="risks">
-      <div className="section-heading"><div><span className="section-index">07</span><h2>Potential risks</h2></div><p className="section-description">{financialUnsupported ? "These are sector-specific review areas, not outputs from the disabled corporate DCF. Verify regulatory capital, asset quality, funding, liquidity, and material risks in company filings." : "Each card explains the available evidence, what the risk means for the business, and how it could affect the DCF. Verify material risks in company filings."}</p></div>
-      <div className="risk-grid">{risks.map((risk) => <article key={risk.title}><span className={`risk-pill ${risk.level}`}>{risk.level}</span><h3>{risk.title}</h3><p>{risk.detail}</p></article>)}</div>
-      <div className="decision-checklist"><h3>Investment-decision checklist</h3><ul><li>Read the latest annual report, risk factors, and management guidance.</li><li>Map revenue, suppliers, and operations by country.</li><li>Compare assumptions with direct peers and a full business cycle.</li><li>Stress-test dilution, acquisitions, regulation, and refinancing.</li><li>Define the evidence that would invalidate the thesis.</li><li>Require a margin of safety appropriate for forecast uncertainty.</li></ul></div>
-    </section>
 
     <footer><span>Educational decision support only—not personalized investment advice.</span><span>MODEL V2 · DATA MAY BE DELAYED</span></footer>
     </div>}
