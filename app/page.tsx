@@ -471,7 +471,7 @@ function riskAnalysis(data: CompanyData, model: Model, perpetuity: ReturnType<ty
   const evidenceDetail = !data.forecast
     ? " No validated revenue forecast was available, so a large numerical upside does not create a dependable margin of safety."
     : data.businessAnalysis?.filing
-      ? " Filing data was available for historical cross-checks, but the forecast still requires analyst judgment."
+      ? " Filing data was available, but the forecast still requires analyst judgment."
       : " SEC filing data was unavailable for this load, so the apparent cushion receives at least a medium-risk label.";
   risks.push({ level, title: "Room for forecast error", detail: `${valuationDetail}${evidenceDetail}` });
   return risks;
@@ -1140,7 +1140,7 @@ export default function Home() {
     ? ` The automatic scenario assumes EBIT margin improves from ${fmt.format(data.metrics.ebitMargin)}% in the latest period to ${fmt.format(model.forecastDrivers.at(-1)!.ebitMargin)}% in the final explicit year; that turnaround is not analyst consensus and should be replaced with a defensible operating plan.`
     : "";
   const forecastConfidenceDetail = data.forecast
-    ? `Only the first two revenue years use an external consensus source; Years 3–6 and all margin, tax, D&A, capex, and working-capital drivers are editable model estimates.${data.businessAnalysis?.filing ? " Filing data was available for historical cross-checks." : " SEC filing data was unavailable for additional cross-checks."}${turnaroundCaveat}`
+    ? `Only the first two revenue years use an external consensus source; Years 3–6 and all margin, tax, D&A, capex, and working-capital drivers are editable model estimates.${data.businessAnalysis?.filing ? " Filing data was available." : " SEC filing data was unavailable."}${turnaroundCaveat}`
     : `No validated analyst revenue forecast was available; all six annual operating forecasts are editable model estimates.${turnaroundCaveat}`;
   const rotatingExample = LARGE_COMPANY_EXAMPLES[exampleIndex];
   type NumericModelKey = Exclude<keyof Model, "valuationDate" | "forecastDrivers">;
@@ -1359,12 +1359,12 @@ export default function Home() {
     <header id="top" className="calculator-header">
       <div className="hero-grid" aria-hidden="true"/><div className="hero-orbit orbit-one" aria-hidden="true"/><div className="hero-orbit orbit-two" aria-hidden="true"/>
       <div className="hero-copy">
-        <p>PUBLIC-COMPANY VALUATION · INTERACTIVE MODEL</p>
-        <h1><span>Value the business.</span><em>Price the cash flow.</em></h1>
-        <div className="instructions"><b>Start with a ticker</b><span>The calculator builds six fiscal forecasts, values an exact five-year window, and shows perpetual-growth and exit-multiple scenarios side by side.</span></div>
+        <p>PUBLIC-COMPANY VALUATION</p>
+        <h1><span>DCF Calculator</span></h1>
+        <div className="instructions"><b>Enter a ticker</b><span>Build and edit the forecast, then compare both valuation methods.</span></div>
         <form className="ticker-search" onSubmit={search}><label><span>TICKER</span><input aria-label="Ticker symbol" value={ticker} onChange={(event) => setTicker(event.target.value.toUpperCase())} placeholder={`Try ${rotatingExample.symbol}`} /></label><button disabled={loading || !ticker.trim()}>{loading ? companyReady ? "BUILDING…" : "LOADING…" : "RUN MODEL"}<span>↗</span></button></form>
         {error && <div className="api-error"><b>Data connection:</b> {error}</div>}
-        <small>Now rotating: {rotatingExample.name} ({rotatingExample.symbol}) · Every estimate remains visible and editable.</small>
+        <small>Now rotating: {rotatingExample.name} ({rotatingExample.symbol})</small>
       </div>
       <aside className="hero-methods" aria-label="Calculator coverage">
         <article><span>01</span><div><b>Forecast</b><small>Six fiscal periods</small></div></article>
@@ -1412,7 +1412,7 @@ export default function Home() {
     {!financialUnsupported && <section className="sheet-section" id="build">
       <div className="section-heading"><div><span className="section-index">02</span><p>MODEL</p><h2>DCF workbook</h2></div><div className="unit-note">USD IN MILLIONS · LIVE TICKER-LINKED CELLS</div></div>
       <div className="method-audit">
-        <div className="audit-heading"><div><span>FORMULA CHECK</span><h3>Standard unlevered DCF calculation</h3></div></div>
+        <div className="audit-heading"><div><span>CHECKING THE FORMULA</span><h3>Unlevered DCF</h3></div></div>
         <div className="six-step-grid">
           <article><span>01</span><b>Forecast UFCF</b><code>EBIT × (1−T) + D&amp;A − Capex − ΔNWC + deferred tax + other non-cash items</code></article>
           <article><span>02</span><b>Calculate terminal value</b><code>PG FCF: NOPAT₅ × (1−g/ROIC)<br/>PG TV: FCF₅ × (1+g) ÷ (WACC−g)<br/>Exit: EBITDA₅ × selected multiple</code></article>
@@ -1421,7 +1421,7 @@ export default function Home() {
           <article><span>05</span><b>Subtract non-equity claims</b><code>− short debt − long debt − other non-equity claims</code></article>
           <article><span>06</span><b>Calculate value per share</b><code>Equity value ÷ fully diluted shares</code></article>
         </div>
-        <p><b>Scope check:</b> This is an automated quick DCF, not a fully linked three-statement model. A transaction-grade forecast should link EBIT, D&amp;A, capex, and working capital through the income statement, balance sheet, and cash-flow statement. Every modeled shortcut remains visible and editable here.</p>
+        <p><b>Checking the model scope:</b> This is an automated DCF, not a fully linked three-statement model. A transaction-grade forecast should link EBIT, D&amp;A, capex, and working capital through the financial statements.</p>
       </div>
       <div className="workbook-shell">
         <div className="formula-bar"><b>fx</b><code>{workbookFormula[workbookTab]}</code></div>
@@ -1489,8 +1489,8 @@ export default function Home() {
         <NumberField label="Preferred & minority interests" term="fundedDebt" value={model.preferredInterest} suffix="$M" help="Other non-equity claims subtracted after funded debt. Preferred stock and non-controlling interests are included when SEC facts identify them. Operating leases are not automatically added because consistent capitalization also requires lease-adjusted EBIT, D&A, capex, and cash flow." onChange={(value) => update("preferredInterest", value)}/>
         <NumberField label="Share count used" term="dilutedShares" value={model.shares} suffix="M" help={`${data.market.sharesSource || "Free-data proxy"}. Replace it when a newer fully diluted share count is available.`} onChange={(value) => update("shares", value)}/>
       </div>
-      <div className="assumption-bottom"><div className="wacc-table"><div className="sheet-bar"><DefinedTerm term="wacc">WACC</DefinedTerm> formula reconciliation</div><div><span><DefinedTerm term="riskFreeRate">Risk-free rate</DefinedTerm></span><b>{pct2.format(riskFree)}%</b></div><div><span><DefinedTerm term="beta">Beta</DefinedTerm></span><b>{pct2.format(beta)}×</b></div><div><span><DefinedTerm term="equityRiskPremium">Equity risk premium</DefinedTerm></span><b>{pct2.format(equityRiskPremium)}%</b></div><div><span><DefinedTerm term="costOfEquity">Cost of equity</DefinedTerm> = Rf + β × ERP</span><b>{pct2.format(costEquity)}%</b></div><div><span><DefinedTerm term="equityWeight">Equity / capital</DefinedTerm></span><b>{pct2.format(equityWeight * 100)}%</b></div><div><span>Equity contribution = cost × weight</span><b>{pct2.format(equityContribution)}%</b></div><div><span><DefinedTerm term="preTaxCostOfDebt">Pre-tax cost of debt</DefinedTerm></span><b>{pct2.format(preTaxDebt)}%</b></div><div><span>After-tax debt cost</span><b>{pct2.format(afterTaxDebt)}%</b></div><div><span><DefinedTerm term="debtWeight">Debt / capital</DefinedTerm></span><b>{pct2.format(debtWeight * 100)}%</b></div><div><span>Debt contribution = cost × weight</span><b>{pct2.format(debtContribution)}%</b></div><div><span>Base formula WACC</span><b>{pct2.format(referenceWacc)}%</b></div><div><span><DefinedTerm term="companySpecificPremium">Company-specific premium</DefinedTerm></span><b>{pct2.format(model.companyRiskPremium)}%</b></div><div className="total"><span>Selected <DefinedTerm term="wacc">WACC</DefinedTerm></span><b>{pct2.format(selectedWacc)}%</b></div><small>Base WACC equals the equity contribution plus the debt contribution. The selected WACC then adds the visible optional premium. Open the WACC workbook tab to see every formula with the actual numbers used.</small></div>
-        <div className="data-check"><div className="sheet-bar">Data checks</div><ul>{(data.qualityNotes?.length ? data.qualityNotes : ["Sample data is active. Enter a ticker to load current public-company data."]).map((note) => <li key={note}>{note}</li>)}</ul></div>
+      <div className="assumption-bottom"><div className="wacc-table"><div className="sheet-bar">Checking the <DefinedTerm term="wacc">WACC</DefinedTerm> formula</div><div><span><DefinedTerm term="riskFreeRate">Risk-free rate</DefinedTerm></span><b>{pct2.format(riskFree)}%</b></div><div><span><DefinedTerm term="beta">Beta</DefinedTerm></span><b>{pct2.format(beta)}×</b></div><div><span><DefinedTerm term="equityRiskPremium">Equity risk premium</DefinedTerm></span><b>{pct2.format(equityRiskPremium)}%</b></div><div><span><DefinedTerm term="costOfEquity">Cost of equity</DefinedTerm> = Rf + β × ERP</span><b>{pct2.format(costEquity)}%</b></div><div><span><DefinedTerm term="equityWeight">Equity / capital</DefinedTerm></span><b>{pct2.format(equityWeight * 100)}%</b></div><div><span>Equity contribution = cost × weight</span><b>{pct2.format(equityContribution)}%</b></div><div><span><DefinedTerm term="preTaxCostOfDebt">Pre-tax cost of debt</DefinedTerm></span><b>{pct2.format(preTaxDebt)}%</b></div><div><span>After-tax debt cost</span><b>{pct2.format(afterTaxDebt)}%</b></div><div><span><DefinedTerm term="debtWeight">Debt / capital</DefinedTerm></span><b>{pct2.format(debtWeight * 100)}%</b></div><div><span>Debt contribution = cost × weight</span><b>{pct2.format(debtContribution)}%</b></div><div><span>Base formula WACC</span><b>{pct2.format(referenceWacc)}%</b></div><div><span><DefinedTerm term="companySpecificPremium">Company-specific premium</DefinedTerm></span><b>{pct2.format(model.companyRiskPremium)}%</b></div><div className="total"><span>Selected <DefinedTerm term="wacc">WACC</DefinedTerm></span><b>{pct2.format(selectedWacc)}%</b></div><small>Base WACC equals the equity contribution plus the debt contribution. The selected WACC then adds the visible optional premium. Open the WACC workbook tab to see every formula with the actual numbers used.</small></div>
+        <div className="data-check"><div className="sheet-bar">Checking the data</div><ul>{(data.qualityNotes?.length ? data.qualityNotes : ["Sample data is active. Enter a ticker to load current public-company data."]).map((note) => <li key={note}>{note}</li>)}</ul></div>
       </div>
     </section>}
 
