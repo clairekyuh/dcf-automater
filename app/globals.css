@@ -577,8 +577,7 @@ html,body{height:100%;overflow:hidden}
 .analysis-page .analysis-sources{background:var(--teal-soft)}
 .analysis-page footer{background:var(--navy-dark);color:#aeb9b1;border-color:#314038}.analysis-page footer a{color:var(--teal)}
 .company-nav{gap:clamp(14px,2vw,34px)}
-.company-nav .brand{flex:0 0 auto;text-decoration:none}
-.company-nav-links{display:flex;align-items:center;justify-content:center;gap:4px;min-width:0;flex:1}
+.company-nav-links{display:flex;align-items:center;justify-content:flex-start;gap:4px;min-width:0;flex:1}
 .company-nav-links a{padding:9px 10px;border-radius:999px;color:#aeb9b1;text-decoration:none;font:600 8px DM Mono;text-transform:uppercase;letter-spacing:.045em;white-space:nowrap;transition:color .2s ease,background .2s ease}
 .company-nav-links a:hover{color:white;background:rgba(255,255,255,.08)}
 .company-nav-links a.active{color:var(--ink);background:var(--teal)}
@@ -605,7 +604,7 @@ html,body{height:100%;overflow:hidden}
 }
 @media(max-width:640px){
   .model-pages>.company-summary,.model-pages>.sheet-section,.model-pages>.research-workspace{width:100%;max-width:none;margin:0;padding-top:82px;padding-bottom:25px}.model-pages>.company-summary,.model-pages>.sheet-section{padding-left:14px;padding-right:14px}.model-pages>.company-summary>div{padding:12px 4px}.model-pages>.company-summary dl{grid-template-columns:1fr}.excel-export{width:100%;justify-content:center}.model-pages .section-heading{margin-bottom:22px}
-  .analysis-page,.company-view-page{padding-top:62px}.company-nav .brand b{width:32px;height:32px}.company-nav-links a{font-size:7px}.company-nav-context{display:none}.company-view-header{padding:44px 20px 30px}.company-view-panel,.company-view-page .sheet-section,.company-view-page footer{width:calc(100% - 24px)}.company-view-panel,.company-view-page .sheet-section{margin:20px auto;padding:18px 13px;border-radius:16px}
+  .analysis-page,.company-view-page{padding-top:62px}.company-nav-links a{font-size:7px}.company-nav-context{display:none}.company-view-header{padding:44px 20px 30px}.company-view-panel,.company-view-page .sheet-section,.company-view-page footer{width:calc(100% - 24px)}.company-view-panel,.company-view-page .sheet-section{margin:20px auto;padding:18px 13px;border-radius:16px}
 }
 @media(prefers-reduced-motion:reduce){.company-route-transition{display:none}.company-view-header,.company-view-panel,.company-view-page .sheet-section,.analysis-page .analysis-hero,.analysis-page .analysis-section{animation:none}}
 @media print{

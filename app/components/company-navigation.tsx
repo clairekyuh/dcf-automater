@@ -42,7 +42,6 @@ export default function CompanyNavigation({
   };
 
   return <><nav className="top-nav company-nav" aria-label="Company workspace">
-    <Link href={companyHref("/", symbol)} className="brand" aria-label="Open DCF model" onClick={(event) => navigate(event, "model", companyHref("/", symbol))}><b>DCF</b></Link>
     <div className="company-nav-links">
       {links.map((link) => <Link
         href={link.href}
