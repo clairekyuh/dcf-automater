@@ -1119,6 +1119,8 @@ export default function Home() {
   const [startingExample, setStartingExample] = useState(LARGE_COMPANY_EXAMPLES[0]);
   const [workbookTab, setWorkbookTab] = useState<WorkbookTab>("dcf");
   const [researchView, setResearchView] = useState<ResearchView>("comps");
+  const [exportingExcel, setExportingExcel] = useState(false);
+  const [excelExportError, setExcelExportError] = useState("");
   const [error, setError] = useState("");
   const rec = useMemo(() => recommendations(data), [data]);
   const perpetuity = useMemo(() => calculate(data, model, "perpetuity"), [data, model]);
@@ -1205,6 +1207,52 @@ export default function Home() {
       return;
     }
     await loadCompany(symbol);
+  }
+
+  async function exportExcel() {
+    setExportingExcel(true);
+    setExcelExportError("");
+    try {
+      const response = await fetch("/api/export-dcf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          company: {
+            symbol: data.company.symbol,
+            name: data.company.name,
+            exchange: data.company.exchange,
+            industry: data.company.industry,
+          },
+          source: data.source,
+          asOf: data.asOf,
+          sharesSource: data.market.sharesSource,
+          metrics: { revenue: data.metrics.revenue },
+          historical: data.historical,
+          model,
+          comparison: data.comparison ? {
+            nicheLabel: data.comparison.nicheLabel,
+            peers: data.comparison.peers,
+          } : undefined,
+        }),
+      });
+      if (!response.ok) {
+        const message = await response.json().catch(() => ({}));
+        throw new Error(message.error || "Unable to create the Excel model.");
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${data.company.symbol}-DCF-Model.xlsx`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (caught) {
+      setExcelExportError(caught instanceof Error ? caught.message : "Unable to create the Excel model.");
+    } finally {
+      setExportingExcel(false);
+    }
   }
 
   const actualPeriods = data.historical.slice(-5);
@@ -1323,11 +1371,10 @@ export default function Home() {
         <article><span>02</span><div><b>Discount</b><small>Exact five-year window</small></div></article>
         <article><span>03</span><div><b>Stress test</b><small>Two terminal methods</small></div></article>
       </aside>
-      <a className="hero-scroll" href="#output" aria-label="Scroll to calculator output">SCROLL <i>↓</i></a>
+      <a className="hero-scroll" href="#assumptions" aria-label="Scroll to the model inputs">START MODEL <i>↓</i></a>
     </header>
-    <div className="model-marquee" aria-hidden="true"><div><span>REVENUE</span><i>→</i><span>EBIT</span><i>→</i><span>NOPAT</span><i>→</i><span>UFCF</span><i>→</i><span>ENTERPRISE VALUE</span><i>→</i><span>EQUITY VALUE</span><i>→</i><span>IMPLIED VALUE / SHARE</span><i>→</i><span>REVENUE</span><i>→</i><span>EBIT</span><i>→</i><span>NOPAT</span><i>→</i><span>UFCF</span><i>→</i><span>ENTERPRISE VALUE</span><i>→</i><span>EQUITY VALUE</span><i>→</i><span>IMPLIED VALUE / SHARE</span><i>→</i></div></div>
 
-    {!companyReady ? <section className="example-loader" aria-live="polite"><span>LOADING A REAL-COMPANY EXAMPLE</span><h2>{startingExample.name} · {startingExample.symbol}</h2><p>The calculator opens with a current large-company example. Type any supported public-company ticker above when you are ready.</p></section> : <>
+    {!companyReady ? <section className="example-loader" aria-live="polite"><span>LOADING A REAL-COMPANY EXAMPLE</span><h2>{startingExample.name} · {startingExample.symbol}</h2><p>The calculator opens with a current large-company example. Type any supported public-company ticker above when you are ready.</p></section> : <div className="model-pages">
     <section className="company-summary">
       <div><span>{data.company.exchange} · {data.company.symbol}</span><h2>{data.company.name}</h2><b className="company-description-label">{data.source === "Sample data" ? "WHAT THE COMPANY DOES · SAMPLE" : `WHAT THE COMPANY DOES · ${data.company.descriptionSource || "COMPANY PROFILE"}`}</b><p>{briefDescription(data.company.description)}</p><Link className="deep-analysis-link" href={`/company-analysis?symbol=${encodeURIComponent(data.company.symbol)}`}>{data.businessAnalysis?.filing ? "Open filing-based supply chain, customer concentration & credit screen →" : "Open company-analysis data availability & credit screen →"}</Link></div>
       <dl><div><dt>{priceContext.label}</dt><dd>{usd.format(model.marketPrice)}<small>{priceContext.detail}</small></dd></div><div><dt>Business niche</dt><dd>{data.comparison?.nicheLabel || data.company.industry}<small>{data.comparison?.industryExplanation || `Reported industry: ${data.company.industry}`}</small></dd></div><div><dt>Financials through</dt><dd>{data.asOf}</dd></div><div><dt>Company data source</dt><dd>{data.source}</dd></div></dl>
@@ -1336,7 +1383,7 @@ export default function Home() {
     {financialUnsupported && <section className="sheet-section sector-notice"><div className="section-heading"><div><p>SECTOR LIMIT</p><h2>Standard unlevered DCF is disabled</h2></div></div><p>{data.company.name} is a financial institution. Debt, interest, and regulatory capital are operating inputs for banks and insurers, so treating debt as a financing claim and valuing UFCF would produce a misleading result. Use a dividend-discount, residual-income, excess-return, or price-to-book framework with regulatory-capital forecasts instead.</p></section>}
 
     {!financialUnsupported && <section className="sheet-section" id="valuation">
-      <div className="section-heading"><div><span className="section-index">01</span><p>OUTPUT</p><h2>DCF valuation</h2></div><div className="unit-note">BOTH TERMINAL METHODS SHOWN TOGETHER</div></div>
+      <div className="section-heading"><div><span className="section-index">03</span><p>VALUATION</p><h2>DCF valuation</h2></div><div className="unit-note">BOTH TERMINAL METHODS SHOWN TOGETHER</div></div>
       <div className="valuation-cards"><div><span>{priceContext.label}</span><strong>{usd.format(model.marketPrice)}</strong><small>{priceContext.detail}</small></div><div><span><DefinedTerm term="perpetualGrowth">Perpetual growth</DefinedTerm> scenario value</span><strong>{perpetuity.valid ? usd.format(perpetuity.perShare) : "—"}</strong>{perpetuity.valid && <ValueMove value={perpetuity.perShare} price={model.marketPrice}/>}</div><div><span><DefinedTerm term="exitMultiple">Exit multiple</DefinedTerm> scenario value</span><strong>{multiple.valid ? usd.format(multiple.perShare) : "—"}</strong>{multiple.valid && <ValueMove value={multiple.perShare} price={model.marketPrice}/>}</div></div>
       <div className={`forecast-confidence ${forecastConfidence.toLowerCase()}`}><b>FORECAST CONFIDENCE · {forecastConfidence.toUpperCase()}</b><p>{forecastConfidenceDetail} The outputs are scenario results, not price targets.</p></div>
       {selectedWacc <= model.terminalGrowth && <div className="api-error valuation-warning"><b>Assumption error:</b> WACC must be greater than terminal growth for the perpetual-growth method.</div>}
@@ -1346,7 +1393,7 @@ export default function Home() {
     </section>}
 
     <section className="sheet-section output-section" id="output">
-      <div className="section-heading"><div><span className="section-index">02</span><p>OUTPUT</p><h2>DCF output</h2></div><p className="section-description">Rows vary the selected WACC by ±0.5 percentage points. The left table varies perpetual growth by ±1 point; the right varies the exit multiple by ±4×. Every cell reruns the complete valuation. The outlined middle cell is the current base case.</p></div>
+      <div className="section-heading"><div><span className="section-index">04</span><p>OUTPUT</p><h2>DCF output</h2></div><div className="output-heading-tools"><p className="section-description">Rows vary the selected WACC by ±0.5 percentage points. Every cell reruns the complete valuation; the outlined middle cell is the current base case.</p><button type="button" className="excel-export" onClick={exportExcel} disabled={exportingExcel || financialUnsupported}>{exportingExcel ? "BUILDING EXCEL…" : "EXPORT EXCEL MODEL ↗"}</button>{excelExportError && <small className="excel-export-error" role="alert">{excelExportError}</small>}</div></div>
       <OutputScreen data={data} model={model} perpetuity={perpetuity} multiple={multiple} risks={risks} forecastConfidence={forecastConfidence} forecastConfidenceDetail={forecastConfidenceDetail} financialUnsupported={financialUnsupported}/>
     </section>
 
@@ -1363,7 +1410,7 @@ export default function Home() {
     </section>
 
     {!financialUnsupported && <section className="sheet-section" id="build">
-      <div className="section-heading"><div><span className="section-index">03</span><p>MODEL</p><h2>DCF workbook</h2></div><div className="unit-note">USD IN MILLIONS · LIVE TICKER-LINKED CELLS</div></div>
+      <div className="section-heading"><div><span className="section-index">02</span><p>MODEL</p><h2>DCF workbook</h2></div><div className="unit-note">USD IN MILLIONS · LIVE TICKER-LINKED CELLS</div></div>
       <div className="method-audit">
         <div className="audit-heading"><div><span>FORMULA CHECK</span><h3>Standard unlevered DCF calculation</h3></div></div>
         <div className="six-step-grid">
@@ -1419,7 +1466,7 @@ export default function Home() {
     </section>}
 
     {!financialUnsupported && <section className="sheet-section" id="assumptions">
-      <div className="section-heading"><div><span className="section-index">04</span><p>INPUTS</p><h2>Editable assumptions</h2></div><div className="unit-note">GREEN CELLS ARE EDITABLE</div></div>
+      <div className="section-heading"><div><span className="section-index">01</span><p>INPUTS</p><h2>Project the operating business</h2></div><div className="unit-note">EDIT THE REVENUE, MARGIN, TAX, D&amp;A, CAPEX &amp; WORKING-CAPITAL DRIVERS</div></div>
       <div className="recommendation"><b>{data.comparison?.nicheLabel || data.company.industry} starting point</b><p>{rec.note}</p>{data.forecast ? <span>Years 1–2 start with {data.forecast.source} revenue estimates as of {data.forecast.asOf || "the displayed source date"}. Years 3–6 are clearly labeled website estimates. Every annual driver is editable below, and perpetual growth does not alter any explicit forecast year.</span> : <span>No validated analyst forecast was available. All six years begin as visible, editable model estimates rather than being presented as consensus.</span>}<span> The automatic working-capital shortcut assumes 2% of incremental revenue. Deferred tax and other non-cash adjustments start at 0%; replace these with a company-specific balance-sheet build and documented items such as stock compensation when material, while also updating dilution consistently.</span></div>
       <div className="forecast-editor"><div className="sheet-bar">Fiscal forecast drivers · each green cell is editable</div><div className="table-scroll"><table><thead><tr><th>Driver</th>{model.forecastDrivers.map((driver) => <th key={driver.periodEnd}>{fiscalPeriodLabel(driver.periodEnd)}</th>)}</tr></thead><tbody>{([
         ["Revenue growth", "revenueGrowth"], ["Gross margin", "grossMargin"], ["EBIT margin", "ebitMargin"], ["Tax rate", "taxRate"], ["D&A / revenue", "daPercent"], ["Capex / revenue", "capexPercent"], ["ΔNWC / revenue", "changeNwcPercent"], ["Deferred tax / revenue", "deferredTaxPercent"], ["Other non-cash / revenue", "otherNonCashPercent"],
@@ -1461,6 +1508,6 @@ export default function Home() {
     </section>
 
     <footer><span>Educational decision support only—not personalized investment advice.</span><span>MODEL V2 · DATA MAY BE DELAYED</span></footer>
-    </>}
+    </div>}
   </main>;
 }

@@ -551,6 +551,31 @@ footer{width:min(90vw,1440px);margin:0 auto 30px;padding:28px 0;background:trans
 @media(prefers-reduced-motion:reduce){
   *,*:before,*:after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}.site-intro{display:none}.model-marquee>div{transform:none}.company-summary,.sheet-section,.research-workspace{opacity:1!important;transform:none!important}
 }
+/* Full-screen model pages: one deliberate stage per scroll. */
+html,body{height:100%;overflow:hidden}
+.sleek-app{height:100svh;overflow-x:hidden;overflow-y:auto;scroll-snap-type:y mandatory;scroll-behavior:smooth;scroll-padding-top:0}
+.calculator-header,.example-loader,.model-pages>.company-summary,.model-pages>.sheet-section,.model-pages>.research-workspace{scroll-snap-align:start;scroll-snap-stop:always}
+.calculator-header{height:100svh;min-height:100svh}
+.model-pages{display:flex;flex-direction:column;min-width:0}
+.model-pages>.company-summary,.model-pages>.sheet-section,.model-pages>.research-workspace{box-sizing:border-box;flex:0 0 100svh;width:100%;max-width:none;height:100svh;min-height:100svh;max-height:100svh;margin:0;border-radius:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior-y:auto;scrollbar-gutter:stable;padding-top:clamp(92px,10vh,126px);padding-bottom:clamp(34px,6vh,70px)}
+.model-pages>.company-summary{order:1;display:grid;grid-template-columns:minmax(0,1.1fr) minmax(360px,.9fr);align-items:center;padding-left:clamp(24px,6vw,92px);padding-right:clamp(24px,6vw,92px)}
+.model-pages>.company-summary>div{padding-left:0}.model-pages>.company-summary dl{align-self:center}
+.model-pages>.sector-notice{order:2}.model-pages>#assumptions{order:2}.model-pages>#build{order:3}.model-pages>#valuation{order:4}.model-pages>#output{order:5}.model-pages>.research-workspace{order:6}.model-pages>#price-history{order:7}.model-pages>#news{order:8}.model-pages>#risks{order:9}.model-pages>footer{order:10}
+.model-pages>.sheet-section{padding-left:clamp(24px,5vw,76px);padding-right:clamp(24px,5vw,76px);box-shadow:none;border-bottom:1px solid #cfd5cd}
+.model-pages>.sheet-section:nth-of-type(even){background:#eef1e8}
+.model-pages>.research-workspace{padding-left:0;padding-right:0;box-shadow:none;border-bottom:1px solid #cfd5cd}
+.output-heading-tools{max-width:560px;display:grid;justify-items:end;gap:16px}.output-heading-tools .section-description{max-width:560px;text-align:right}
+.excel-export{min-height:44px;padding:0 19px;border:1px solid var(--navy-dark);border-radius:999px;background:var(--teal);color:var(--ink);font:700 9px DM Mono;letter-spacing:.05em;cursor:pointer;box-shadow:0 8px 20px rgba(16,23,19,.12);transition:transform .25s cubic-bezier(.16,1,.3,1),background .2s ease}
+.excel-export:hover:not(:disabled){transform:translateY(-2px);background:#dcff8e}.excel-export:disabled{cursor:wait;opacity:.55}
+.excel-export-error{max-width:420px;color:#a33a2d;font:8px/1.5 DM Mono;text-align:right}
+.model-pages .section-heading{scroll-margin-top:90px}
+.model-pages>.sheet-section::-webkit-scrollbar,.model-pages>.company-summary::-webkit-scrollbar,.model-pages>.research-workspace::-webkit-scrollbar{width:7px}.model-pages>.sheet-section::-webkit-scrollbar-thumb,.model-pages>.company-summary::-webkit-scrollbar-thumb,.model-pages>.research-workspace::-webkit-scrollbar-thumb{background:#aeb9b0;border-radius:8px}
+@media(max-width:900px){
+  .model-pages>.company-summary{grid-template-columns:1fr;align-content:start;padding-top:95px}.model-pages>.company-summary dl{margin-top:20px}.output-heading-tools{max-width:none;justify-items:start}.output-heading-tools .section-description,.excel-export-error{text-align:left}
+}
+@media(max-width:640px){
+  .model-pages>.company-summary,.model-pages>.sheet-section,.model-pages>.research-workspace{width:100%;max-width:none;margin:0;padding-top:82px;padding-bottom:25px}.model-pages>.company-summary,.model-pages>.sheet-section{padding-left:14px;padding-right:14px}.model-pages>.company-summary>div{padding:12px 4px}.model-pages>.company-summary dl{grid-template-columns:1fr}.excel-export{width:100%;justify-content:center}.model-pages .section-heading{margin-bottom:22px}
+}
 @media print{
 @page{size:landscape;margin:0}
 body.printing-pitch{background:white}
