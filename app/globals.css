@@ -570,6 +570,16 @@ html,body{height:100%;overflow:hidden}
 .excel-export-error{max-width:420px;color:#a33a2d;font:8px/1.5 DM Mono;text-align:right}
 .model-pages .section-heading{scroll-margin-top:90px}
 .model-pages>.sheet-section::-webkit-scrollbar,.model-pages>.company-summary::-webkit-scrollbar,.model-pages>.research-workspace::-webkit-scrollbar{width:7px}.model-pages>.sheet-section::-webkit-scrollbar-thumb,.model-pages>.company-summary::-webkit-scrollbar-thumb,.model-pages>.research-workspace::-webkit-scrollbar-thumb{background:#aeb9b0;border-radius:8px}
+/* The separate company-analysis route uses a light reading canvas. */
+.analysis-page{height:100svh;min-height:100svh;overflow-x:hidden;overflow-y:auto;background:#eef1e8;color:var(--ink)}
+.analysis-page .analysis-nav{position:sticky;top:0;z-index:50;background:var(--navy-dark);border-color:#314038}
+.analysis-page .analysis-nav a{color:#f5f7f1}.analysis-page .analysis-nav span{color:#aeb9b1}
+.analysis-page .analysis-hero{max-width:none;background:var(--paper);border-bottom:1px solid var(--grid-dark)}
+.analysis-page .analysis-hero h1,.analysis-page .analysis-hero h2,.analysis-page .analysis-hero>p{color:var(--ink)}
+.analysis-page .analysis-hero>p:first-child{color:var(--green)}
+.analysis-page .analysis-section{background:#fbfcf7;box-shadow:0 16px 42px rgba(20,30,24,.08)}
+.analysis-page .analysis-sources{background:var(--teal-soft)}
+.analysis-page footer{background:var(--navy-dark);color:#aeb9b1;border-color:#314038}.analysis-page footer a{color:var(--teal)}
 @media(max-width:900px){
   .model-pages>.company-summary{grid-template-columns:1fr;align-content:start;padding-top:95px}.model-pages>.company-summary dl{margin-top:20px}.output-heading-tools{max-width:none;justify-items:start}.output-heading-tools .section-description,.excel-export-error{text-align:left}
 }
