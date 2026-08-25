@@ -1366,7 +1366,7 @@ export default function Home() {
   ];
   const workbookMoney = (value: number) => value < 0 ? `(${usd0.format(Math.abs(value))}M)` : `${usd0.format(value)}M`;
   return <main className="sleek-app">
-    <div className="site-intro" aria-hidden="true"><div><span>DCF</span><i/></div></div>
+    <div className="site-intro" aria-hidden="true"><div><span>DISCOUNTED CASH FLOW</span><i/></div></div>
     <CompanyNavigation symbol={companyReady ? data.company.symbol : undefined} name={companyReady ? data.company.name : undefined} active="model"/>
     <header id="top" className="calculator-header">
       <div className="hero-grid" aria-hidden="true"/><div className="hero-orbit orbit-one" aria-hidden="true"/><div className="hero-orbit orbit-two" aria-hidden="true"/>
