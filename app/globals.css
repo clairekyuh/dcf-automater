@@ -381,10 +381,7 @@ table{border-collapse:collapse;width:100%}
 .risk-pill.low{background:var(--green)}
 .risk-grid h3{font-size:14px;color:var(--navy-dark);margin:12px 0 8px}
 .risk-grid p{font-size:11px;line-height:1.65;color:#4f5e68;margin:0}
-.decision-checklist{margin-top:18px;background:var(--navy-dark);color:white;padding:21px}
-.decision-checklist h3{font-size:14px;margin:0}
-.decision-checklist ul{display:grid;grid-template-columns:1fr 1fr;gap:9px 34px;margin:14px 0 0;padding-left:18px}
-.decision-checklist li{font-size:10px;line-height:1.5;color:#c7d0ca}
+.financial-advice-banner{margin-top:18px;padding:20px;background:var(--navy-dark);color:white;text-align:center;font:700 11px DM Mono;letter-spacing:.13em}
 footer{display:flex;justify-content:space-between;padding:23px 5vw;background:var(--paper);border-top:1px solid var(--grid);color:#707973;font:9px DM Mono}
 
 .analysis-page{min-height:100vh;background:var(--canvas)}
@@ -492,7 +489,6 @@ footer{display:flex;justify-content:space-between;padding:23px 5vw;background:va
 .business-review{grid-template-columns:1fr}.business-review article:last-child{grid-column:auto}.business-review article{min-height:0}
 .analysis-section{padding:20px 15px}.analysis-hero h1{font-size:42px}.supply-flow,.analysis-risk-grid,.analysis-metrics.four,.analysis-metrics.five{grid-template-columns:1fr}.supply-flow article{border-right:0}.supply-flow article:not(:last-child):after{content:"↓";right:18px;top:auto;bottom:-12px}.customer-row,.customer-row.header{grid-template-columns:1fr}.customer-row>*:last-child{grid-column:auto}.analysis-sources{padding:20px}.analysis-missing{margin:45px 20px;padding:28px}
 .chart-head{display:block}.chart-controls{justify-items:start;margin-top:15px}.chart-control-row{justify-content:flex-start;align-items:flex-start;flex-direction:column;gap:5px}.chart-controls .period-toggle{justify-content:flex-start;margin-top:0}.chart-stats{display:grid;gap:8px}
-.decision-checklist ul{grid-template-columns:1fr}
 .news-card-head,.news-foot{align-items:flex-start;flex-direction:column}.news-grid article{min-height:0}
 footer{display:block;padding:20px}footer span{display:block;margin-top:5px}
 }
