@@ -4,6 +4,7 @@ import { calculateDcf, calculateWacc, type DcfModel } from "@/lib/dcf-engine";
 import { historicalEffectiveTaxRate, historicalRevenueGrowth, historicalUfcf } from "@/lib/historical-dcf";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 type ExportHistorical = {
   year: string;
