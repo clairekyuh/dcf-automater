@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import CompanyNews from "@/app/components/company-news";
+import CompanyNavigation from "@/app/components/company-navigation";
 import { buildBusinessComparison } from "@/lib/business-comparison";
 import { actualFiscalLabel, historicalEffectiveTaxRate, historicalRevenueGrowth, historicalUfcf } from "@/lib/historical-dcf";
 import {
@@ -80,6 +80,8 @@ type CompanyData = {
 type Model = DcfModel;
 type Method = DcfMethod;
 type WorkbookTab = "dcf" | "assumptions" | "wacc" | "valuation" | "sensitivity";
+type ResearchView = "comps" | "pitch";
+type RiskItem = { level: "high" | "medium" | "low"; title: string; detail: string };
 
 const demoPrices = Array.from({ length: 67 }, (_, index) => {
   const date = new Date(Date.UTC(2021 + Math.floor(index / 12), index % 12, 1));
@@ -469,7 +471,7 @@ function riskAnalysis(data: CompanyData, model: Model, perpetuity: ReturnType<ty
   const evidenceDetail = !data.forecast
     ? " No validated revenue forecast was available, so a large numerical upside does not create a dependable margin of safety."
     : data.businessAnalysis?.filing
-      ? " Filing data was available for historical cross-checks, but the forecast still requires analyst judgment."
+      ? " Filing data was available, but the forecast still requires analyst judgment."
       : " SEC filing data was unavailable for this load, so the apparent cushion receives at least a medium-risk label.";
   risks.push({ level, title: "Room for forecast error", detail: `${valuationDetail}${evidenceDetail}` });
   return risks;
@@ -681,6 +683,7 @@ function StockPriceChart({ points, symbol }: { points: PricePoint[]; symbol: str
   ];
   const [period, setPeriod] = useState<ChartPeriod>("5Y");
   const [interval, setInterval] = useState<ChartInterval>("1M");
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const sampled = useMemo(() => {
     if (interval === "1D") return points;
     const buckets = new Map<string, PricePoint>();
@@ -729,6 +732,25 @@ function StockPriceChart({ points, symbol }: { points: PricePoint[]; symbol: str
     ? { month: "short", day: "numeric", timeZone: "UTC" }
     : { month: "short", year: "2-digit", timeZone: "UTC" }).format(new Date(`${date}T00:00:00Z`));
   const selectedInterval = intervals.find((item) => item.value === interval) || intervals[2];
+  const hoveredPoint = hoveredIndex === null ? null : filtered[Math.min(hoveredIndex, filtered.length - 1)];
+  const hoveredX = hoveredPoint && hoveredIndex !== null ? x(Math.min(hoveredIndex, filtered.length - 1)) : null;
+  const hoveredY = hoveredPoint ? y(hoveredPoint.close) : null;
+  const tooltipWidth = 150;
+  const tooltipHeight = 52;
+  const tooltipX = hoveredX === null ? 0 : clamp(hoveredX - tooltipWidth / 2, pad.left, width - pad.right - tooltipWidth);
+  const tooltipY = hoveredY === null ? 0 : hoveredY - tooltipHeight - 14 < pad.top ? hoveredY + 14 : hoveredY - tooltipHeight - 14;
+  const fullDateLabel = (date: string) => new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(`${date}T00:00:00Z`));
+  const selectNearestPoint = (clientX: number, currentTarget: SVGRectElement) => {
+    const bounds = currentTarget.getBoundingClientRect();
+    const chartX = (clientX - bounds.left) / Math.max(bounds.width, 1) * width;
+    const ratio = clamp((chartX - pad.left) / (width - pad.left - pad.right), 0, 1);
+    setHoveredIndex(Math.round(ratio * (filtered.length - 1)));
+  };
   return <div className="price-chart-card">
     <div className="chart-head"><div><span>{symbol} {selectedInterval.heading} CLOSE</span><h3>{usd.format(last.close)} <i className={change >= 0 ? "positive" : "negative"}>{change >= 0 ? "+" : ""}{fmt.format(change)}%</i></h3></div><div className="chart-controls"><div className="chart-control-row"><span>RANGE</span><div className="period-toggle" role="group" aria-label="Stock-price time range">{periods.map((item) => <button type="button" aria-pressed={item === period} className={item === period ? "active" : ""} key={item} onClick={() => setPeriod(item)}>{item}</button>)}</div></div><div className="chart-control-row"><span>INTERVAL</span><div className="period-toggle interval-toggle" role="group" aria-label="Stock-price observation interval">{intervals.map((item) => <button type="button" aria-pressed={item.value === interval} className={item.value === interval ? "active" : ""} key={item.value} onClick={() => setInterval(item.value)}>{item.label}</button>)}</div></div></div></div>
     <svg className="price-svg" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${symbol} ${selectedInterval.label.toLowerCase()} closing price chart for ${period}`}>
@@ -737,12 +759,276 @@ function StockPriceChart({ points, symbol }: { points: PricePoint[]; symbol: str
       {tickIndexes.map((index) => <text key={index} x={x(index)} y={height - 17} textAnchor={index === 0 ? "start" : index === filtered.length - 1 ? "end" : "middle"}>{dateLabel(filtered[index].date)}</text>)}
       <path className="price-area" d={area}/><path className="price-line" d={line}/>
       <circle cx={x(filtered.length - 1)} cy={y(last.close)} r="4"/>
+      <rect
+        className="price-hover-target"
+        x={pad.left}
+        y={pad.top}
+        width={width - pad.left - pad.right}
+        height={height - pad.top - pad.bottom}
+        tabIndex={0}
+        aria-label="Hover or use the left and right arrow keys to inspect closing prices"
+        onPointerMove={(event) => selectNearestPoint(event.clientX, event.currentTarget)}
+        onPointerDown={(event) => selectNearestPoint(event.clientX, event.currentTarget)}
+        onPointerLeave={() => setHoveredIndex(null)}
+        onFocus={() => setHoveredIndex(filtered.length - 1)}
+        onBlur={() => setHoveredIndex(null)}
+        onKeyDown={(event) => {
+          if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+          event.preventDefault();
+          const direction = event.key === "ArrowRight" ? 1 : -1;
+          setHoveredIndex((current) => clamp((current ?? filtered.length - 1) + direction, 0, filtered.length - 1));
+        }}
+      />
+      {hoveredPoint && hoveredX !== null && hoveredY !== null && <g className="price-tooltip" pointerEvents="none">
+        <line className="price-crosshair" x1={hoveredX} x2={hoveredX} y1={pad.top} y2={height - pad.bottom}/>
+        <circle className="price-hover-dot" cx={hoveredX} cy={hoveredY} r="5"/>
+        <rect x={tooltipX} y={tooltipY} width={tooltipWidth} height={tooltipHeight} rx="4"/>
+        <text className="price-tooltip-date" x={tooltipX + 12} y={tooltipY + 19}>{fullDateLabel(hoveredPoint.date)}</text>
+        <text className="price-tooltip-price" x={tooltipX + 12} y={tooltipY + 39}>{usd.format(hoveredPoint.close)} close</text>
+      </g>}
     </svg>
     <div className="chart-stats"><span>Period low <b>{usd.format(rawMin)}</b></span><span>Period high <b>{usd.format(rawMax)}</b></span><span>Observations <b>{filtered.length} {selectedInterval.label.toLowerCase()} closes</b></span><span>Price return only <b>dividends excluded · MAX up to 10Y</b></span></div>
   </div>;
 }
 
-function CompetitorComparison({ data }: { data: CompanyData }) {
+function OutputScreen({
+  data,
+  model,
+  perpetuity,
+  multiple,
+  risks,
+  forecastConfidence,
+  forecastConfidenceDetail,
+  financialUnsupported,
+}: {
+  data: CompanyData;
+  model: Model;
+  perpetuity: ReturnType<typeof calculate>;
+  multiple: ReturnType<typeof calculate>;
+  risks: RiskItem[];
+  forecastConfidence: string;
+  forecastConfidenceDetail: string;
+  financialUnsupported: boolean;
+}) {
+  const validValues = [perpetuity.valid ? perpetuity.perShare : null, multiple.valid ? multiple.perShare : null]
+    .filter((value): value is number => value !== null);
+  const lowValue = validValues.length ? Math.min(...validValues) : null;
+  const highValue = validValues.length ? Math.max(...validValues) : null;
+  const netDebt = model.shortDebt + model.longDebt - model.cash;
+  const selectedWacc = calculateWacc(model).selectedWacc;
+  const rangeMove = lowValue === null || model.marketPrice <= 0 ? null : (lowValue / model.marketPrice - 1) * 100;
+  const terminalBlend = (selector: (year: (typeof perpetuity.years)[number]) => number) =>
+    selector(perpetuity.years[4]) * perpetuity.firstYearWeight + selector(perpetuity.years[5]) * perpetuity.lastYearWeight;
+  const terminalRevenue = terminalBlend((year) => year.revenue);
+  const terminalEbit = terminalBlend((year) => year.ebit);
+  const terminalTax = terminalBlend((year) => year.tax);
+  const terminalDa = terminalBlend((year) => year.depreciation);
+  const terminalCapex = terminalBlend((year) => year.capex);
+  const terminalNwc = terminalBlend((year) => year.changeNwc);
+  const outputMoney = (value: number | null) => value === null || !Number.isFinite(value)
+    ? "—"
+    : value < 0 ? `(${usd0.format(Math.abs(value))})` : usd0.format(value);
+  const outputPercent = (value: number | null) => value === null || !Number.isFinite(value) ? "—" : `${fmt.format(value)}%`;
+  const outputFactor = (value: number | null) => value === null || !Number.isFinite(value) ? "—" : value.toFixed(2);
+  const forecastRows = [
+    { label: "Revenue", values: perpetuity.years.map((year) => year.revenue), terminal: terminalRevenue, format: outputMoney },
+    { label: "EBITDA", values: perpetuity.years.map((year) => year.ebitda), terminal: perpetuity.terminalEbitda, format: outputMoney },
+    { label: "EBITDA margin", values: perpetuity.years.map((year) => year.revenue ? year.ebitda / year.revenue * 100 : null), terminal: terminalRevenue ? perpetuity.terminalEbitda / terminalRevenue * 100 : null, format: outputPercent, type: "ratio" },
+    { label: "EBIT", values: perpetuity.years.map((year) => year.ebit), terminal: terminalEbit, format: outputMoney },
+    { label: "Less: cash tax on EBIT", values: perpetuity.years.map((year) => -year.tax), terminal: -terminalTax, format: outputMoney },
+    { label: "Plus: D&A", values: perpetuity.years.map((year) => year.depreciation), terminal: terminalDa, format: outputMoney },
+    { label: "Less: capex", values: perpetuity.years.map((year) => -year.capex), terminal: -terminalCapex, format: outputMoney },
+    { label: "Less: change in NWC", values: perpetuity.years.map((year) => -year.changeNwc), terminal: -terminalNwc, format: outputMoney },
+    { label: "Unlevered free cash flow", values: perpetuity.years.map((year) => year.fcf), terminal: perpetuity.terminalForecastFcf, format: outputMoney, type: "total" },
+    { label: "Included portion of fiscal year", values: perpetuity.years.map((year) => year.weight * 100), terminal: 100, format: outputPercent, type: "ratio" },
+    { label: "Mid-year discount period", values: perpetuity.years.map((year) => year.discountPeriod), terminal: 5, format: outputFactor, type: "ratio" },
+    { label: "Discount factor", values: perpetuity.years.map((year) => year.discountFactor), terminal: 1 / Math.pow(1 + selectedWacc / 100, 5), format: (value: number | null) => value === null || !Number.isFinite(value) ? "—" : value.toFixed(3), type: "ratio" },
+    { label: "Present value of UFCF", values: perpetuity.years.map((year) => year.pv), terminal: perpetuity.pvForecast, format: outputMoney, type: "answer" },
+  ];
+  const moveLabel = (value: number, valid: boolean) => !valid || model.marketPrice <= 0
+    ? "—"
+    : `${value >= model.marketPrice ? "Upside" : "Downside"} ${fmt.format(Math.abs((value / model.marketPrice - 1) * 100))}%`;
+  const bridgeRows = [
+    { label: "WACC", perpetuity: outputPercent(perpetuity.waccPercent), multiple: outputPercent(multiple.waccPercent) },
+    { label: "Terminal assumption", perpetuity: `${fmt.format(model.terminalGrowth)}% growth`, multiple: `${fmt.format(model.exitMultiple)}× EBITDA` },
+    { label: "Year-5 terminal basis", perpetuity: `${outputMoney(perpetuity.terminalFcf)} normalized UFCF`, multiple: `${outputMoney(multiple.terminalEbitda)} EBITDA` },
+    { label: "Terminal value at Year 5", perpetuity: perpetuity.valid ? outputMoney(perpetuity.terminalValue) : "—", multiple: multiple.valid ? outputMoney(multiple.terminalValue) : "—" },
+    { label: "PV of explicit forecast UFCF", perpetuity: perpetuity.valid ? outputMoney(perpetuity.pvForecast) : "—", multiple: multiple.valid ? outputMoney(multiple.pvForecast) : "—" },
+    { label: "PV of terminal value", perpetuity: perpetuity.valid ? outputMoney(perpetuity.pvTerminal) : "—", multiple: multiple.valid ? outputMoney(multiple.pvTerminal) : "—" },
+    { label: "Enterprise value", perpetuity: perpetuity.valid ? outputMoney(perpetuity.enterpriseValue) : "—", multiple: multiple.valid ? outputMoney(multiple.enterpriseValue) : "—", type: "total" },
+    { label: "Plus: cash & included investments", perpetuity: outputMoney(model.cash), multiple: outputMoney(model.cash) },
+    { label: "Less: short- and long-term debt", perpetuity: outputMoney(-(model.shortDebt + model.longDebt)), multiple: outputMoney(-(model.shortDebt + model.longDebt)) },
+    { label: "Less: other non-equity claims", perpetuity: outputMoney(-model.preferredInterest), multiple: outputMoney(-model.preferredInterest) },
+    { label: "Common-equity value", perpetuity: perpetuity.valid ? outputMoney(perpetuity.equityValue) : "—", multiple: multiple.valid ? outputMoney(multiple.equityValue) : "—", type: "total" },
+    { label: "Diluted shares", perpetuity: `${fmt.format(model.shares)}M`, multiple: `${fmt.format(model.shares)}M` },
+    { label: "Implied value per share", perpetuity: perpetuity.valid ? usd.format(perpetuity.perShare) : "—", multiple: multiple.valid ? usd.format(multiple.perShare) : "—", type: "answer" },
+    { label: "Current price input", perpetuity: usd.format(model.marketPrice), multiple: usd.format(model.marketPrice) },
+    { label: "Upside / (downside)", perpetuity: moveLabel(perpetuity.perShare, perpetuity.valid), multiple: moveLabel(multiple.perShare, multiple.valid), type: "answer" },
+    { label: "Terminal value / enterprise value", perpetuity: perpetuity.valid ? outputPercent(perpetuity.terminalShare) : "—", multiple: multiple.valid ? outputPercent(multiple.terminalShare) : "—" },
+  ];
+  const sensitivityWaccs = [selectedWacc - .5, selectedWacc, selectedWacc + .5];
+  const sensitivityGrowth = [-1, -.5, 0, .5, 1].map((change) => model.terminalGrowth + change);
+  const sensitivityMultiples = [-4, -2, 0, 2, 4].map((change) => Math.max(.5, model.exitMultiple + change));
+  const sensitivityValue = (method: Method, wacc: number, terminal: number) => {
+    const scenario = method === "perpetuity"
+      ? calculate(data, model, method, { wacc, terminalGrowth: terminal })
+      : calculate(data, model, method, { wacc, exitMultiple: terminal });
+    return scenario.valid ? usd.format(scenario.perShare) : "—";
+  };
+  return <div className="output-screen">
+    <div className="output-hero">
+      <div><span>INVESTMENT OUTPUT · {data.company.symbol}</span><h3>{data.company.name}</h3><p>{briefDescription(data.company.description)}</p></div>
+      <div className="output-price"><span>CURRENT PRICE INPUT</span><strong>{usd.format(model.marketPrice)}</strong><small>{data.market.priceDate ? `Nasdaq close · ${data.market.priceDate}` : data.market.priceBasis || "Editable market-price input"}</small></div>
+    </div>
+    {financialUnsupported ? <div className="output-sector-limit"><b>STANDARD DCF NOT APPROPRIATE</b><p>Use a bank- or insurer-specific framework built around regulatory capital, asset quality, funding economics, tangible book value, and return on equity. The comps and pitch-deck views remain available as research summaries.</p></div> : <>
+      <div className="output-valuation-grid">
+        <article><span>PERPETUAL-GROWTH VALUE</span><strong>{perpetuity.valid ? usd.format(perpetuity.perShare) : "—"}</strong><small>{perpetuity.valid ? `${fmt.format((perpetuity.perShare / Math.max(model.marketPrice, .01) - 1) * 100)}% versus price` : perpetuity.invalidReason}</small></article>
+        <article><span>EXIT-MULTIPLE VALUE</span><strong>{multiple.valid ? usd.format(multiple.perShare) : "—"}</strong><small>{multiple.valid ? `${fmt.format((multiple.perShare / Math.max(model.marketPrice, .01) - 1) * 100)}% versus price` : multiple.invalidReason}</small></article>
+        <article className="output-range"><span>AUTOMATED SCENARIO RANGE</span><strong>{lowValue === null || highValue === null ? "—" : lowValue === highValue ? usd.format(lowValue) : `${usd.format(lowValue)}–${usd.format(highValue)}`}</strong><small>{rangeMove === null ? "No valid market comparison" : `${rangeMove >= 0 ? "Lower scenario upside" : "Lower scenario downside"}: ${fmt.format(Math.abs(rangeMove))}%`}</small></article>
+      </div>
+      <div className="reference-sensitivity" aria-label="Implied price per share sensitivity tables">
+        <div className="reference-sensitivity-card">
+          <span className="reference-sensitivity-eyebrow">PERPETUAL-GROWTH SENSITIVITY</span>
+          <h4>Implied value per share</h4>
+          <p>Terminal growth rate</p>
+          <div className="reference-sensitivity-scroll"><table><thead><tr><th>WACC</th>{sensitivityGrowth.map((growth) => <th key={growth}>{fmt.format(growth)}%</th>)}</tr></thead><tbody>{sensitivityWaccs.map((wacc, rowIndex) => <tr key={wacc}><th>{fmt.format(wacc)}%</th>{sensitivityGrowth.map((growth, columnIndex) => <td className={rowIndex === 1 && columnIndex === 2 ? "base-case" : ""} key={growth}>{sensitivityValue("perpetuity", wacc, growth)}</td>)}</tr>)}</tbody></table></div>
+          <div className="reference-sensitivity-note"><b>What each cell does</b><span>Recalculates the entire DCF using the row’s WACC and column’s perpetual-growth rate: forecast UFCF + terminal value, discounted to enterprise value, bridged to common equity, then divided by diluted shares.</span></div>
+        </div>
+        <div className="reference-sensitivity-card">
+          <span className="reference-sensitivity-eyebrow">EXIT-MULTIPLE SENSITIVITY</span>
+          <h4>Implied value per share</h4>
+          <p>Terminal EBITDA multiple</p>
+          <div className="reference-sensitivity-scroll"><table><thead><tr><th>WACC</th>{sensitivityMultiples.map((exitMultiple) => <th key={exitMultiple}>{fmt.format(exitMultiple)}×</th>)}</tr></thead><tbody>{sensitivityWaccs.map((wacc, rowIndex) => <tr key={wacc}><th>{fmt.format(wacc)}%</th>{sensitivityMultiples.map((exitMultiple, columnIndex) => <td className={rowIndex === 1 && columnIndex === 2 ? "base-case" : ""} key={exitMultiple}>{sensitivityValue("multiple", wacc, exitMultiple)}</td>)}</tr>)}</tbody></table></div>
+          <div className="reference-sensitivity-note"><b>What each cell does</b><span>Recalculates the entire DCF using the row’s WACC and column’s Year-5 EBITDA multiple: forecast UFCF + Year-5 EBITDA × multiple, discounted and bridged to common equity, then divided by diluted shares.</span></div>
+        </div>
+      </div>
+      <div className="output-driver-grid">
+        <div><span>SELECTED WACC</span><b>{pct2.format(selectedWacc)}%</b><small>Discount rate</small></div>
+        <div><span>TERMINAL GROWTH</span><b>{fmt.format(model.terminalGrowth)}%</b><small>Perpetual method</small></div>
+        <div><span>EXIT MULTIPLE</span><b>{fmt.format(model.exitMultiple)}×</b><small>Year-5 EBITDA</small></div>
+        <div><span>NET DEBT</span><b>{usd0.format(netDebt)}M</b><small>Debt less cash</small></div>
+        <div><span>YEAR-5 UFCF</span><b>{usd0.format(perpetuity.terminalForecastFcf)}M</b><small>Before normalization</small></div>
+      </div>
+      <div className="output-sheet" aria-label={`${data.company.symbol} DCF output tables`}>
+        <div className="output-sheet-title"><div><span>DCF OUTPUT</span><h4>Forecast cash flow and valuation bridge</h4></div><small>USD IN MILLIONS EXCEPT PER-SHARE DATA</small></div>
+        <div className="output-table-wrap">
+          <table className="output-forecast-table">
+            <thead><tr><th>Line item</th>{perpetuity.years.map((year) => <th key={year.periodEnd}>{fiscalPeriodLabel(year.periodEnd)}</th>)}<th>Year 5 / total</th></tr></thead>
+            <tbody>{forecastRows.map((row) => <tr className={row.type ? `output-${row.type}` : ""} key={row.label}><td><DcfRowLabel label={row.label}/></td>{row.values.map((value, index) => <td key={`${row.label}-${perpetuity.years[index].periodEnd}`}>{row.format(value)}</td>)}<td>{row.format(row.terminal)}</td></tr>)}</tbody>
+          </table>
+        </div>
+        <p className="output-table-note"><b>How to read the last column:</b> operating lines are interpolated exactly at Year 5; “Present value of UFCF” shows the total present value of the explicit forecast. Partial first and sixth fiscal years are weighted so the model values exactly five years.</p>
+        <div className="output-table-wrap output-bridge-wrap">
+          <table className="output-bridge-table">
+            <thead><tr><th>Valuation output</th><th>Perpetual growth method</th><th>Exit multiple method</th></tr></thead>
+            <tbody>{bridgeRows.map((row) => <tr className={row.type ? `output-${row.type}` : ""} key={row.label}><td>{row.label}</td><td>{row.perpetuity}</td><td>{row.multiple}</td></tr>)}</tbody>
+          </table>
+        </div>
+        {(!perpetuity.valid || !multiple.valid) && <div className="output-invalid-note"><b>INVALID METHOD</b><p>{!perpetuity.valid ? `Perpetual growth: ${perpetuity.invalidReason} ` : ""}{!multiple.valid ? `Exit multiple: ${multiple.invalidReason}` : ""}</p></div>}
+      </div>
+    </>}
+    <div className="output-review">
+      <div><span>FORECAST CONFIDENCE · {forecastConfidence.toUpperCase()}</span><p>{forecastConfidenceDetail} These values are automated scenarios, not analyst price targets.</p></div>
+      <div><span>TOP ITEMS TO VERIFY</span><ol>{risks.slice(0, 3).map((risk) => <li key={risk.title}><b>{risk.title}</b><small>{risk.detail}</small></li>)}</ol></div>
+    </div>
+    {!financialUnsupported && <a className="output-deep-link" href="#build">Continue to the detailed DCF workbook ↓</a>}
+  </div>;
+}
+
+function PitchDeck({
+  data,
+  model,
+  perpetuity,
+  multiple,
+  risks,
+  financialUnsupported,
+}: {
+  data: CompanyData;
+  model: Model;
+  perpetuity: ReturnType<typeof calculate>;
+  multiple: ReturnType<typeof calculate>;
+  risks: RiskItem[];
+  financialUnsupported: boolean;
+}) {
+  const [activeSlide, setActiveSlide] = useState(0);
+  const comparison = data.comparison;
+  const company = comparison?.company || {
+    symbol: data.company.symbol,
+    name: data.company.name,
+    description: data.company.description,
+    sector: data.company.sector,
+    industry: data.company.industry,
+    marketCap: data.market.marketCap,
+    revenueGrowth: data.metrics.revenueGrowth,
+    operatingMargin: data.metrics.ebitMargin,
+    evToRevenue: null,
+    evToEbitda: null,
+    pe: null,
+  };
+  const assessment = businessAssessment(data, company);
+  const medianGrowth = peerMedian(data, "revenueGrowth");
+  const medianMargin = peerMedian(data, "operatingMargin");
+  const medianMultiple = peerMedian(data, financialUnsupported ? "pe" : "evToEbitda");
+  const recentHistory = data.historical.slice(-3);
+  const maxRevenue = Math.max(...recentHistory.map((row) => row.revenue), 1);
+  const validValues = [perpetuity.valid ? perpetuity.perShare : null, multiple.valid ? multiple.perShare : null]
+    .filter((value): value is number => value !== null);
+  const lowValue = validValues.length ? Math.min(...validValues) : null;
+  const highValue = validValues.length ? Math.max(...validValues) : null;
+  const printDeck = () => {
+    document.body.classList.add("printing-pitch");
+    const cleanup = () => document.body.classList.remove("printing-pitch");
+    window.addEventListener("afterprint", cleanup, { once: true });
+    window.print();
+    window.setTimeout(cleanup, 1_500);
+  };
+  const slides = [
+    <article className="pitch-slide pitch-cover" key="cover">
+      <div><span>AUTOMATED EQUITY-RESEARCH BRIEF</span><h3>{data.company.name}</h3><p>{data.company.symbol} · {data.company.exchange} · {data.company.country}</p></div>
+      <div className="pitch-cover-number"><strong>{usd.format(model.marketPrice)}</strong><small>Market-price input</small></div>
+      <footer><span>Valuation date · {model.valuationDate}</span><span>Educational scenario analysis</span></footer>
+    </article>,
+    <article className="pitch-slide" key="business">
+      <header><span>01 · BUSINESS</span><h3>{comparison?.nicheLabel || businessFocus(company)}</h3></header>
+      <div className="pitch-two-column"><div><h4>What the company does</h4><p>{briefDescription(data.company.description)}</p></div><div><h4>Competitive position</h4><strong>{assessment.verdict}</strong><p>{assessment.mechanism}</p></div></div>
+      <footer><span>Verify: {assessment.verify}</span><span>{data.company.industry}</span></footer>
+    </article>,
+    <article className="pitch-slide" key="operations">
+      <header><span>02 · OPERATING PROFILE</span><h3>Growth is only valuable if it converts into durable cash flow</h3></header>
+      <div className="pitch-operating-grid"><div className="pitch-revenue-bars"><h4>Reported revenue</h4>{recentHistory.map((row) => <div key={row.year}><span>{row.year}</span><i><b style={{ width: `${row.revenue / maxRevenue * 100}%` }}/></i><strong>{usd0.format(row.revenue)}M</strong></div>)}</div><div className="pitch-metric-stack"><p><span>LATEST REVENUE GROWTH</span><strong>{fmt.format(data.metrics.revenueGrowth)}%</strong></p><p><span>OPERATING MARGIN</span><strong>{fmt.format(data.metrics.ebitMargin)}%</strong></p><p><span>CAPEX / REVENUE</span><strong>{fmt.format(data.metrics.capexPercentRevenue)}%</strong></p></div></div>
+      <footer><span>Financials through {data.asOf}</span><span>{data.source}</span></footer>
+    </article>,
+    <article className="pitch-slide" key="valuation">
+      <header><span>03 · INTRINSIC VALUE</span><h3>{financialUnsupported ? "A standard corporate DCF is not appropriate for this sector" : "The two terminal methods define a range—not a price target"}</h3></header>
+      {financialUnsupported ? <div className="pitch-message"><strong>Use sector-specific valuation</strong><p>Review tangible book value, return on equity, regulatory capital, asset quality, funding costs, and dividends or residual income.</p></div> : <><div className="pitch-value-range"><div><span>MARKET PRICE</span><strong>{usd.format(model.marketPrice)}</strong></div><div><span>PERPETUAL GROWTH</span><strong>{perpetuity.valid ? usd.format(perpetuity.perShare) : "—"}</strong></div><div><span>EXIT MULTIPLE</span><strong>{multiple.valid ? usd.format(multiple.perShare) : "—"}</strong></div></div><p className="pitch-takeaway">Automated scenario range: <b>{lowValue === null || highValue === null ? "Unavailable" : `${usd.format(lowValue)}–${usd.format(highValue)}`}</b>. Reconcile the methods before drawing an investment conclusion.</p></>}
+      <footer><span>WACC {pct2.format(calculateWacc(model).selectedWacc)}% · Terminal growth {fmt.format(model.terminalGrowth)}%</span><span>Scenario values only</span></footer>
+    </article>,
+    <article className="pitch-slide" key="comps">
+      <header><span>04 · COMPARABLE COMPANIES</span><h3>Business-model fit matters more than the reported industry label</h3></header>
+      <div className="pitch-comps-grid"><div><span>FOCUS COMPANY</span><strong>{data.company.symbol}</strong><small>{comparison?.nicheLabel || data.company.industry}</small></div><div><span>PEER MEDIAN GROWTH</span><strong>{medianGrowth === null ? "—" : `${fmt.format(medianGrowth)}%`}</strong><small>Latest annual period</small></div><div><span>PEER MEDIAN MARGIN</span><strong>{medianMargin === null ? "—" : `${fmt.format(medianMargin)}%`}</strong><small>Operating margin</small></div><div><span>PEER MEDIAN {financialUnsupported ? "P / E" : "EV / EBITDA"}</span><strong>{medianMultiple === null ? "—" : `${fmt.format(medianMultiple)}×`}</strong><small>Current price / latest annuals</small></div></div>
+      <p className="pitch-peer-list">Selected peers · {(comparison?.selectedPeerSymbols || comparison?.peers.map((peer) => peer.symbol) || []).join(" · ") || "No validated peer set returned"}</p>
+      <footer><span>Use forward, fiscal-aligned multiples for final work</span><span>Peer data may be incomplete</span></footer>
+    </article>,
+    <article className="pitch-slide" key="risks">
+      <header><span>05 · RISK REVIEW</span><h3>The investment case depends on resolving the largest uncertainties</h3></header>
+      <div className="pitch-risk-list">{risks.slice(0, 3).map((risk, index) => <div key={risk.title}><span>{String(index + 1).padStart(2, "0")} · {risk.level.toUpperCase()}</span><h4>{risk.title}</h4><p>{risk.detail}</p></div>)}</div>
+      <footer><span>Review company filings and management guidance</span><span>Risks can affect cash flow and WACC</span></footer>
+    </article>,
+    <article className="pitch-slide" key="conclusion">
+      <header><span>06 · DECISION FRAME</span><h3>The model identifies what must be true before capital is committed</h3></header>
+      <div className="pitch-conclusion"><div><h4>Evidence to establish</h4><ul><li>Revenue growth and margins can coexist at the modeled scale.</li><li>Reinvestment produces returns above the cost of capital.</li><li>Debt, dilution, and refinancing remain manageable.</li></ul></div><div><h4>Model limitations</h4><ul><li>Later forecast years are automated estimates.</li><li>Peer multiples may not be forward or fiscal-aligned.</li><li>Missing or delayed source data can change the result.</li></ul></div></div>
+      <p className="pitch-disclaimer">This deck is educational decision support. It is not personalized investment advice or an analyst price target.</p>
+      <footer><span>{data.company.symbol} · {model.valuationDate}</span><span>Sources disclosed in the calculator</span></footer>
+    </article>,
+  ];
+  return <div className="pitch-deck">
+    <div className="deck-toolbar"><div><span>PITCH DECK</span><b>{activeSlide + 1} / {slides.length}</b></div><div><button type="button" onClick={() => setActiveSlide((current) => Math.max(0, current - 1))} disabled={activeSlide === 0}>← Previous</button><button type="button" onClick={() => setActiveSlide((current) => Math.min(slides.length - 1, current + 1))} disabled={activeSlide === slides.length - 1}>Next →</button><button type="button" className="deck-export" onClick={printDeck}>Print / Save PDF</button></div></div>
+    <div className="deck-stage">{slides.map((slide, index) => <div className={index === activeSlide ? "active" : ""} key={slide.key}>{slide}</div>)}</div>
+    <div className="deck-thumbnails" role="tablist" aria-label="Pitch deck slides">{["Cover", "Business", "Operations", "Valuation", "Comps", "Risks", "Decision"].map((label, index) => <button type="button" role="tab" aria-selected={activeSlide === index} className={activeSlide === index ? "active" : ""} key={label} onClick={() => setActiveSlide(index)}><span>{String(index + 1).padStart(2, "0")}</span>{label}</button>)}</div>
+  </div>;
+}
+
+function CompetitorComparison({ data, embedded = false }: { data: CompanyData; embedded?: boolean }) {
   const comparison = data.comparison;
   const company: Comparable = comparison?.company || {
     symbol: data.company.symbol,
@@ -802,8 +1088,8 @@ function CompetitorComparison({ data }: { data: CompanyData }) {
   });
   const rows = peers.length ? [company, ...peers] : [company];
   const fitLabel = (fit: Comparable["peerFit"]) => fit === "direct" ? "DIRECT FIT" : fit === "close" ? "CLOSE FIT" : fit === "adjacent" ? "ADJACENT" : "";
-  return <section className="sheet-section" id="competitors">
-    <div className="section-heading"><div><span className="section-index">06</span><p>BUSINESS + RELATIVE VALUATION</p><h2>Competitor companies</h2></div><p className="section-description">Peers are selected from a business-model niche—not merely the reported industry label. Direct, close, and adjacent fits are identified so you can judge which valuation comparisons deserve the most weight.</p></div>
+  return <section className={embedded ? "comps-analysis" : "sheet-section"} id="competitors">
+    <div className="section-heading"><div>{!embedded && <span className="section-index">06</span>}<p>COMPS ANALYSIS</p><h2>Comparable-company analysis</h2></div><p className="section-description">Peers are selected from a business-model niche—not merely the reported industry label. Direct, close, and adjacent fits are identified so you can judge which valuation comparisons deserve the most weight.</p></div>
     <div className="peer-selection-note"><div><span>SELECTED BUSINESS NICHE</span><strong>{comparison?.nicheLabel || businessFocus(company)}</strong></div><p>{comparison?.selectionBasis || "The closest available public companies are selected using the company description, products, customers, and operating model."}</p>{Boolean(comparison?.operatingCompetitors?.length) && <small>Broader operating competitors—not primary valuation peers: {comparison?.operatingCompetitors?.join(" · ")}</small>}</div>
     <div className="business-review">
       <article><span>WHAT THE COMPANY DOES</span><h3>{comparison?.nicheLabel || businessFocus(company)}</h3><p>{company.description || data.company.description}</p></article>
@@ -832,6 +1118,9 @@ export default function Home() {
   const [exampleIndex, setExampleIndex] = useState(0);
   const [startingExample, setStartingExample] = useState(LARGE_COMPANY_EXAMPLES[0]);
   const [workbookTab, setWorkbookTab] = useState<WorkbookTab>("dcf");
+  const [researchView, setResearchView] = useState<ResearchView>("comps");
+  const [exportingExcel, setExportingExcel] = useState(false);
+  const [excelExportError, setExcelExportError] = useState("");
   const [error, setError] = useState("");
   const rec = useMemo(() => recommendations(data), [data]);
   const perpetuity = useMemo(() => calculate(data, model, "perpetuity"), [data, model]);
@@ -851,7 +1140,7 @@ export default function Home() {
     ? ` The automatic scenario assumes EBIT margin improves from ${fmt.format(data.metrics.ebitMargin)}% in the latest period to ${fmt.format(model.forecastDrivers.at(-1)!.ebitMargin)}% in the final explicit year; that turnaround is not analyst consensus and should be replaced with a defensible operating plan.`
     : "";
   const forecastConfidenceDetail = data.forecast
-    ? `Only the first two revenue years use an external consensus source; Years 3–6 and all margin, tax, D&A, capex, and working-capital drivers are editable model estimates.${data.businessAnalysis?.filing ? " Filing data was available for historical cross-checks." : " SEC filing data was unavailable for additional cross-checks."}${turnaroundCaveat}`
+    ? `Only the first two revenue years use an external consensus source; Years 3–6 and all margin, tax, D&A, capex, and working-capital drivers are editable model estimates.${data.businessAnalysis?.filing ? " Filing data was available." : " SEC filing data was unavailable."}${turnaroundCaveat}`
     : `No validated analyst revenue forecast was available; all six annual operating forecasts are editable model estimates.${turnaroundCaveat}`;
   const rotatingExample = LARGE_COMPANY_EXAMPLES[exampleIndex];
   type NumericModelKey = Exclude<keyof Model, "valuationDate" | "forecastDrivers">;
@@ -863,12 +1152,16 @@ export default function Home() {
   }));
 
   useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get("symbol")?.trim().toUpperCase();
     const previousIndex = sessionStorage.getItem("dcf:example-index");
     const initialIndex = previousIndex === null ? 0 : (Number(previousIndex) + 1) % LARGE_COMPANY_EXAMPLES.length;
     sessionStorage.setItem("dcf:example-index", String(initialIndex));
     setExampleIndex(initialIndex);
-    setStartingExample(LARGE_COMPANY_EXAMPLES[initialIndex]);
-    void loadCompany(LARGE_COMPANY_EXAMPLES[initialIndex].symbol);
+    const initialCompany = requested && /^[A-Z0-9.\-]{1,12}$/.test(requested)
+      ? { symbol: requested, name: requested }
+      : LARGE_COMPANY_EXAMPLES[initialIndex];
+    setStartingExample(initialCompany);
+    void loadCompany(initialCompany.symbol);
     const rotation = window.setInterval(() => {
       setExampleIndex((current) => (current + 1) % LARGE_COMPANY_EXAMPLES.length);
     }, 3200);
@@ -881,6 +1174,13 @@ export default function Home() {
     sessionStorage.setItem("dcf:last-company", serialized);
     localStorage.setItem("dcf:last-company", serialized);
   }, [companyReady, data]);
+
+  useEffect(() => {
+    if (!companyReady) return;
+    const serialized = JSON.stringify({ symbol: data.company.symbol, risks });
+    sessionStorage.setItem("dcf:last-research", serialized);
+    localStorage.setItem("dcf:last-research", serialized);
+  }, [companyReady, data.company.symbol, risks]);
 
   useEffect(() => {
     if (!companyReady || data.source === "Sample data") return;
@@ -901,7 +1201,9 @@ export default function Home() {
       if (!response.ok) throw new Error(json.error || "Unable to load company.");
       setData(json);
       setModel(buildModel(json));
+      setResearchView("comps");
       setCompanyReady(true);
+      window.history.replaceState(null, "", `/?symbol=${encodeURIComponent(json.company.symbol)}`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to load company.");
     } finally {
@@ -917,6 +1219,52 @@ export default function Home() {
       return;
     }
     await loadCompany(symbol);
+  }
+
+  async function exportExcel() {
+    setExportingExcel(true);
+    setExcelExportError("");
+    try {
+      const response = await fetch("/api/export-dcf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          company: {
+            symbol: data.company.symbol,
+            name: data.company.name,
+            exchange: data.company.exchange,
+            industry: data.company.industry,
+          },
+          source: data.source,
+          asOf: data.asOf,
+          sharesSource: data.market.sharesSource,
+          metrics: { revenue: data.metrics.revenue },
+          historical: data.historical,
+          model,
+          comparison: data.comparison ? {
+            nicheLabel: data.comparison.nicheLabel,
+            peers: data.comparison.peers,
+          } : undefined,
+        }),
+      });
+      if (!response.ok) {
+        const message = await response.json().catch(() => ({}));
+        throw new Error(message.error || "Unable to create the Excel model.");
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${data.company.symbol}-DCF-Model.xlsx`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (caught) {
+      setExcelExportError(caught instanceof Error ? caught.message : "Unable to create the Excel model.");
+    } finally {
+      setExportingExcel(false);
+    }
   }
 
   const actualPeriods = data.historical.slice(-5);
@@ -1017,18 +1365,28 @@ export default function Home() {
     ["Equity value", perpetuity.equityValue, multiple.equityValue],
   ];
   const workbookMoney = (value: number) => value < 0 ? `(${usd0.format(Math.abs(value))}M)` : `${usd0.format(value)}M`;
-  return <main>
-    <nav className="top-nav"><a href="#top" className="brand">DCF CALCULATOR</a><span>Interactive valuation workbook</span></nav>
+  return <main className="sleek-app">
+    <div className="site-intro" aria-hidden="true"><div><span>DISCOUNTED CASH FLOW</span><i/></div></div>
+    <CompanyNavigation symbol={companyReady ? data.company.symbol : undefined} name={companyReady ? data.company.name : undefined} active="model"/>
     <header id="top" className="calculator-header">
-      <p>DISCOUNTED CASH FLOW</p>
-      <h1>DCF Calculator</h1>
-      <div className="instructions"><b>Instructions</b><span>Enter a public-company ticker below. The calculator builds six fiscal-year operating forecasts, applies a five-year mid-year-convention valuation, and shows separate perpetual-growth and EBITDA-multiple outputs.</span></div>
-      <form className="ticker-search" onSubmit={search}><label><span>TICKER SYMBOL</span><input aria-label="Ticker symbol" value={ticker} onChange={(event) => setTicker(event.target.value.toUpperCase())} placeholder={`Type a ticker — try ${rotatingExample.symbol}`} /></label><button disabled={loading || !ticker.trim()}>{loading ? companyReady ? "BUILDING DCF…" : "LOADING EXAMPLE…" : "BUILD DCF →"}</button></form>
-      {error && <div className="api-error"><b>Data connection:</b> {error}</div>}
-      <small>Rotating ticker idea: {rotatingExample.name} ({rotatingExample.symbol}) · Current public data and visible, editable estimates populate each ticker.</small>
+      <div className="hero-grid" aria-hidden="true"/><div className="hero-orbit orbit-one" aria-hidden="true"/><div className="hero-orbit orbit-two" aria-hidden="true"/>
+      <div className="hero-copy">
+        <p>PUBLIC-COMPANY VALUATION</p>
+        <h1><span>DCF Calculator</span></h1>
+        <div className="instructions"><b>Enter a ticker</b><span>Build and edit the forecast, then compare both valuation methods.</span></div>
+        <form className="ticker-search" onSubmit={search}><label><span>TICKER</span><input aria-label="Ticker symbol" value={ticker} onChange={(event) => setTicker(event.target.value.toUpperCase())} placeholder={`Try ${rotatingExample.symbol}`} /></label><button disabled={loading || !ticker.trim()}>{loading ? companyReady ? "BUILDING…" : "LOADING…" : "RUN MODEL"}<span>↗</span></button></form>
+        {error && <div className="api-error"><b>Data connection:</b> {error}</div>}
+        <small>Now rotating: {rotatingExample.name} ({rotatingExample.symbol})</small>
+      </div>
+      <aside className="hero-methods" aria-label="Calculator coverage">
+        <article><span>01</span><div><b>Forecast</b><small>Six fiscal periods</small></div></article>
+        <article><span>02</span><div><b>Discount</b><small>Exact five-year window</small></div></article>
+        <article><span>03</span><div><b>Stress test</b><small>Two terminal methods</small></div></article>
+      </aside>
+      <a className="hero-scroll" href="#assumptions" aria-label="Scroll to the model inputs">START MODEL <i>↓</i></a>
     </header>
 
-    {!companyReady ? <section className="example-loader" aria-live="polite"><span>LOADING A REAL-COMPANY EXAMPLE</span><h2>{startingExample.name} · {startingExample.symbol}</h2><p>The calculator opens with a current large-company example. Type any supported public-company ticker above when you are ready.</p></section> : <>
+    {!companyReady ? <section className="example-loader" aria-live="polite"><span>LOADING A REAL-COMPANY EXAMPLE</span><h2>{startingExample.name} · {startingExample.symbol}</h2><p>The calculator opens with a current large-company example. Type any supported public-company ticker above when you are ready.</p></section> : <div className="model-pages">
     <section className="company-summary">
       <div><span>{data.company.exchange} · {data.company.symbol}</span><h2>{data.company.name}</h2><b className="company-description-label">{data.source === "Sample data" ? "WHAT THE COMPANY DOES · SAMPLE" : `WHAT THE COMPANY DOES · ${data.company.descriptionSource || "COMPANY PROFILE"}`}</b><p>{briefDescription(data.company.description)}</p><Link className="deep-analysis-link" href={`/company-analysis?symbol=${encodeURIComponent(data.company.symbol)}`}>{data.businessAnalysis?.filing ? "Open filing-based supply chain, customer concentration & credit screen →" : "Open company-analysis data availability & credit screen →"}</Link></div>
       <dl><div><dt>{priceContext.label}</dt><dd>{usd.format(model.marketPrice)}<small>{priceContext.detail}</small></dd></div><div><dt>Business niche</dt><dd>{data.comparison?.nicheLabel || data.company.industry}<small>{data.comparison?.industryExplanation || `Reported industry: ${data.company.industry}`}</small></dd></div><div><dt>Financials through</dt><dd>{data.asOf}</dd></div><div><dt>Company data source</dt><dd>{data.source}</dd></div></dl>
@@ -1037,7 +1395,7 @@ export default function Home() {
     {financialUnsupported && <section className="sheet-section sector-notice"><div className="section-heading"><div><p>SECTOR LIMIT</p><h2>Standard unlevered DCF is disabled</h2></div></div><p>{data.company.name} is a financial institution. Debt, interest, and regulatory capital are operating inputs for banks and insurers, so treating debt as a financing claim and valuing UFCF would produce a misleading result. Use a dividend-discount, residual-income, excess-return, or price-to-book framework with regulatory-capital forecasts instead.</p></section>}
 
     {!financialUnsupported && <section className="sheet-section" id="valuation">
-      <div className="section-heading"><div><span className="section-index">01</span><p>OUTPUT</p><h2>DCF valuation</h2></div><div className="unit-note">BOTH TERMINAL METHODS SHOWN TOGETHER</div></div>
+      <div className="section-heading"><div><span className="section-index">03</span><p>VALUATION</p><h2>DCF valuation</h2></div><div className="unit-note">BOTH TERMINAL METHODS SHOWN TOGETHER</div></div>
       <div className="valuation-cards"><div><span>{priceContext.label}</span><strong>{usd.format(model.marketPrice)}</strong><small>{priceContext.detail}</small></div><div><span><DefinedTerm term="perpetualGrowth">Perpetual growth</DefinedTerm> scenario value</span><strong>{perpetuity.valid ? usd.format(perpetuity.perShare) : "—"}</strong>{perpetuity.valid && <ValueMove value={perpetuity.perShare} price={model.marketPrice}/>}</div><div><span><DefinedTerm term="exitMultiple">Exit multiple</DefinedTerm> scenario value</span><strong>{multiple.valid ? usd.format(multiple.perShare) : "—"}</strong>{multiple.valid && <ValueMove value={multiple.perShare} price={model.marketPrice}/>}</div></div>
       <div className={`forecast-confidence ${forecastConfidence.toLowerCase()}`}><b>FORECAST CONFIDENCE · {forecastConfidence.toUpperCase()}</b><p>{forecastConfidenceDetail} The outputs are scenario results, not price targets.</p></div>
       {selectedWacc <= model.terminalGrowth && <div className="api-error valuation-warning"><b>Assumption error:</b> WACC must be greater than terminal growth for the perpetual-growth method.</div>}
@@ -1046,10 +1404,27 @@ export default function Home() {
       <div className="bridge-grid"><ValuationBridge title="Perpetual Growth Method" result={perpetuity} model={model} method="perpetuity" data={data}/><ValuationBridge title="Exit Multiple Method" result={multiple} model={model} method="multiple" data={data}/></div>
     </section>}
 
+    <section className="sheet-section output-section" id="output">
+      <div className="section-heading"><div><span className="section-index">04</span><p>OUTPUT</p><h2>DCF output</h2></div><div className="output-heading-tools"><p className="section-description">Rows vary the selected WACC by ±0.5 percentage points. Every cell reruns the complete valuation; the outlined middle cell is the current base case.</p><button type="button" className="excel-export" onClick={exportExcel} disabled={exportingExcel || financialUnsupported}>{exportingExcel ? "BUILDING EXCEL…" : "EXPORT EXCEL MODEL ↗"}</button>{excelExportError && <small className="excel-export-error" role="alert">{excelExportError}</small>}</div></div>
+      <OutputScreen data={data} model={model} perpetuity={perpetuity} multiple={multiple} risks={risks} forecastConfidence={forecastConfidence} forecastConfidenceDetail={forecastConfidenceDetail} financialUnsupported={financialUnsupported}/>
+    </section>
+
+    <section className="research-workspace" aria-labelledby="research-workspace-title">
+      <div className="research-workspace-heading"><div><span>COMPS · PITCH</span><h2 id="research-workspace-title">Company research package for {data.company.symbol}</h2><p>Compare the company with its closest operating peers or review the investment case as a concise presentation.</p></div><small>LIVE TICKER-LINKED VIEWS</small></div>
+      <div className="research-tabs" role="tablist" aria-label="Research package views">{([
+        ["comps", "Comps analysis", "Peer selection and relative valuation"],
+        ["pitch", "Pitch deck", "Seven-slide investment briefing"],
+      ] as Array<[ResearchView, string, string]>).map(([view, label, detail]) => <button type="button" role="tab" aria-selected={researchView === view} className={researchView === view ? "active" : ""} key={view} onClick={() => setResearchView(view)}><span>{label}</span><small>{detail}</small></button>)}</div>
+      <div className="research-panel" role="tabpanel" aria-label={`${researchView} view`}>
+        {researchView === "comps" && <CompetitorComparison data={data} embedded/>}
+        {researchView === "pitch" && <PitchDeck data={data} model={model} perpetuity={perpetuity} multiple={multiple} risks={risks} financialUnsupported={financialUnsupported}/>}
+      </div>
+    </section>
+
     {!financialUnsupported && <section className="sheet-section" id="build">
       <div className="section-heading"><div><span className="section-index">02</span><p>MODEL</p><h2>DCF workbook</h2></div><div className="unit-note">USD IN MILLIONS · LIVE TICKER-LINKED CELLS</div></div>
       <div className="method-audit">
-        <div className="audit-heading"><div><span>FORMULA CHECK</span><h3>Standard unlevered DCF calculation</h3></div></div>
+        <div className="audit-heading"><div><span>CHECKING THE FORMULA</span><h3>Unlevered DCF</h3></div></div>
         <div className="six-step-grid">
           <article><span>01</span><b>Forecast UFCF</b><code>EBIT × (1−T) + D&amp;A − Capex − ΔNWC + deferred tax + other non-cash items</code></article>
           <article><span>02</span><b>Calculate terminal value</b><code>PG FCF: NOPAT₅ × (1−g/ROIC)<br/>PG TV: FCF₅ × (1+g) ÷ (WACC−g)<br/>Exit: EBITDA₅ × selected multiple</code></article>
@@ -1058,7 +1433,7 @@ export default function Home() {
           <article><span>05</span><b>Subtract non-equity claims</b><code>− short debt − long debt − other non-equity claims</code></article>
           <article><span>06</span><b>Calculate value per share</b><code>Equity value ÷ fully diluted shares</code></article>
         </div>
-        <p><b>Scope check:</b> This is an automated quick DCF, not a fully linked three-statement model. A transaction-grade forecast should link EBIT, D&amp;A, capex, and working capital through the income statement, balance sheet, and cash-flow statement. Every modeled shortcut remains visible and editable here.</p>
+        <p><b>Checking the model scope:</b> This is an automated DCF, not a fully linked three-statement model. A transaction-grade forecast should link EBIT, D&amp;A, capex, and working capital through the financial statements.</p>
       </div>
       <div className="workbook-shell">
         <div className="formula-bar"><b>fx</b><code>{workbookFormula[workbookTab]}</code></div>
@@ -1103,7 +1478,7 @@ export default function Home() {
     </section>}
 
     {!financialUnsupported && <section className="sheet-section" id="assumptions">
-      <div className="section-heading"><div><span className="section-index">03</span><p>INPUTS</p><h2>Editable assumptions</h2></div><div className="unit-note">GREEN CELLS ARE EDITABLE</div></div>
+      <div className="section-heading"><div><span className="section-index">01</span><p>INPUTS</p><h2>Project the operating business</h2></div><div className="unit-note">EDIT THE REVENUE, MARGIN, TAX, D&amp;A, CAPEX &amp; WORKING-CAPITAL DRIVERS</div></div>
       <div className="recommendation"><b>{data.comparison?.nicheLabel || data.company.industry} starting point</b><p>{rec.note}</p>{data.forecast ? <span>Years 1–2 start with {data.forecast.source} revenue estimates as of {data.forecast.asOf || "the displayed source date"}. Years 3–6 are clearly labeled website estimates. Every annual driver is editable below, and perpetual growth does not alter any explicit forecast year.</span> : <span>No validated analyst forecast was available. All six years begin as visible, editable model estimates rather than being presented as consensus.</span>}<span> The automatic working-capital shortcut assumes 2% of incremental revenue. Deferred tax and other non-cash adjustments start at 0%; replace these with a company-specific balance-sheet build and documented items such as stock compensation when material, while also updating dilution consistently.</span></div>
       <div className="forecast-editor"><div className="sheet-bar">Fiscal forecast drivers · each green cell is editable</div><div className="table-scroll"><table><thead><tr><th>Driver</th>{model.forecastDrivers.map((driver) => <th key={driver.periodEnd}>{fiscalPeriodLabel(driver.periodEnd)}</th>)}</tr></thead><tbody>{([
         ["Revenue growth", "revenueGrowth"], ["Gross margin", "grossMargin"], ["EBIT margin", "ebitMargin"], ["Tax rate", "taxRate"], ["D&A / revenue", "daPercent"], ["Capex / revenue", "capexPercent"], ["ΔNWC / revenue", "changeNwcPercent"], ["Deferred tax / revenue", "deferredTaxPercent"], ["Other non-cash / revenue", "otherNonCashPercent"],
@@ -1126,27 +1501,12 @@ export default function Home() {
         <NumberField label="Preferred & minority interests" term="fundedDebt" value={model.preferredInterest} suffix="$M" help="Other non-equity claims subtracted after funded debt. Preferred stock and non-controlling interests are included when SEC facts identify them. Operating leases are not automatically added because consistent capitalization also requires lease-adjusted EBIT, D&A, capex, and cash flow." onChange={(value) => update("preferredInterest", value)}/>
         <NumberField label="Share count used" term="dilutedShares" value={model.shares} suffix="M" help={`${data.market.sharesSource || "Free-data proxy"}. Replace it when a newer fully diluted share count is available.`} onChange={(value) => update("shares", value)}/>
       </div>
-      <div className="assumption-bottom"><div className="wacc-table"><div className="sheet-bar"><DefinedTerm term="wacc">WACC</DefinedTerm> formula reconciliation</div><div><span><DefinedTerm term="riskFreeRate">Risk-free rate</DefinedTerm></span><b>{pct2.format(riskFree)}%</b></div><div><span><DefinedTerm term="beta">Beta</DefinedTerm></span><b>{pct2.format(beta)}×</b></div><div><span><DefinedTerm term="equityRiskPremium">Equity risk premium</DefinedTerm></span><b>{pct2.format(equityRiskPremium)}%</b></div><div><span><DefinedTerm term="costOfEquity">Cost of equity</DefinedTerm> = Rf + β × ERP</span><b>{pct2.format(costEquity)}%</b></div><div><span><DefinedTerm term="equityWeight">Equity / capital</DefinedTerm></span><b>{pct2.format(equityWeight * 100)}%</b></div><div><span>Equity contribution = cost × weight</span><b>{pct2.format(equityContribution)}%</b></div><div><span><DefinedTerm term="preTaxCostOfDebt">Pre-tax cost of debt</DefinedTerm></span><b>{pct2.format(preTaxDebt)}%</b></div><div><span>After-tax debt cost</span><b>{pct2.format(afterTaxDebt)}%</b></div><div><span><DefinedTerm term="debtWeight">Debt / capital</DefinedTerm></span><b>{pct2.format(debtWeight * 100)}%</b></div><div><span>Debt contribution = cost × weight</span><b>{pct2.format(debtContribution)}%</b></div><div><span>Base formula WACC</span><b>{pct2.format(referenceWacc)}%</b></div><div><span><DefinedTerm term="companySpecificPremium">Company-specific premium</DefinedTerm></span><b>{pct2.format(model.companyRiskPremium)}%</b></div><div className="total"><span>Selected <DefinedTerm term="wacc">WACC</DefinedTerm></span><b>{pct2.format(selectedWacc)}%</b></div><small>Base WACC equals the equity contribution plus the debt contribution. The selected WACC then adds the visible optional premium. Open the WACC workbook tab to see every formula with the actual numbers used.</small></div>
-        <div className="data-check"><div className="sheet-bar">Data checks</div><ul>{(data.qualityNotes?.length ? data.qualityNotes : ["Sample data is active. Enter a ticker to load current public-company data."]).map((note) => <li key={note}>{note}</li>)}</ul></div>
+      <div className="assumption-bottom"><div className="wacc-table"><div className="sheet-bar">Checking the <DefinedTerm term="wacc">WACC</DefinedTerm> formula</div><div><span><DefinedTerm term="riskFreeRate">Risk-free rate</DefinedTerm></span><b>{pct2.format(riskFree)}%</b></div><div><span><DefinedTerm term="beta">Beta</DefinedTerm></span><b>{pct2.format(beta)}×</b></div><div><span><DefinedTerm term="equityRiskPremium">Equity risk premium</DefinedTerm></span><b>{pct2.format(equityRiskPremium)}%</b></div><div><span><DefinedTerm term="costOfEquity">Cost of equity</DefinedTerm> = Rf + β × ERP</span><b>{pct2.format(costEquity)}%</b></div><div><span><DefinedTerm term="equityWeight">Equity / capital</DefinedTerm></span><b>{pct2.format(equityWeight * 100)}%</b></div><div><span>Equity contribution = cost × weight</span><b>{pct2.format(equityContribution)}%</b></div><div><span><DefinedTerm term="preTaxCostOfDebt">Pre-tax cost of debt</DefinedTerm></span><b>{pct2.format(preTaxDebt)}%</b></div><div><span>After-tax debt cost</span><b>{pct2.format(afterTaxDebt)}%</b></div><div><span><DefinedTerm term="debtWeight">Debt / capital</DefinedTerm></span><b>{pct2.format(debtWeight * 100)}%</b></div><div><span>Debt contribution = cost × weight</span><b>{pct2.format(debtContribution)}%</b></div><div><span>Base formula WACC</span><b>{pct2.format(referenceWacc)}%</b></div><div><span><DefinedTerm term="companySpecificPremium">Company-specific premium</DefinedTerm></span><b>{pct2.format(model.companyRiskPremium)}%</b></div><div className="total"><span>Selected <DefinedTerm term="wacc">WACC</DefinedTerm></span><b>{pct2.format(selectedWacc)}%</b></div><small>Base WACC equals the equity contribution plus the debt contribution. The selected WACC then adds the visible optional premium. Open the WACC workbook tab to see every formula with the actual numbers used.</small></div>
+        <div className="data-check"><div className="sheet-bar">Checking the data</div><ul>{(data.qualityNotes?.length ? data.qualityNotes : ["Sample data is active. Enter a ticker to load current public-company data."]).map((note) => <li key={note}>{note}</li>)}</ul></div>
       </div>
     </section>}
 
-    <section className="sheet-section" id="price-history">
-      <div className="section-heading"><div><span className="section-index">04</span><p>MARKET DATA</p><h2>Stock price history</h2></div><p className="section-description">{data.source === "Sample data" ? "This is an illustrative company, so it does not have a real IPO date." : data.company.ipoDate ? `${data.company.name} first traded publicly on ${longDate(data.company.ipoDate)}.` : `A reliable public-market debut date was not available for ${data.company.name}.`} Select a time range and switch between daily, weekly, or monthly closing prices.</p></div>
-      <StockPriceChart points={data.market.priceHistory || []} symbol={data.company.symbol}/>
-    </section>
-
-    <CompanyNews symbol={data.company.symbol} name={data.company.name}/>
-
-    <CompetitorComparison data={data}/>
-
-    <section className="sheet-section" id="risks">
-      <div className="section-heading"><div><span className="section-index">07</span><h2>Potential risks</h2></div><p className="section-description">{financialUnsupported ? "These are sector-specific review areas, not outputs from the disabled corporate DCF. Verify regulatory capital, asset quality, funding, liquidity, and material risks in company filings." : "Each card explains the available evidence, what the risk means for the business, and how it could affect the DCF. Verify material risks in company filings."}</p></div>
-      <div className="risk-grid">{risks.map((risk) => <article key={risk.title}><span className={`risk-pill ${risk.level}`}>{risk.level}</span><h3>{risk.title}</h3><p>{risk.detail}</p></article>)}</div>
-      <div className="decision-checklist"><h3>Investment-decision checklist</h3><ul><li>Read the latest annual report, risk factors, and management guidance.</li><li>Map revenue, suppliers, and operations by country.</li><li>Compare assumptions with direct peers and a full business cycle.</li><li>Stress-test dilution, acquisitions, regulation, and refinancing.</li><li>Define the evidence that would invalidate the thesis.</li><li>Require a margin of safety appropriate for forecast uncertainty.</li></ul></div>
-    </section>
-
     <footer><span>Educational decision support only—not personalized investment advice.</span><span>MODEL V2 · DATA MAY BE DELAYED</span></footer>
-    </>}
+    </div>}
   </main>;
 }

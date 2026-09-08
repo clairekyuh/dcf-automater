@@ -11,6 +11,25 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
+## Deploy to Vercel
+
+The repository is ready for Vercel's Next.js preset and Node.js 24 runtime.
+
+1. Push the repository to GitHub.
+2. In [Vercel](https://vercel.com/new), import `clairekyuh/dcf-automater`.
+3. Keep the detected framework as **Next.js** and the root directory as the repository root.
+4. Add `SEC_USER_AGENT` under **Project Settings → Environment Variables**. Use an application name and a real contact email, for example `DCF Automater name@example.com`, and enable it for Production, Preview, and Development.
+5. Click **Deploy**. Vercel will run `npm install` and `npm run build` automatically.
+
+No Alpha Vantage key is required. Company data, price history, and news use public Nasdaq endpoints; the company-analysis screen uses SEC EDGAR. External providers can still rate-limit or block cloud-hosted requests, and the application reports those failures rather than inventing data.
+
+For a command-line deployment after installing and signing in to the Vercel CLI:
+
+```bash
+vercel
+vercel --prod
+```
+
 ## Current features
 
 - Automatic company overview, sector, industry, and annual financials

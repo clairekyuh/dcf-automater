@@ -7,6 +7,7 @@ import { estimateMarketBeta } from "@/lib/market-beta";
 import { selectShareCount } from "@/lib/valuation-inputs";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 const NASDAQ_API = "https://api.nasdaq.com/api";
 const NASDAQ_HEADERS = {

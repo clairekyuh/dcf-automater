@@ -16,7 +16,7 @@ const publishedDate = (value: string | null) => value
   ? new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }).format(new Date(value))
   : "Date unavailable";
 
-export default function CompanyNews({ symbol, name }: { symbol: string; name: string }) {
+export default function CompanyNews({ symbol, name, showHeading = true }: { symbol: string; name: string; showHeading?: boolean }) {
   const [news, setNews] = useState<NewsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -45,7 +45,7 @@ export default function CompanyNews({ symbol, name }: { symbol: string; name: st
 
   const sourceUrl = news?.sourceUrl || `https://www.nasdaq.com/market-activity/stocks/${symbol.toLowerCase()}/news-headlines`;
   return <section className="sheet-section" id="news">
-    <div className="section-heading"><div><span className="section-index">05</span><p>RECENT EVENTS</p><h2>Current company news</h2></div><p className="section-description">Recent fundamental headlines tied to {name}. Each item explains the possible DCF connection; news does not change the model automatically because the underlying facts still need to be verified.</p></div>
+    {showHeading && <div className="section-heading"><div><span className="section-index">06</span><p>RECENT EVENTS</p><h2>Current company news</h2></div><p className="section-description">Recent fundamental headlines tied to {name}. Each item explains the possible DCF connection; news does not change the model automatically because the underlying facts still need to be verified.</p></div>}
     {loading && <div className="news-status" role="status"><span>SCREENING RECENT HEADLINES</span><p>Looking for earnings, guidance, financing, customer, capex, regulatory, and operating events relevant to {symbol}.</p></div>}
     {!loading && error && <div className="news-status news-error"><span>NEWS TEMPORARILY UNAVAILABLE</span><p>{error}</p><a href={sourceUrl} target="_blank" rel="noreferrer">Open {symbol} headlines on Nasdaq ↗</a></div>}
     {!loading && !error && news && news.articles.length === 0 && <div className="news-status"><span>NO HIGH-RELEVANCE HEADLINES FOUND</span><p>The recent feed did not contain a company-specific fundamental item that passed the screen. This is not evidence that the company has no material developments.</p><a href={sourceUrl} target="_blank" rel="noreferrer">Review all {symbol} headlines ↗</a></div>}

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { selectRelevantNews, type NasdaqNewsRow } from "@/lib/company-news";
 
 export const runtime = "nodejs";
+export const maxDuration = 30;
 
 const NASDAQ_NEWS_API = "https://www.nasdaq.com/api/news/topic/articlebysymbol";
 const NASDAQ_HEADERS = {
