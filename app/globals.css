@@ -1,6 +1,6 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700&family=Playfair+Display:ital,wght@1,600&display=swap');
 
-:root{--navy:#567064;--navy-dark:#14251e;--teal:#c3cfa8;--teal-hover:#afbf8d;--teal-soft:#ecefe5;--blue:#315c48;--green:#31805a;--red:#c34b3d;--amber:#b87913;--ink:#14251e;--muted:#66726b;--grid:#d3d7cf;--grid-dark:#9ca99f;--paper:#fbfaf6;--canvas:#f2efe6}
+:root{--navy:#567064;--navy-dark:#14251e;--teal:#c3cfa8;--teal-hover:#afbf8d;--teal-soft:#ecefe5;--blue:#315c48;--green:#31805a;--red:#c34b3d;--amber:#b87913;--ink:#14251e;--muted:#66726b;--grid:#d3d7cf;--grid-dark:#9ca99f;--paper:#fbfaf6;--canvas:#f2efe6;--font-heading:"Montserrat",Arial,sans-serif;--font-body:"Google Sans",Arial,sans-serif}
 *{box-sizing:border-box}
 html{scroll-behavior:smooth;scroll-padding-top:108px}
 body{margin:0;overflow-x:clip;background:var(--canvas);color:var(--ink);font-family:Manrope,Arial,sans-serif}
@@ -698,3 +698,8 @@ button,a,input{outline-offset:3px}button:focus-visible,a:focus-visible,input:foc
   .analysis-data-state{grid-template-columns:1fr;padding:20px 18px}.analysis-data-state>a{grid-column:auto}
 }
 @media(prefers-reduced-motion:reduce){.news-loading i{animation:none}}
+
+/* Permanent typography rule: H1 uses Montserrat; body copy uses Google Sans. */
+body{font-family:var(--font-body)}
+body :where(p,li,dd,dt,button,input,textarea,select){font-family:var(--font-body)!important}
+h1{font-family:var(--font-heading)!important}

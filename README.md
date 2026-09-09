@@ -32,6 +32,11 @@ vercel --prod
 
 ## Current features
 
+### Typography rule
+
+- Every `h1` uses Montserrat.
+- Body copy uses Google Sans. Both families are self-hosted through Fontsource so the design does not depend on fonts installed on the visitor's device.
+
 - Automatic company overview, sector, industry, and annual financials
 - A real-company starting example that cycles across Apple, Google, Microsoft, Johnson & Johnson, Walmart, and Exxon Mobil; the ticker input starts empty with rotating suggestions
 - Six company-fiscal-year forecast columns, a five-year valuation window, partial first and sixth years, and mid-year discounting
