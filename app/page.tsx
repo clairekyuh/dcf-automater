@@ -1370,7 +1370,6 @@ export default function Home() {
         {error && <div className="api-error"><b>Data connection:</b> {error}</div>}
         <small>Nasdaq market data · SEC filing analysis when available · automated estimate, not an analyst target</small>
       </div>
-      <aside className="hero-coverage" aria-label="Model coverage"><strong>Model coverage</strong><span>Six fiscal forecasts</span><span>Perpetual growth and exit multiple</span><span>Mid-year discounting</span><span>Excel export</span></aside>
     </header>
 
     {!companyReady ? <section className="example-loader" aria-live="polite"><span>Loading company data</span><h2>{startingExample.name === startingExample.symbol ? startingExample.symbol : `${startingExample.name} · ${startingExample.symbol}`}</h2><p>Retrieving public financial statements, market data, and available forecast inputs.</p></section> : <div className="model-pages">
