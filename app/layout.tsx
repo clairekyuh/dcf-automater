@@ -5,6 +5,10 @@ import "@fontsource/google-sans/600.css";
 import "@fontsource/google-sans/700.css";
 import "@fontsource/montserrat/600.css";
 import "@fontsource/montserrat/700.css";
+import "@fontsource/geomini/600.css";
+import "@fontsource/geomini/700.css";
+import "@fontsource/anek-devanagari/600.css";
+import "@fontsource/anek-devanagari/700.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
