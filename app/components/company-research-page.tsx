@@ -18,6 +18,8 @@ type ResearchCompany = {
 
 const fmt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
 const longDate = (date: string) => new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" }).format(new Date(`${date}T00:00:00Z`));
+const riskAssumption = (title: string) => /capital/i.test(title) ? "Capex and free cash flow" : /leverage|debt|credit/i.test(title) ? "WACC and equity bridge" : /margin/i.test(title) ? "EBIT margin" : /customer|supplier|supply/i.test(title) ? "Revenue and operating margin" : /terminal/i.test(title) ? "Terminal value" : "Company forecast";
+const riskDirection = (title: string) => /leverage|debt|credit/i.test(title) ? "Higher discount rate or lower equity value" : /capital|margin|customer|supplier|supply/i.test(title) ? "Lower forecast cash flow" : /terminal/i.test(title) ? "Lower terminal value" : "Review forecast assumptions";
 
 function baselineRisks(data: ResearchCompany): RiskItem[] {
   const capex = data.metrics.capexPercentRevenue;
@@ -103,17 +105,17 @@ export default function CompanyResearchPage({ view }: { view: "price" | "news" |
   if (!data) return <main className="company-view-page"><CompanyNavigation active={active}/><section className="company-view-missing"><span>{view.toUpperCase()}</span><h1>{loading ? "Loading company…" : "Company not loaded"}</h1><p>{error || "Open the DCF model and enter a ticker first."}</p><a href="/">Open DCF model →</a></section></main>;
 
   const intro = view === "price"
-    ? { eyebrow: "MARKET DATA", title: "Stock price history", detail: data.source === "Sample data" ? "Illustrative price history." : data.company.ipoDate ? `${data.company.name} first traded publicly on ${longDate(data.company.ipoDate)}.` : `A reliable public-market debut date was not available for ${data.company.name}.` }
+    ? { eyebrow: "Market data", title: "Stock price", detail: data.source === "Sample data" ? "Illustrative price history." : data.company.ipoDate ? `${data.company.name} first traded publicly on ${longDate(data.company.ipoDate)}.` : `A reliable public-market debut date was not available for ${data.company.name}.` }
     : view === "news"
-      ? { eyebrow: "RECENT EVENTS", title: "Company news", detail: "Recent company-specific headlines and their possible connection to the DCF." }
-      : { eyebrow: "RISK REVIEW", title: "Potential risks", detail: "Evidence and model sensitivities that should be checked before relying on the valuation." };
+      ? { eyebrow: "Recent events", title: "Company news", detail: "Company-specific headlines screened for possible relevance to the DCF." }
+      : { eyebrow: "Risk review", title: "Potential risks", detail: "Evidence and model sensitivities to check before relying on the valuation." };
 
   return <main className="company-view-page">
     <CompanyNavigation symbol={data.company.symbol} name={data.company.name} active={active}/>
-    <header className="company-view-header"><div><span>{intro.eyebrow}</span><h1>{intro.title}</h1><p>{intro.detail}</p></div><aside><span>COMPANY</span><strong>{data.company.name}</strong><small>{data.company.symbol} · {data.company.exchange} · {data.company.industry}</small></aside></header>
+    <header className="company-view-header"><div><span>{intro.eyebrow}</span><h1>{intro.title}</h1><p>{intro.detail}</p></div><aside><strong>{data.company.name}</strong><small>{data.company.symbol} · {data.company.exchange} · {data.company.industry}</small></aside></header>
     {view === "price" && <section className="company-view-panel"><StockPriceChart points={data.market.priceHistory || []} symbol={data.company.symbol}/></section>}
     {view === "news" && <div className="company-view-news"><CompanyNews symbol={data.company.symbol} name={data.company.name} showHeading={false}/></div>}
-    {view === "risks" && <section className="company-view-panel"><div className="risk-grid">{risks.map((risk) => <article key={risk.title}><span className={`risk-pill ${risk.level}`}>{risk.level}</span><h3>{risk.title}</h3><p>{risk.detail}</p></article>)}</div><div className="financial-advice-banner">THIS IS NOT FINANCIAL ADVICE</div></section>}
+    {view === "risks" && <section className="company-view-panel risk-register"><div className="risk-register-head"><span>Severity</span><span>Risk and evidence</span><span>DCF assumption affected</span><span>Potential impact</span></div><div className="risk-grid">{risks.map((risk) => <article key={risk.title}><span className={`risk-pill ${risk.level}`}>{risk.level}</span><div><h3>{risk.title}</h3><p>{risk.detail}</p></div><strong>{riskAssumption(risk.title)}</strong><small>{riskDirection(risk.title)}</small></article>)}</div><p className="risk-source">Model screen based on available company financials and filing signals as of {data.asOf || "the latest displayed data date"}. Review the underlying filing before changing assumptions.</p><div className="financial-advice-banner">THIS IS NOT FINANCIAL ADVICE</div></section>}
     <footer><span>Educational decision support only—not personalized investment advice.</span><a href={`/?symbol=${encodeURIComponent(data.company.symbol)}`}>Return to DCF model →</a></footer>
   </main>;
 }

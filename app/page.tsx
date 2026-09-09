@@ -588,9 +588,10 @@ function DcfRowLabel({ label }: { label: string }) {
 
 function NumberField({ label, term, value, suffix, help, onChange }: { label: string; term?: DefinedTermKey; value: number; suffix: string; help: string; onChange: (value: number) => void }) {
   const [showHelp, setShowHelp] = useState(false);
+  const displayValue = Number.isFinite(value) ? Math.round(value * 100) / 100 : 0;
   return <div className="number-field">
     <div className="field-label"><span>{term ? <DefinedTerm term={term}>{label}</DefinedTerm> : label}</span><button type="button" aria-label={`Explain ${label}`} aria-expanded={showHelp} onClick={() => setShowHelp((open) => !open)}>?</button></div>
-    <div className="input-cell"><input aria-label={`${label} ${suffix}`} type="number" step="0.1" value={Number.isFinite(value) ? value : 0} onChange={(event) => onChange(Number(event.target.value))} /><b>{suffix}</b></div>
+    <div className="input-cell"><input aria-label={`${label} ${suffix}`} type="number" step="0.1" value={displayValue} onChange={(event) => onChange(Number(event.target.value))} /><b>{suffix}</b></div>
     {showHelp && <p className="field-help">{help}</p>}
   </div>;
 }
@@ -1115,7 +1116,6 @@ export default function Home() {
   const [model, setModel] = useState<Model>(() => buildModel(demo));
   const [loading, setLoading] = useState(false);
   const [companyReady, setCompanyReady] = useState(false);
-  const [exampleIndex, setExampleIndex] = useState(0);
   const [startingExample, setStartingExample] = useState(LARGE_COMPANY_EXAMPLES[0]);
   const [workbookTab, setWorkbookTab] = useState<WorkbookTab>("dcf");
   const [researchView, setResearchView] = useState<ResearchView>("comps");
@@ -1142,7 +1142,6 @@ export default function Home() {
   const forecastConfidenceDetail = data.forecast
     ? `Only the first two revenue years use an external consensus source; Years 3–6 and all margin, tax, D&A, capex, and working-capital drivers are editable model estimates.${data.businessAnalysis?.filing ? " Filing data was available." : " SEC filing data was unavailable."}${turnaroundCaveat}`
     : `No validated analyst revenue forecast was available; all six annual operating forecasts are editable model estimates.${turnaroundCaveat}`;
-  const rotatingExample = LARGE_COMPANY_EXAMPLES[exampleIndex];
   type NumericModelKey = Exclude<keyof Model, "valuationDate" | "forecastDrivers">;
   const update = (key: NumericModelKey, value: number) => setModel((current) => ({ ...current, [key]: value }));
   const updateValuationDate = (value: string) => setModel((current) => ({ ...current, valuationDate: value }));
@@ -1156,16 +1155,11 @@ export default function Home() {
     const previousIndex = sessionStorage.getItem("dcf:example-index");
     const initialIndex = previousIndex === null ? 0 : (Number(previousIndex) + 1) % LARGE_COMPANY_EXAMPLES.length;
     sessionStorage.setItem("dcf:example-index", String(initialIndex));
-    setExampleIndex(initialIndex);
     const initialCompany = requested && /^[A-Z0-9.\-]{1,12}$/.test(requested)
       ? { symbol: requested, name: requested }
       : LARGE_COMPANY_EXAMPLES[initialIndex];
     setStartingExample(initialCompany);
     void loadCompany(initialCompany.symbol);
-    const rotation = window.setInterval(() => {
-      setExampleIndex((current) => (current + 1) % LARGE_COMPANY_EXAMPLES.length);
-    }, 3200);
-    return () => window.clearInterval(rotation);
   }, []);
 
   useEffect(() => {
@@ -1366,27 +1360,20 @@ export default function Home() {
   ];
   const workbookMoney = (value: number) => value < 0 ? `(${usd0.format(Math.abs(value))}M)` : `${usd0.format(value)}M`;
   return <main className="sleek-app">
-    <div className="site-intro" aria-hidden="true"><div><span>DISCOUNTED CASH FLOW</span><i/></div></div>
     <CompanyNavigation symbol={companyReady ? data.company.symbol : undefined} name={companyReady ? data.company.name : undefined} active="model"/>
     <header id="top" className="calculator-header">
-      <div className="hero-grid" aria-hidden="true"/><div className="hero-orbit orbit-one" aria-hidden="true"/><div className="hero-orbit orbit-two" aria-hidden="true"/>
       <div className="hero-copy">
-        <p>PUBLIC-COMPANY VALUATION</p>
+        <p>Public-company valuation</p>
         <h1><span>DCF Calculator</span></h1>
-        <div className="instructions"><b>Enter a ticker</b><span>Build and edit the forecast, then compare both valuation methods.</span></div>
-        <form className="ticker-search" onSubmit={search}><label><span>TICKER</span><input aria-label="Ticker symbol" value={ticker} onChange={(event) => setTicker(event.target.value.toUpperCase())} placeholder={`Try ${rotatingExample.symbol}`} /></label><button disabled={loading || !ticker.trim()}>{loading ? companyReady ? "BUILDING…" : "LOADING…" : "RUN MODEL"}<span>↗</span></button></form>
+        <div className="instructions"><span>Enter a ticker to build an editable unlevered DCF with two terminal-value methods.</span></div>
+        <form className="ticker-search" onSubmit={search}><label><span>Ticker</span><input aria-label="Ticker symbol" value={ticker} onChange={(event) => setTicker(event.target.value.toUpperCase())} placeholder="e.g. AAPL" /></label><button disabled={loading || !ticker.trim()}>{loading ? companyReady ? "Building…" : "Loading…" : "Build DCF"}</button></form>
         {error && <div className="api-error"><b>Data connection:</b> {error}</div>}
-        <small>Now rotating: {rotatingExample.name} ({rotatingExample.symbol})</small>
+        <small>Nasdaq market data · SEC filing analysis when available · automated estimate, not an analyst target</small>
       </div>
-      <aside className="hero-methods" aria-label="Calculator coverage">
-        <article><span>01</span><div><b>Forecast</b><small>Six fiscal periods</small></div></article>
-        <article><span>02</span><div><b>Discount</b><small>Exact five-year window</small></div></article>
-        <article><span>03</span><div><b>Stress test</b><small>Two terminal methods</small></div></article>
-      </aside>
-      <a className="hero-scroll" href="#assumptions" aria-label="Scroll to the model inputs">START MODEL <i>↓</i></a>
+      <aside className="hero-coverage" aria-label="Model coverage"><strong>Model coverage</strong><span>Six fiscal forecasts</span><span>Perpetual growth and exit multiple</span><span>Mid-year discounting</span><span>Excel export</span></aside>
     </header>
 
-    {!companyReady ? <section className="example-loader" aria-live="polite"><span>LOADING A REAL-COMPANY EXAMPLE</span><h2>{startingExample.name} · {startingExample.symbol}</h2><p>The calculator opens with a current large-company example. Type any supported public-company ticker above when you are ready.</p></section> : <div className="model-pages">
+    {!companyReady ? <section className="example-loader" aria-live="polite"><span>Loading company data</span><h2>{startingExample.name === startingExample.symbol ? startingExample.symbol : `${startingExample.name} · ${startingExample.symbol}`}</h2><p>Retrieving public financial statements, market data, and available forecast inputs.</p></section> : <div className="model-pages">
     <section className="company-summary">
       <div><span>{data.company.exchange} · {data.company.symbol}</span><h2>{data.company.name}</h2><b className="company-description-label">{data.source === "Sample data" ? "WHAT THE COMPANY DOES · SAMPLE" : `WHAT THE COMPANY DOES · ${data.company.descriptionSource || "COMPANY PROFILE"}`}</b><p>{briefDescription(data.company.description)}</p><Link className="deep-analysis-link" href={`/company-analysis?symbol=${encodeURIComponent(data.company.symbol)}`}>{data.businessAnalysis?.filing ? "Open filing-based supply chain, customer concentration & credit screen →" : "Open company-analysis data availability & credit screen →"}</Link></div>
       <dl><div><dt>{priceContext.label}</dt><dd>{usd.format(model.marketPrice)}<small>{priceContext.detail}</small></dd></div><div><dt>Business niche</dt><dd>{data.comparison?.nicheLabel || data.company.industry}<small>{data.comparison?.industryExplanation || `Reported industry: ${data.company.industry}`}</small></dd></div><div><dt>Financials through</dt><dd>{data.asOf}</dd></div><div><dt>Company data source</dt><dd>{data.source}</dd></div></dl>
