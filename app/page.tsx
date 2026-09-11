@@ -878,14 +878,14 @@ function OutputScreen({
   };
   return <div className="output-screen">
     <div className="output-hero">
-      <div><span>INVESTMENT OUTPUT · {data.company.symbol}</span><h3>{data.company.name}</h3><p>{briefDescription(data.company.description)}</p></div>
-      <div className="output-price"><span>CURRENT PRICE INPUT</span><strong>{usd.format(model.marketPrice)}</strong><small>{data.market.priceDate ? `Nasdaq close · ${data.market.priceDate}` : data.market.priceBasis || "Editable market-price input"}</small></div>
+      <div><span>DCF summary · {data.company.symbol}</span><h3>{data.company.name}</h3><p>{briefDescription(data.company.description)}</p></div>
+      <div className="output-price"><span>Market price</span><strong>{usd.format(model.marketPrice)}</strong><small>{data.market.priceDate ? `Nasdaq close · ${data.market.priceDate}` : data.market.priceBasis || "Editable market-price input"}</small></div>
     </div>
     {financialUnsupported ? <div className="output-sector-limit"><b>STANDARD DCF NOT APPROPRIATE</b><p>Use a bank- or insurer-specific framework built around regulatory capital, asset quality, funding economics, tangible book value, and return on equity. The comps and pitch-deck views remain available as research summaries.</p></div> : <>
       <div className="output-valuation-grid">
-        <article><span>PERPETUAL-GROWTH VALUE</span><strong>{perpetuity.valid ? usd.format(perpetuity.perShare) : "—"}</strong><small>{perpetuity.valid ? `${fmt.format((perpetuity.perShare / Math.max(model.marketPrice, .01) - 1) * 100)}% versus price` : perpetuity.invalidReason}</small></article>
-        <article><span>EXIT-MULTIPLE VALUE</span><strong>{multiple.valid ? usd.format(multiple.perShare) : "—"}</strong><small>{multiple.valid ? `${fmt.format((multiple.perShare / Math.max(model.marketPrice, .01) - 1) * 100)}% versus price` : multiple.invalidReason}</small></article>
-        <article className="output-range"><span>AUTOMATED SCENARIO RANGE</span><strong>{lowValue === null || highValue === null ? "—" : lowValue === highValue ? usd.format(lowValue) : `${usd.format(lowValue)}–${usd.format(highValue)}`}</strong><small>{rangeMove === null ? "No valid market comparison" : `${rangeMove >= 0 ? "Lower scenario upside" : "Lower scenario downside"}: ${fmt.format(Math.abs(rangeMove))}%`}</small></article>
+        <article><span>Perpetual-growth value</span><strong>{perpetuity.valid ? usd.format(perpetuity.perShare) : "—"}</strong><small>{perpetuity.valid ? `${fmt.format((perpetuity.perShare / Math.max(model.marketPrice, .01) - 1) * 100)}% versus price` : perpetuity.invalidReason}</small></article>
+        <article><span>Exit-multiple value</span><strong>{multiple.valid ? usd.format(multiple.perShare) : "—"}</strong><small>{multiple.valid ? `${fmt.format((multiple.perShare / Math.max(model.marketPrice, .01) - 1) * 100)}% versus price` : multiple.invalidReason}</small></article>
+        <article className="output-range"><span>Scenario range</span><strong>{lowValue === null || highValue === null ? "—" : lowValue === highValue ? usd.format(lowValue) : `${usd.format(lowValue)}–${usd.format(highValue)}`}</strong><small>{rangeMove === null ? "No valid market comparison" : `${rangeMove >= 0 ? "Lower scenario upside" : "Lower scenario downside"}: ${fmt.format(Math.abs(rangeMove))}%`}</small></article>
       </div>
       <div className="reference-sensitivity" aria-label="Implied price per share sensitivity tables">
         <div className="reference-sensitivity-card">
@@ -932,7 +932,7 @@ function OutputScreen({
       <div><span>FORECAST CONFIDENCE · {forecastConfidence.toUpperCase()}</span><p>{forecastConfidenceDetail} These values are automated scenarios, not analyst price targets.</p></div>
       <div><span>TOP ITEMS TO VERIFY</span><ol>{risks.slice(0, 3).map((risk) => <li key={risk.title}><b>{risk.title}</b><small>{risk.detail}</small></li>)}</ol></div>
     </div>
-    {!financialUnsupported && <a className="output-deep-link" href="#build">Continue to the detailed DCF workbook ↓</a>}
+    {!financialUnsupported && <a className="output-deep-link" href="#build">Open the detailed DCF workbook ↓</a>}
   </div>;
 }
 
@@ -985,7 +985,7 @@ function PitchDeck({
   };
   const slides = [
     <article className="pitch-slide pitch-cover" key="cover">
-      <div><span>AUTOMATED EQUITY-RESEARCH BRIEF</span><h3>{data.company.name}</h3><p>{data.company.symbol} · {data.company.exchange} · {data.company.country}</p></div>
+      <div><span>Company valuation brief</span><h3>{data.company.name}</h3><p>{data.company.symbol} · {data.company.exchange} · {data.company.country}</p></div>
       <div className="pitch-cover-number"><strong>{usd.format(model.marketPrice)}</strong><small>Market-price input</small></div>
       <footer><span>Valuation date · {model.valuationDate}</span><span>Educational scenario analysis</span></footer>
     </article>,
@@ -995,7 +995,7 @@ function PitchDeck({
       <footer><span>Verify: {assessment.verify}</span><span>{data.company.industry}</span></footer>
     </article>,
     <article className="pitch-slide" key="operations">
-      <header><span>02 · OPERATING PROFILE</span><h3>Growth is only valuable if it converts into durable cash flow</h3></header>
+      <header><span>02 · OPERATING PROFILE</span><h3>Historical growth and operating margins</h3></header>
       <div className="pitch-operating-grid"><div className="pitch-revenue-bars"><h4>Reported revenue</h4>{recentHistory.map((row) => <div key={row.year}><span>{row.year}</span><i><b style={{ width: `${row.revenue / maxRevenue * 100}%` }}/></i><strong>{usd0.format(row.revenue)}M</strong></div>)}</div><div className="pitch-metric-stack"><p><span>LATEST REVENUE GROWTH</span><strong>{fmt.format(data.metrics.revenueGrowth)}%</strong></p><p><span>OPERATING MARGIN</span><strong>{fmt.format(data.metrics.ebitMargin)}%</strong></p><p><span>CAPEX / REVENUE</span><strong>{fmt.format(data.metrics.capexPercentRevenue)}%</strong></p></div></div>
       <footer><span>Financials through {data.asOf}</span><span>{data.source}</span></footer>
     </article>,
@@ -1363,7 +1363,7 @@ export default function Home() {
     <CompanyNavigation symbol={companyReady ? data.company.symbol : undefined} name={companyReady ? data.company.name : undefined} active="model"/>
     <header id="top" className="calculator-header">
       <div className="hero-copy">
-        <p>Public-company valuation</p>
+        <p>Public company valuation</p>
         <h1><span>DCF Calculator</span></h1>
         <div className="instructions"><span>Enter a ticker to build an editable unlevered DCF with two terminal-value methods.</span></div>
         <form className="ticker-search" onSubmit={search}><label><span>Ticker</span><input aria-label="Ticker symbol" value={ticker} onChange={(event) => setTicker(event.target.value.toUpperCase())} placeholder="e.g. AAPL" /></label><button disabled={loading || !ticker.trim()}>{loading ? companyReady ? "Building…" : "Loading…" : "Build DCF"}</button></form>
@@ -1374,7 +1374,7 @@ export default function Home() {
 
     {!companyReady ? <section className="example-loader" aria-live="polite"><span>Loading company data</span><h2>{startingExample.name === startingExample.symbol ? startingExample.symbol : `${startingExample.name} · ${startingExample.symbol}`}</h2><p>Retrieving public financial statements, market data, and available forecast inputs.</p></section> : <div className="model-pages">
     <section className="company-summary">
-      <div><span>{data.company.exchange} · {data.company.symbol}</span><h2>{data.company.name}</h2><b className="company-description-label">{data.source === "Sample data" ? "WHAT THE COMPANY DOES · SAMPLE" : `WHAT THE COMPANY DOES · ${data.company.descriptionSource || "COMPANY PROFILE"}`}</b><p>{briefDescription(data.company.description)}</p><Link className="deep-analysis-link" href={`/company-analysis?symbol=${encodeURIComponent(data.company.symbol)}`}>{data.businessAnalysis?.filing ? "Open filing-based supply chain, customer concentration & credit screen →" : "Open company-analysis data availability & credit screen →"}</Link></div>
+      <div><span>{data.company.exchange} · {data.company.symbol}</span><h2>{data.company.name}</h2><b className="company-description-label">{data.source === "Sample data" ? "Business overview · sample" : `Business overview · ${data.company.descriptionSource || "company profile"}`}</b><p>{briefDescription(data.company.description)}</p><Link className="deep-analysis-link" href={`/company-analysis?symbol=${encodeURIComponent(data.company.symbol)}`}>Review company and credit analysis →</Link></div>
       <dl><div><dt>{priceContext.label}</dt><dd>{usd.format(model.marketPrice)}<small>{priceContext.detail}</small></dd></div><div><dt>Business niche</dt><dd>{data.comparison?.nicheLabel || data.company.industry}<small>{data.comparison?.industryExplanation || `Reported industry: ${data.company.industry}`}</small></dd></div><div><dt>Financials through</dt><dd>{data.asOf}</dd></div><div><dt>Company data source</dt><dd>{data.source}</dd></div></dl>
     </section>
 
@@ -1396,10 +1396,10 @@ export default function Home() {
     </section>
 
     <section className="research-workspace" aria-labelledby="research-workspace-title">
-      <div className="research-workspace-heading"><div><span>COMPS · PITCH</span><h2 id="research-workspace-title">Company research package for {data.company.symbol}</h2><p>Compare the company with its closest operating peers or review the investment case as a concise presentation.</p></div><small>LIVE TICKER-LINKED VIEWS</small></div>
+      <div className="research-workspace-heading"><div><h2 id="research-workspace-title">Comparable companies and presentation</h2><p>Review the closest operating peers or open the company presentation.</p></div></div>
       <div className="research-tabs" role="tablist" aria-label="Research package views">{([
         ["comps", "Comps analysis", "Peer selection and relative valuation"],
-        ["pitch", "Pitch deck", "Seven-slide investment briefing"],
+        ["pitch", "Pitch deck", "Seven-slide company summary"],
       ] as Array<[ResearchView, string, string]>).map(([view, label, detail]) => <button type="button" role="tab" aria-selected={researchView === view} className={researchView === view ? "active" : ""} key={view} onClick={() => setResearchView(view)}><span>{label}</span><small>{detail}</small></button>)}</div>
       <div className="research-panel" role="tabpanel" aria-label={`${researchView} view`}>
         {researchView === "comps" && <CompetitorComparison data={data} embedded/>}
@@ -1408,7 +1408,7 @@ export default function Home() {
     </section>
 
     {!financialUnsupported && <section className="sheet-section" id="build">
-      <div className="section-heading"><div><span className="section-index">02</span><p>MODEL</p><h2>DCF workbook</h2></div><div className="unit-note">USD IN MILLIONS · LIVE TICKER-LINKED CELLS</div></div>
+      <div className="section-heading"><div><span className="section-index">02</span><p>MODEL</p><h2>DCF workbook</h2></div><div className="unit-note">USD in millions · ticker-linked cells</div></div>
       <div className="method-audit">
         <div className="audit-heading"><div><span>CHECKING THE FORMULA</span><h3>Unlevered DCF</h3></div></div>
         <div className="six-step-grid">
@@ -1464,7 +1464,7 @@ export default function Home() {
     </section>}
 
     {!financialUnsupported && <section className="sheet-section" id="assumptions">
-      <div className="section-heading"><div><span className="section-index">01</span><p>INPUTS</p><h2>Project the operating business</h2></div><div className="unit-note">EDIT THE REVENUE, MARGIN, TAX, D&amp;A, CAPEX &amp; WORKING-CAPITAL DRIVERS</div></div>
+      <div className="section-heading"><div><span className="section-index">01</span><p>INPUTS</p><h2>Forecast assumptions</h2></div><div className="unit-note">Revenue, margin, tax, D&amp;A, capex and working-capital drivers</div></div>
       <div className="recommendation"><b>{data.comparison?.nicheLabel || data.company.industry} starting point</b><p>{rec.note}</p>{data.forecast ? <span>Years 1–2 start with {data.forecast.source} revenue estimates as of {data.forecast.asOf || "the displayed source date"}. Years 3–6 are clearly labeled website estimates. Every annual driver is editable below, and perpetual growth does not alter any explicit forecast year.</span> : <span>No validated analyst forecast was available. All six years begin as visible, editable model estimates rather than being presented as consensus.</span>}<span> The automatic working-capital shortcut assumes 2% of incremental revenue. Deferred tax and other non-cash adjustments start at 0%; replace these with a company-specific balance-sheet build and documented items such as stock compensation when material, while also updating dilution consistently.</span></div>
       <div className="forecast-editor"><div className="sheet-bar">Fiscal forecast drivers · each green cell is editable</div><div className="table-scroll"><table><thead><tr><th>Driver</th>{model.forecastDrivers.map((driver) => <th key={driver.periodEnd}>{fiscalPeriodLabel(driver.periodEnd)}</th>)}</tr></thead><tbody>{([
         ["Revenue growth", "revenueGrowth"], ["Gross margin", "grossMargin"], ["EBIT margin", "ebitMargin"], ["Tax rate", "taxRate"], ["D&A / revenue", "daPercent"], ["Capex / revenue", "capexPercent"], ["ΔNWC / revenue", "changeNwcPercent"], ["Deferred tax / revenue", "deferredTaxPercent"], ["Other non-cash / revenue", "otherNonCashPercent"],
