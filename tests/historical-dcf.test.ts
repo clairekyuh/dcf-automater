@@ -28,5 +28,11 @@ test("normalized tax rate uses a multi-year median instead of the latest one-tim
     { ...row("2025", 130), incomeTax: 24, earningsBeforeTax: 100 },
   ];
   assert.equal(normalizedHistoricalTaxRate(rows), 21);
-  assert.equal(normalizedHistoricalTaxRate(rows.map(({ incomeTax, earningsBeforeTax, ...value }) => value)), 21);
+  assert.equal(normalizedHistoricalTaxRate(rows.map((value) => ({
+    year: value.year,
+    fiscalDate: value.fiscalDate,
+    revenue: value.revenue,
+    operatingCashFlow: value.operatingCashFlow,
+    capex: value.capex,
+  }))), 21);
 });

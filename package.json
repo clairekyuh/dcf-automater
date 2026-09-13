@@ -9,20 +9,33 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "tsc --noEmit",
-    "test": "tsx --test tests/**/*.test.ts"
+    "lint": "eslint . --max-warnings=0",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/**/*.test.ts",
+    "check": "npm run lint && npm run typecheck && npm test"
   },
   "dependencies": {
+    "@fontsource/anek-devanagari": "^5.3.0",
+    "@fontsource/geomini": "^5.3.0",
+    "@fontsource/google-sans": "^5.3.1",
+    "@fontsource/montserrat": "^5.3.0",
     "exceljs": "^4.4.0",
-    "next": "^16.2.11",
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "next": "^16.3.5",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
   },
   "devDependencies": {
     "@types/node": "^20",
-    "@types/react": "^19.2.17",
-    "@types/react-dom": "^19.2.3",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.3.5",
     "tsx": "^4.23.1",
     "typescript": "^5"
+  },
+  "overrides": {
+    "exceljs": {
+      "uuid": "^11.1.1"
+    }
   }
 }

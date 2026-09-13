@@ -5,6 +5,11 @@ import { isStandardDcfUnsupported } from "@/lib/dcf-engine";
 import { normalizedHistoricalTaxRate } from "@/lib/historical-dcf";
 import { estimateMarketBeta } from "@/lib/market-beta";
 import { selectShareCount } from "@/lib/valuation-inputs";
+import { normalizeTicker } from "@/lib/ticker";
+import { createRequestDiagnostics, logDiagnostic, measureDiagnostic, safeErrorType, withDiagnosticHeaders } from "@/lib/server/diagnostics";
+import { fetchWithTimeout } from "@/lib/server/fetch-with-timeout";
+import { selectPeerSet } from "@/lib/peer-universe";
+import { defaultRiskScreen } from "@/lib/credit-screen";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -28,15 +33,13 @@ let secRequestQueue = Promise.resolve();
 async function secFetch(url: string, revalidate: number) {
   const run = async () => {
     await wait(120);
-    let lastStatus = 0;
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      const response = await fetch(url, { headers: SEC_HEADERS, next: { revalidate } });
-      lastStatus = response.status;
-      if (response.ok) return response;
-      if (![403, 429, 500, 502, 503, 504].includes(response.status)) break;
-      await wait(300 * 2 ** attempt);
-    }
-    throw new Error(`SEC EDGAR returned HTTP ${lastStatus || "error"}.`);
+    const response = await fetchWithTimeout(
+      url,
+      { headers: SEC_HEADERS, next: { revalidate } },
+      { timeoutMs: 12_000, maxRetries: 2, baseDelayMs: 300, maxRetryAfterMs: 3_000 },
+    );
+    if (response.ok) return response;
+    throw new Error(`SEC EDGAR returned HTTP ${response.status}.`);
   };
   const request = secRequestQueue.then(run, run);
   secRequestQueue = request.then(() => undefined, () => undefined);
@@ -51,8 +54,8 @@ async function currentMarketInputs() {
     startDate.setUTCDate(startDate.getUTCDate() - 120);
     const start = startDate.toISOString().slice(0, 10);
     const [fredResponse, damodaranResponse] = await Promise.all([
-      fetch(`https://fred.stlouisfed.org/graph/fredgraph.csv?id=DGS10&cosd=${start}&coed=${end}`, { next: { revalidate: 3600 } }),
-      fetch("https://pages.stern.nyu.edu/~adamodar/New_Home_Page/home.htm", { next: { revalidate: 86400 } }),
+      fetchWithTimeout(`https://fred.stlouisfed.org/graph/fredgraph.csv?id=DGS10&cosd=${start}&coed=${end}`, { next: { revalidate: 3600 } }),
+      fetchWithTimeout("https://pages.stern.nyu.edu/~adamodar/New_Home_Page/home.htm", { next: { revalidate: 86400 } }),
     ]);
     const result = { ...fallback };
     if (fredResponse.ok) {
@@ -93,7 +96,7 @@ type NasdaqRow = Record<string, string | null>;
 type NasdaqTable = { headers?: Record<string, string>; rows?: NasdaqRow[] };
 
 async function nasdaq(endpoint: string, revalidate = 86400) {
-  const response = await fetch(`${NASDAQ_API}${endpoint}`, { headers: NASDAQ_HEADERS, next: { revalidate } });
+  const response = await fetchWithTimeout(`${NASDAQ_API}${endpoint}`, { headers: NASDAQ_HEADERS, next: { revalidate } });
   if (!response.ok) throw new Error(`Nasdaq data request failed (${response.status}).`);
   const payload = await response.json();
   if (payload?.status?.rCode && payload.status.rCode !== 200) {
@@ -133,112 +136,6 @@ function tableValue(table: NasdaqTable, labels: string[], column: string) {
     if (value !== null) return value;
   }
   return null;
-}
-
-type PeerSet = {
-  id: string;
-  label: string;
-  basis: string;
-  symbols: string[];
-  patterns: RegExp[];
-  operatingCompetitors?: string[];
-  rationales?: Record<string, { fit: "direct" | "close" | "adjacent"; businessModel: string; detail: string }>;
-};
-
-const peerSets: PeerSet[] = [
-  {
-    id: "ai-cloud",
-    label: "AI-native GPU cloud infrastructure",
-    basis: "Companies offering GPU compute or high-density AI infrastructure are more economically comparable than diversified software vendors. Hyperscalers are shown separately as operating competitors because their cloud economics are buried inside much larger businesses.",
-    symbols: ["CRWV", "NBIS", "IREN", "APLD"],
-    patterns: [/\bai[- ]native\b/i, /\bai cloud\b/i, /\bgpu\b.{0,45}\b(cloud|compute|infrastructure)\b/i, /\b(cloud|compute)\b.{0,45}\b(ai|gpu)\b/i, /purpose-built.{0,35}\bai\b/i, /accelerated[- ]compute/i],
-    operatingCompetitors: ["MSFT", "AMZN", "GOOGL", "ORCL"],
-    rationales: {
-      CRWV: { fit: "direct", businessModel: "Purpose-built AI cloud platform", detail: "Purpose-built AI cloud combining GPU infrastructure, networking, storage, orchestration, and managed software." },
-      NBIS: { fit: "direct", businessModel: "Full-stack AI-native cloud", detail: "Full-stack AI-native cloud with GPU compute, data centers, orchestration, storage, and managed AI services." },
-      IREN: { fit: "close", businessModel: "AI cloud and power-dense data centers", detail: "Provides GPU AI-cloud services and owns power-dense data centers, but still has a material Bitcoin-mining business." },
-      APLD: { fit: "adjacent", businessModel: "AI/HPC data-center developer", detail: "Builds and leases high-density AI/HPC data centers; it is closer to an infrastructure landlord than a full-stack cloud platform." },
-    },
-  },
-  { id: "consumer-ecosystems", label: "Consumer devices and digital ecosystems", basis: "No public company mirrors the full business mix, so the group emphasizes consumer hardware, operating systems, services, and ecosystem reach.", symbols: ["AAPL", "GOOGL", "MSFT", "SONY"], patterns: [/consumer electronics/i, /smartphone/i, /personal technology/i, /devices and services/i] },
-  { id: "electric-vehicles", label: "Electric-vehicle manufacturers", basis: "Peers design and manufacture electric vehicles and share exposure to factory utilization, battery costs, pricing, and vehicle demand.", symbols: ["TSLA", "RIVN", "LCID", "NIO"], patterns: [/electric vehicle/i, /\bev manufacturer/i, /battery electric/i] },
-  { id: "eda", label: "Electronic design automation and engineering software", basis: "Peers sell mission-critical engineering tools with specialized IP, long product cycles, and workflow switching costs.", symbols: ["SNPS", "CDNS", "ADSK", "PTC"], patterns: [/electronic design automation/i, /semiconductor ip/i, /engineering.{0,20}software/i] },
-  { id: "cybersecurity", label: "Enterprise cybersecurity platforms", basis: "Peers sell security software and platforms with recurring revenue, large-enterprise distribution, and high product-integration costs.", symbols: ["PANW", "CRWD", "FTNT", "ZS"], patterns: [/cybersecurity/i, /network security/i, /cloud security/i, /endpoint security/i] },
-  { id: "gpu-semiconductors", label: "Accelerated-computing semiconductors", basis: "Peers compete through chip architecture, performance, software ecosystems, manufacturing access, and product cycles.", symbols: ["NVDA", "AMD", "AVGO", "INTC"], patterns: [/graphics processing/i, /\bgpu\b/i, /accelerated computing/i, /semiconductor/i] },
-  { id: "data-centers", label: "Data-center ownership and colocation", basis: "Peers monetize power, buildings, interconnection, and leased data-center capacity rather than primarily selling software.", symbols: ["EQIX", "DLR", "IRM", "APLD"], patterns: [/colocation/i, /data center (reit|operator|hosting|infrastructure)/i, /leased data center/i] },
-  { id: "public-cloud", label: "Diversified public-cloud platforms", basis: "Peers operate broad cloud-computing platforms spanning compute, storage, databases, software, and developer services.", symbols: ["MSFT", "AMZN", "GOOGL", "ORCL"], patterns: [/public cloud/i, /cloud computing platform/i, /hyperscaler/i, /cloud infrastructure services/i] },
-  { id: "enterprise-software", label: "Enterprise application software", basis: "Peers primarily sell standardized, recurring software used across business workflows.", symbols: ["CRM", "NOW", "WDAY", "ORCL"], patterns: [/enterprise software/i, /software as a service/i, /\bsaas\b/i, /business applications/i, /prepackaged software/i] },
-  { id: "payments", label: "Digital payments networks and processors", basis: "Peers monetize payment volume, merchant acceptance, transaction processing, and network scale.", symbols: ["V", "MA", "PYPL", "FI"], patterns: [/payment network/i, /payment processing/i, /digital payments/i, /merchant acquiring/i] },
-  { id: "banks", label: "Large diversified banks", basis: "Peers are compared on lending, deposits, capital, credit quality, and fee-generating financial services.", symbols: ["JPM", "BAC", "WFC", "C"], patterns: [/\bbank\b/i, /consumer banking/i, /commercial banking/i] },
-  { id: "insurance", label: "Property and casualty insurance", basis: "Peers underwrite similar risks and are evaluated using premiums, loss ratios, reserves, and investment income.", symbols: ["CB", "PGR", "ALL", "TRV"], patterns: [/property.{0,10}casualty/i, /insurance underwriting/i, /\binsurance\b/i] },
-  { id: "biotech", label: "Large-cap biotechnology", basis: "Peers depend on patented medicines, clinical pipelines, regulatory outcomes, and research productivity.", symbols: ["AMGN", "GILD", "REGN", "VRTX"], patterns: [/biotechnology/i, /biopharma/i, /therapeutic/i] },
-  { id: "pharma", label: "Global pharmaceutical companies", basis: "Peers commercialize broad medicine portfolios and are compared on pipeline durability, patent exposure, and global distribution.", symbols: ["MRK", "PFE", "ABBV", "BMY"], patterns: [/pharmaceutical/i, /prescription medicine/i] },
-  { id: "automotive", label: "Global vehicle manufacturers", basis: "Peers manufacture and finance vehicles, with similar exposure to production scale, pricing, demand cycles, and capital intensity.", symbols: ["GM", "F", "TM", "HMC"], patterns: [/automotive/i, /automobile manufacturer/i, /vehicles and mobility/i] },
-  { id: "energy", label: "Oil and gas producers", basis: "Peers are exposed to commodity prices, production costs, reserve replacement, and capital discipline.", symbols: ["XOM", "CVX", "COP", "EOG"], patterns: [/oil and gas/i, /petroleum/i, /hydrocarbon/i, /energy exploration/i] },
-  { id: "utilities", label: "Regulated electric utilities", basis: "Peers earn regulated returns on capital-intensive electricity networks and generation assets.", symbols: ["NEE", "DUK", "SO", "AEP"], patterns: [/electric utility/i, /regulated utility/i, /power utility/i] },
-  { id: "telecom", label: "Telecommunications networks", basis: "Peers monetize wireless, broadband, and communications networks with similar capital intensity and subscriber economics.", symbols: ["VZ", "T", "TMUS", "CHTR"], patterns: [/telecommunications/i, /wireless network/i, /broadband services/i] },
-  { id: "retail", label: "Large-format and general retail", basis: "Peers compete through merchandise, purchasing scale, stores, logistics, memberships, and consumer pricing.", symbols: ["WMT", "COST", "TGT", "AMZN"], patterns: [/general merchandise/i, /discount retail/i, /membership warehouse/i, /\bretail\b/i] },
-  { id: "aerospace", label: "Aerospace and defense contractors", basis: "Peers share long program cycles, government customers, backlogs, engineering requirements, and contract execution risk.", symbols: ["RTX", "LMT", "NOC", "GD"], patterns: [/aerospace/i, /defense contractor/i, /defence contractor/i] },
-  { id: "industrials", label: "Diversified industrial technology", basis: "Peers sell engineered equipment and services with exposure to industrial cycles, backlogs, and operating leverage.", symbols: ["HON", "ETN", "EMR", "ROK"], patterns: [/industrial technology/i, /industrial automation/i, /engineered products/i, /manufacturing solutions/i] },
-];
-
-const exactPeerSet: Record<string, string> = {
-  CRWV: "ai-cloud", NBIS: "ai-cloud", IREN: "ai-cloud", APLD: "ai-cloud",
-  SNPS: "eda", CDNS: "eda", ADSK: "eda", PTC: "eda", NVDA: "gpu-semiconductors", AMD: "gpu-semiconductors", AVGO: "gpu-semiconductors", INTC: "gpu-semiconductors",
-  PANW: "cybersecurity", CRWD: "cybersecurity", FTNT: "cybersecurity", ZS: "cybersecurity", EQIX: "data-centers", DLR: "data-centers", IRM: "data-centers",
-  AAPL: "consumer-ecosystems", TSLA: "electric-vehicles", RIVN: "electric-vehicles", LCID: "electric-vehicles",
-  XOM: "energy", CVX: "energy", COP: "energy", EOG: "energy",
-  JPM: "banks", BAC: "banks", WFC: "banks", C: "banks",
-  CB: "insurance", PGR: "insurance", ALL: "insurance", TRV: "insurance",
-  WMT: "retail", COST: "retail", TGT: "retail",
-  GOOGL: "public-cloud", GOOG: "public-cloud", MSFT: "public-cloud", AMZN: "public-cloud", ORCL: "public-cloud",
-  NEE: "utilities", DUK: "utilities", SO: "utilities", AEP: "utilities",
-  VZ: "telecom", T: "telecom", TMUS: "telecom", CHTR: "telecom",
-  MRK: "pharma", PFE: "pharma", ABBV: "pharma", BMY: "pharma", JNJ: "pharma",
-  AMGN: "biotech", GILD: "biotech", REGN: "biotech", VRTX: "biotech",
-};
-
-function selectPeerSet(company: { symbol: string; sector: string; industry: string; name: string; description: string }) {
-  const text = `${company.name} ${company.sector} ${company.industry} ${company.description}`;
-  const exact = exactPeerSet[company.symbol];
-  const ranked = peerSets
-    .map((set) => ({ set, score: set.patterns.reduce((sum, pattern) => sum + (pattern.test(text) ? 1 : 0), 0) + (set.id === exact ? 100 : 0) }))
-    .sort((a, b) => b.score - a.score);
-  const sectorFallback = /energy|oil|gas/i.test(text) ? "energy"
-    : /bank/i.test(text) ? "banks"
-      : /insurance/i.test(text) ? "insurance"
-        : /utility/i.test(text) ? "utilities"
-          : /telecom/i.test(text) ? "telecom"
-            : /pharma/i.test(text) ? "pharma"
-              : /biotech/i.test(text) ? "biotech"
-                : /retail/i.test(text) ? "retail"
-                  : /aerospace|defense/i.test(text) ? "aerospace"
-                    : /industrial|manufactur/i.test(text) ? "industrials"
-                      : null;
-  const selectedId = exact || (ranked[0]?.score > 0 ? ranked[0].set.id : sectorFallback);
-  const selected = selectedId ? peerSets.find((set) => set.id === selectedId) : undefined;
-  if (!selected) {
-    return {
-      id: "unclassified",
-      label: `${company.industry || company.sector || "Company"}—peer set not validated`,
-      basis: "The automatic classifier did not find a sufficiently specific business-model match, so it did not substitute an unrelated software peer group. Select comparables manually before relying on relative valuation.",
-      symbols: [] as string[],
-      patterns: [] as RegExp[],
-      rationales: undefined,
-      operatingCompetitors: [] as string[],
-      industryExplanation: `${company.industry} is the reported market classification. A narrower public-company peer group could not be validated automatically.`,
-      classificationConfidence: "low" as const,
-    };
-  }
-  const symbols = selected.symbols.filter((candidate) => candidate !== company.symbol).slice(0, 3);
-  return {
-    ...selected,
-    symbols,
-    classificationConfidence: exact ? "high" as const : "medium" as const,
-    industryExplanation: /prepackaged software/i.test(company.industry)
-      ? `“Prepackaged software” is a broad legacy classification for standardized software developed for multiple customers. It does not mean boxed software, and it may not describe ${selected.label} economics very well.`
-      : `${company.industry} is the reported market classification. The peer set is narrowed using the company description and business model: ${selected.label.toLowerCase()}.`,
-  };
 }
 
 function growthRate(values: number[]) {
@@ -350,7 +247,7 @@ type RevenueForecast = {
 async function analystRevenueForecast(symbol: string, latestRevenue: number): Promise<RevenueForecast | null> {
   try {
     const sourceUrl = `https://stockanalysis.com/stocks/${encodeURIComponent(symbol.toLowerCase())}/forecast/`;
-    const response = await fetch(sourceUrl, {
+    const response = await fetchWithTimeout(sourceUrl, {
       headers: { "User-Agent": NASDAQ_HEADERS["User-Agent"], Accept: "text/html,application/xhtml+xml" },
       next: { revalidate: 21600 },
     });
@@ -385,7 +282,7 @@ async function analystRevenueForecast(symbol: string, latestRevenue: number): Pr
 
 async function publicCompanyMetadata(symbol: string) {
   try {
-    const response = await fetch(`https://stockanalysis.com/stocks/${encodeURIComponent(symbol.toLowerCase())}/company/`, {
+    const response = await fetchWithTimeout(`https://stockanalysis.com/stocks/${encodeURIComponent(symbol.toLowerCase())}/company/`, {
       headers: { "User-Agent": NASDAQ_HEADERS["User-Agent"], Accept: "text/html" },
       next: { revalidate: 2592000 },
     });
@@ -482,57 +379,6 @@ function supplyChainSignals(text: string) {
     signals.push({ level: "medium", title: "Shortage and disruption exposure", detail: "The filing identifies raw-material, component, or broader supply-chain disruption as a business risk." });
   }
   return signals.slice(0, 5);
-}
-
-function defaultRiskScreen(values: {
-  debtToRevenue: number | null;
-  netDebtToEbitda: number | null;
-  currentRatio: number | null;
-  interestCoverage: number | null;
-  fcfToDebt: number | null;
-  ebitda: number | null;
-  freeCashFlow: number | null;
-}) {
-  let points = 0;
-  const drivers: string[] = [];
-  const add = (condition: boolean, score: number, driver: string) => { if (condition) { points += score; drivers.push(driver); } };
-  const availableChecks = [values.debtToRevenue, values.netDebtToEbitda, values.currentRatio, values.interestCoverage, values.fcfToDebt].filter((value) => value !== null).length;
-  if (values.debtToRevenue !== null) {
-    add(values.debtToRevenue > 1.5, 2, "Debt is high relative to revenue.");
-    add(values.debtToRevenue > .75 && values.debtToRevenue <= 1.5, 1, "Debt is elevated relative to revenue.");
-  }
-  if (values.netDebtToEbitda !== null) {
-    add(values.netDebtToEbitda > 4, 2, "Net debt exceeds four times EBITDA.");
-    add(values.netDebtToEbitda > 2.5 && values.netDebtToEbitda <= 4, 1, "Net debt is elevated relative to EBITDA.");
-  }
-  if (values.currentRatio !== null) {
-    add(values.currentRatio < 1, 2, "Current liabilities exceed current assets.");
-    add(values.currentRatio >= 1 && values.currentRatio < 1.5, 1, "Short-term liquidity is limited.");
-  }
-  if (values.interestCoverage !== null) {
-    add(values.interestCoverage < 1.5, 2, "Operating income provides weak interest coverage.");
-    add(values.interestCoverage >= 1.5 && values.interestCoverage < 3, 1, "Interest coverage has a limited cushion.");
-  }
-  if (values.fcfToDebt !== null) {
-    add(values.fcfToDebt < 0, 2, "Free cash flow is negative relative to debt.");
-    add(values.fcfToDebt >= 0 && values.fcfToDebt < .1, 1, "Free cash flow covers less than 10% of funded debt.");
-  }
-  add(values.ebitda !== null && values.ebitda <= 0, 2, "EBITDA is non-positive, weakening debt-service capacity.");
-  add(values.freeCashFlow !== null && values.freeCashFlow < 0 && (values.fcfToDebt === null || values.fcfToDebt >= 0), 1, "Free cash flow is negative.");
-  if (availableChecks < 3) {
-    return {
-      level: "insufficient" as const,
-      points,
-      availableChecks,
-      drivers: ["Fewer than three core solvency ratios could be calculated from the latest SEC annual facts, so the model will not label the company low risk."],
-    };
-  }
-  return {
-    level: points >= 6 ? "high" : points >= 3 ? "moderate" : "low",
-    points,
-    availableChecks,
-    drivers: drivers.length ? drivers : ["The available leverage, liquidity, coverage, and cash-flow ratios do not show an obvious near-term default warning."],
-  };
 }
 
 function filingBusinessDescription(text: string) {
@@ -730,22 +576,24 @@ async function secDataset(symbol: string) {
 }
 
 export async function GET(request: NextRequest) {
-  const symbol = request.nextUrl.searchParams.get("symbol")?.trim().toUpperCase();
-  if (!symbol || !/^[A-Z0-9.\-]{1,12}$/.test(symbol)) {
-    return NextResponse.json({ error: "Enter a valid ticker symbol." }, { status: 400 });
+  const diagnostics = createRequestDiagnostics(request, "/api/company");
+  const symbol = normalizeTicker(request.nextUrl.searchParams.get("symbol"));
+  if (!symbol) {
+    logDiagnostic("warn", diagnostics, { event: "company_request_rejected", status: 400, outcome: "rejected" });
+    return withDiagnosticHeaders(NextResponse.json({ error: "Enter a valid ticker symbol.", code: "INVALID_TICKER", requestId: diagnostics.requestId }, { status: 400 }), diagnostics);
   }
 
   try {
-    const primaryPromise = nasdaqFundamentals(symbol);
-    const revenueForecastPromise = primaryPromise.then((company) => analystRevenueForecast(symbol, company.historical[0].revenue));
+    const primaryPromise = measureDiagnostic(diagnostics, { event: "provider_company_fundamentals", provider: "nasdaq", symbol }, () => nasdaqFundamentals(symbol));
+    const revenueForecastPromise = primaryPromise.then((company) => measureDiagnostic(diagnostics, { event: "provider_revenue_forecast", provider: "stock-analysis", symbol }, () => analystRevenueForecast(symbol, company.historical[0].revenue)));
     const [primary, priceHistory, marketHistory, secResult, publicMetadata, revenueForecast, marketInputs] = await Promise.all([
       primaryPromise,
-      nasdaqPriceHistory(symbol).catch(() => []),
-      nasdaqPriceHistory("SPY", "etf").catch(() => []),
-      secDataset(symbol),
-      publicCompanyMetadata(symbol),
+      measureDiagnostic(diagnostics, { event: "provider_price_history", provider: "nasdaq", symbol }, () => nasdaqPriceHistory(symbol)).catch(() => []),
+      measureDiagnostic(diagnostics, { event: "provider_market_history", provider: "nasdaq", symbol }, () => nasdaqPriceHistory("SPY", "etf")).catch(() => []),
+      measureDiagnostic(diagnostics, { event: "provider_sec_dataset", provider: "sec", symbol }, () => secDataset(symbol)),
+      measureDiagnostic(diagnostics, { event: "provider_company_metadata", provider: "stock-analysis", symbol }, () => publicCompanyMetadata(symbol)),
       revenueForecastPromise,
-      currentMarketInputs(),
+      measureDiagnostic(diagnostics, { event: "provider_market_inputs", provider: "internal", symbol }, currentMarketInputs),
     ]);
     const sec = secResult.data;
     const companyName = sec?.company.name || primary.name;
@@ -766,7 +614,7 @@ export async function GET(request: NextRequest) {
       description: sec?.company.description || primary.description,
     });
     const selectedPeerSymbols = peerSet.symbols;
-    const peerResults = await Promise.allSettled(selectedPeerSymbols.map((peerSymbol) => nasdaqFundamentals(peerSymbol)));
+    const peerResults = await Promise.allSettled(selectedPeerSymbols.map((peerSymbol) => measureDiagnostic(diagnostics, { event: "provider_peer_fundamentals", provider: "nasdaq", symbol: peerSymbol }, () => nasdaqFundamentals(peerSymbol))));
     const peers = peerResults
       .filter((result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof nasdaqFundamentals>>> => result.status === "fulfilled")
       .map((result) => {
@@ -1000,8 +848,19 @@ export async function GET(request: NextRequest) {
       historical: [...historical].reverse(),
     });
     normalizedResponse.headers.set("Cache-Control", "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400");
-    return normalizedResponse;
+    const degraded = secResult.status !== "available" || peers.length < selectedPeerSymbols.length;
+    logDiagnostic(degraded ? "warn" : "info", diagnostics, {
+      event: "company_request_completed",
+      status: 200,
+      symbol,
+      secStatus: secResult.status,
+      peerCount: peers.length,
+      expectedPeerCount: selectedPeerSymbols.length,
+      outcome: degraded ? "degraded" : "success",
+    });
+    return withDiagnosticHeaders(normalizedResponse, diagnostics);
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to load company data." }, { status: 502 });
+    logDiagnostic("error", diagnostics, { event: "company_request_failed", status: 502, symbol, outcome: "error", errorType: safeErrorType(error) });
+    return withDiagnosticHeaders(NextResponse.json({ error: "Unable to load company data right now.", code: "COMPANY_DATA_UNAVAILABLE", requestId: diagnostics.requestId }, { status: 502 }), diagnostics);
   }
 }
