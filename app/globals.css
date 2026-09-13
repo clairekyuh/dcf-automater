@@ -607,6 +607,24 @@ html,body{height:100%;overflow:hidden}
   .analysis-page,.company-view-page{padding-top:62px}.company-nav-links a{font-size:7px}.company-nav-context{display:none}.company-view-header{padding:44px 20px 30px}.company-view-panel,.company-view-page .sheet-section,.company-view-page footer{width:calc(100% - 24px)}.company-view-panel,.company-view-page .sheet-section{margin:20px auto;padding:18px 13px;border-radius:16px}
 }
 @media(prefers-reduced-motion:reduce){.company-route-transition{display:none}.company-view-header,.company-view-panel,.company-view-page .sheet-section,.analysis-page .analysis-hero,.analysis-page .analysis-section{animation:none}}
+
+/* Progressive disclosure keeps the default calculator focused on the answer. */
+.calculation-details{margin-top:22px;border-top:1px solid var(--editorial-rule)}
+.calculation-details>summary{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px 0;color:var(--navy-dark);font:700 13px/1.2 Manrope,Arial,sans-serif;cursor:pointer;list-style:none}
+.calculation-details>summary::-webkit-details-marker{display:none}
+.calculation-details>summary:after{content:"+";font:400 22px/1 Manrope,Arial,sans-serif;color:var(--green)}
+.calculation-details[open]>summary:after{content:"−"}
+.calculation-details[open]>.bridge-grid{padding-top:6px}
+.model-tools{box-sizing:border-box;width:var(--content);max-width:1380px;margin:0 auto var(--editorial-space);padding:18px 0;border-top:1px solid var(--editorial-rule);border-bottom:1px solid var(--editorial-rule);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.model-tools>div{margin-right:auto;display:grid;gap:3px}.model-tools>div strong{font:700 14px/1.2 Manrope,Arial,sans-serif;color:var(--navy-dark)}.model-tools>div span{font:12px/1.4 Manrope,Arial,sans-serif;color:var(--muted)}
+.model-tools button{min-height:39px;padding:0 14px;border:1px solid var(--grid-dark);border-radius:999px;background:transparent;color:var(--navy-dark);font:650 12px/1 Manrope,Arial,sans-serif;cursor:pointer}
+.model-tools button:hover,.model-tools button.active{border-color:var(--green);background:#eef3e3;color:var(--navy-dark)}
+.model-tools .excel-export.compact{width:auto;margin:0;border-color:var(--navy-dark);background:var(--navy-dark);color:white}
+.model-tools .excel-export-error{flex-basis:100%;margin:5px 0 0;text-align:right}
+@media(max-width:760px){.model-tools{width:var(--content);align-items:stretch}.model-tools>div{flex-basis:100%;margin:0 0 6px}.model-tools button,.model-tools .excel-export.compact{flex:1 1 calc(50% - 4px);width:auto}.calculation-details>summary{padding:16px 0}}
+
+.model-pages>.model-tools{order:4}
+.model-pages>#output,.model-pages>#build,.model-pages>#assumptions,.model-pages>.research-workspace{order:5}
 @media print{
 @page{size:landscape;margin:0}
 body.printing-pitch{background:white}
@@ -746,6 +764,22 @@ body{background:#f7f6f1}
 
 .analysis-page .analysis-hero{padding-bottom:44px}.analysis-page .analysis-hero>div span{padding:0;border:0;background:transparent}.analysis-page .analysis-hero>div span+span:before{content:"·";margin-right:10px;color:var(--muted)}.analysis-page .analysis-section{margin-bottom:0;padding:var(--editorial-space) 0;border:0;border-top:1px solid var(--editorial-rule);border-radius:0;background:transparent;box-shadow:none}.analysis-heading{border-bottom:1px solid var(--editorial-rule)}.analysis-heading>div:first-child{padding-left:0}.analysis-heading>div:first-child>span,.analysis-heading>div:first-child>p{display:none}.supply-flow{border:0;border-top:1px solid var(--editorial-rule);border-bottom:1px solid var(--editorial-rule)}.supply-flow article{background:transparent}.supply-flow article:not(:last-child):after{display:none}.analysis-risk-grid{gap:24px}.analysis-risk-grid article{padding:17px 0;border:0;border-top:2px solid var(--teal)}.analysis-metrics{border:0;border-top:1px solid var(--editorial-rule);border-bottom:1px solid var(--editorial-rule)}.analysis-metric{border:0;border-right:1px solid var(--editorial-rule);border-radius:0}.analysis-metric:last-child{border-right:0}.default-detail{border:0;border-top:1px solid var(--editorial-rule);border-bottom:1px solid var(--editorial-rule)}.analysis-sources{padding:28px 0;border:0;border-top:1px solid var(--editorial-rule);border-radius:0;background:transparent;box-shadow:none}
 
+/* Trial treatment: the two valuation methods read as compact spreadsheet schedules. */
+.bridge-grid{gap:22px;align-items:start}
+.method-worksheet{position:relative;border:1px solid #8d9991;background:#fff;overflow:visible}
+.method-worksheet .sheet-bar{padding:10px 12px;background:var(--navy-dark);border:0;color:#fff;font:600 11px var(--font-body);letter-spacing:.01em}
+.method-worksheet .worksheet-columns{display:grid!important;grid-template-columns:minmax(0,1fr) 154px;gap:0!important;padding:0!important;background:#e7ebe7;border-bottom:1px solid #9da79f!important;color:#435047;font:600 10px DM Mono;text-transform:uppercase;letter-spacing:.04em}
+.method-worksheet .worksheet-columns span,.method-worksheet .worksheet-columns b{padding:7px 10px}.method-worksheet .worksheet-columns b{border-left:1px solid #9da79f;text-align:right}
+.method-worksheet>div:not(.sheet-bar):not(.method-explainer):not(.invalid-method):not(.worksheet-columns){display:grid;grid-template-columns:minmax(0,1fr) 154px;gap:0;padding:0;border-bottom:1px solid #cfd5d0;font:11px/1.35 DM Mono}
+.method-worksheet>div:not(.sheet-bar):not(.method-explainer):not(.invalid-method):not(.worksheet-columns)>span{padding:8px 10px;background:#f8f8f5}
+.method-worksheet>div:not(.sheet-bar):not(.method-explainer):not(.invalid-method):not(.worksheet-columns)>b{padding:8px 10px;border-left:1px solid #cfd5d0;background:#fff;text-align:right;font-weight:500;font-variant-numeric:tabular-nums}
+.method-worksheet .reference-row{background:transparent;color:var(--navy-dark)}.method-worksheet .reference-row>span{background:#f0f5e8!important}.method-worksheet .reference-row>b{background:#e3efd2!important;color:#274638;font-weight:700!important}
+.method-worksheet .method-explainer{padding:13px!important;border-bottom:1px solid #9da79f!important;background:#f2f4ef!important}.method-worksheet .method-explainer span{font-size:9px}.method-worksheet .method-explainer p{margin:6px 0 10px}.method-worksheet .method-explainer code{padding:9px 10px;border:1px solid #aeb7b0;background:#fff;font-size:10px;line-height:1.6}
+.method-worksheet .bridge-note{padding:10px;border-bottom:1px solid #cfd5d0;background:#f5f4ef;font:9px/1.55 DM Mono}
+.method-worksheet .total{border-top:2px solid var(--navy)!important;font-weight:700}.method-worksheet .total>span,.method-worksheet .total>b{font-weight:700!important}
+.method-worksheet .answer{background:transparent;color:var(--ink);font-size:12px}.method-worksheet .answer>span{background:#dce8c7!important;font-weight:700}.method-worksheet .answer>b{background:#c9dfa5!important;color:var(--navy-dark);font-size:14px;font-weight:800!important}
+.method-worksheet .defined-term:after{left:0;transform:translateX(0) translateY(4px)}.method-worksheet .defined-term:hover:after,.method-worksheet .defined-term:focus:after{transform:translateX(0) translateY(0)}
+
 @media(max-width:900px){
   .model-pages>.company-summary>div{padding-right:30px}.company-summary dl{padding-left:28px}
   .reference-sensitivity{grid-template-columns:1fr}.analysis-metrics.five{grid-template-columns:repeat(3,1fr)}
@@ -758,4 +792,73 @@ body{background:#f7f6f1}
   .research-tabs{gap:18px}.research-tabs button{flex:1;padding:10px 0}.research-tabs small{display:none}.research-panel{padding-top:24px}
   .six-step-grid{grid-template-columns:1fr}.six-step-grid article:nth-child(odd){border-right:0}.assumption-grid{gap:10px}.company-view-panel,.company-view-page .sheet-section{padding:38px 0}
   .analysis-page .analysis-section{padding:38px 0}.analysis-metrics.four,.analysis-metrics.five{grid-template-columns:1fr}.analysis-metric{border-right:0;border-bottom:1px solid #d9ddd8}.analysis-metric:last-child{border-bottom:0}
+  .method-worksheet .worksheet-columns,.method-worksheet>div:not(.sheet-bar):not(.method-explainer):not(.invalid-method):not(.worksheet-columns){grid-template-columns:minmax(0,1fr) 118px}.method-worksheet>div:not(.sheet-bar):not(.method-explainer):not(.invalid-method):not(.worksheet-columns)>span,.method-worksheet>div:not(.sheet-bar):not(.method-explainer):not(.invalid-method):not(.worksheet-columns)>b{padding:8px 7px}
 }
+
+@keyframes presentation-fade{from{opacity:.18}to{opacity:1}}
+@supports (animation-timeline:view()){
+  .model-pages>.research-workspace{animation:presentation-fade linear both!important;animation-timeline:view()!important;animation-range:entry 0% cover 24%!important}
+}
+@media(prefers-reduced-motion:reduce){.model-pages>.research-workspace{animation:none!important;opacity:1!important}}
+
+/* The compact tool switcher follows the valuation; only its selected panel mounts. */
+.model-pages>.additional-information{order:4}
+.model-pages>#output{order:3}
+.model-pages>#calculations,.model-pages>#build,.model-pages>#assumptions,.model-pages>.research-workspace{order:5}
+.model-pages>.company-summary{display:block}
+.additional-information{box-sizing:border-box;width:var(--content);max-width:1380px;margin:0 auto var(--editorial-space);border-top:1px solid var(--editorial-rule);border-bottom:1px solid var(--editorial-rule)}
+.additional-information>summary{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:16px;padding:20px 0;cursor:pointer;list-style:none}
+.additional-information>summary::-webkit-details-marker{display:none}
+.additional-information>summary strong{font:700 15px/1.2 Manrope,Arial,sans-serif;color:var(--navy-dark)}
+.additional-information>summary span{font:12px/1.4 Manrope,Arial,sans-serif;color:var(--muted)}
+.additional-information>summary:after{content:"+";font:400 24px/1 Manrope,Arial,sans-serif;color:var(--green)}
+.additional-information[open]>summary:after{content:"−"}
+.additional-information .model-tools{width:100%;margin:0;padding:0 0 20px;border:0}
+@media(max-width:640px){.additional-information>summary{grid-template-columns:1fr auto}.additional-information>summary span{grid-column:1/-1;grid-row:2}.additional-information>summary:after{grid-column:2;grid-row:1}.additional-information .model-tools button,.additional-information .model-tools .excel-export.compact{flex-basis:100%}}
+
+/* Valuation methods read as arithmetic, not dashboard cards. */
+.valuation-equation{min-width:0;padding:0;border:0;background:transparent}
+.valuation-equation>header{display:flex;align-items:baseline;justify-content:space-between;gap:18px;padding:0 0 13px;border-bottom:2px solid var(--navy-dark)}
+.valuation-equation>header h3{margin:0;color:var(--navy-dark);font-size:25px}.valuation-equation>header>span{color:var(--muted);font:12px/1.3 Manrope,Arial,sans-serif}
+.terminal-equation{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:24px;padding:22px 0;border-bottom:1px solid var(--editorial-rule)}
+.terminal-equation>div{display:grid;gap:7px}.terminal-equation span{color:var(--muted);font:600 12px/1.3 Manrope,Arial,sans-serif}.terminal-equation code{color:var(--ink);font:500 14px/1.55 DM Mono;overflow-wrap:anywhere}.terminal-equation>b{color:var(--navy-dark);font:700 20px/1.1 DM Mono;font-variant-numeric:tabular-nums;white-space:nowrap}
+.equation-context{display:flex;flex-wrap:wrap;gap:8px 20px;padding:13px 0 19px;border-bottom:1px solid var(--editorial-rule);color:var(--muted);font:11px/1.5 Manrope,Arial,sans-serif}.equation-context span{white-space:nowrap}.equation-context b{margin-left:4px;color:var(--ink);font-weight:700}
+.equation-flow{padding-top:14px}.equation-line{display:grid;grid-template-columns:28px minmax(0,1fr) auto;align-items:baseline;gap:8px;padding:8px 0;font:13px/1.35 Manrope,Arial,sans-serif}.equation-line i{color:var(--green);font:700 18px/1 DM Mono;text-align:center}.equation-line span{color:#425049}.equation-line>b{color:var(--ink);font:600 14px/1.2 DM Mono;font-variant-numeric:tabular-nums;white-space:nowrap}.equation-line.total{margin-top:5px;padding-top:12px;border-top:1px solid var(--navy-dark)}.equation-line.total span,.equation-line.total>b{color:var(--navy-dark);font-weight:750}.equation-line.answer{margin-top:7px;padding:15px 0;border-top:2px solid var(--navy-dark);border-bottom:4px double var(--navy-dark)}.equation-line.answer span{color:var(--navy-dark);font-weight:750}.equation-line.answer>b{color:var(--green);font-size:22px;font-weight:800}
+@media(max-width:640px){.bridge-grid{grid-template-columns:1fr}.valuation-equation>header{display:block}.valuation-equation>header>span{display:block;margin-top:5px}.terminal-equation{grid-template-columns:1fr;gap:10px}.terminal-equation>b{text-align:right}.equation-line{grid-template-columns:22px minmax(0,1fr) auto;gap:5px}.equation-line span{font-size:12px}.equation-line>b{font-size:12px}.equation-line.answer>b{font-size:19px}}
+
+/* A continuous opening flow: search, company context, then valuation output. */
+.calculator-header{padding:34px 0 30px}
+.calculator-header .ticker-search:focus-within{border-color:var(--navy-dark);box-shadow:none;transform:none}
+.calculator-header .ticker-search input:focus,.calculator-header .ticker-search input:focus-visible{outline:none}
+.model-pages>.company-summary{padding:34px 0 38px;border-top:0}
+.model-pages>.company-summary>div{max-width:900px;padding:0;border-right:0}
+.model-pages>#output{padding-top:44px}
+@media(max-width:640px){.calculator-header{padding:28px 0 24px}.model-pages>.company-summary{padding:28px 0 32px}.model-pages>.company-summary>div{padding:0;border-bottom:0}.model-pages>#output{padding-top:34px}}
+
+/* Compact editorial masthead: useful content appears within the first viewport. */
+.calculator-header{padding:26px 0 24px}
+.calculator-header .hero-copy{max-width:none;display:grid;grid-template-columns:minmax(280px,.72fr) minmax(480px,1.28fr);grid-template-rows:auto auto auto;column-gap:clamp(38px,6vw,86px);align-items:end}
+.calculator-header .hero-copy>p{grid-column:1;grid-row:1;margin-bottom:7px}
+.calculator-header .hero-copy>h1{grid-column:1;grid-row:2/4;margin:0;align-self:start}
+.calculator-header .hero-copy>.instructions{grid-column:2;grid-row:1;margin:0 0 8px}
+.calculator-header .hero-copy>.ticker-search{grid-column:2;grid-row:2;width:100%;max-width:none}
+.calculator-header .hero-copy>.api-error{grid-column:2;grid-row:3}
+.calculator-header .hero-copy>small{grid-column:2;grid-row:4;margin-top:8px}
+.model-pages>.company-summary{display:grid;grid-template-columns:minmax(260px,.62fr) minmax(0,1.38fr);gap:clamp(34px,5vw,72px);align-items:center;padding:28px 0 30px}
+.model-pages>.company-summary>div{max-width:none;padding:0;border:0}
+.model-pages>.company-summary>.company-copy{padding-left:clamp(28px,4vw,56px);border-left:1px solid var(--editorial-rule)}
+.company-summary .company-identity h2{margin:8px 0 0}.company-summary .company-description-label{margin:0}.company-summary .company-copy p{max-width:850px;margin:8px 0 12px;line-height:1.55}
+.model-pages>#output{padding-top:34px}
+.output-company>a{display:inline-block;margin-top:13px;padding-bottom:2px;border-bottom:1px solid #b8c8bf;color:#e5ebe7;font-size:12px;font-weight:650;text-decoration:none}.output-company>a:hover{color:var(--lime);border-color:var(--lime)}
+@media(max-width:860px){.calculator-header .hero-copy{display:block}.calculator-header .hero-copy>h1{margin-bottom:16px}.calculator-header .hero-copy>.instructions{margin-bottom:14px}.model-pages>.company-summary{grid-template-columns:1fr;gap:20px}.model-pages>.company-summary>.company-copy{padding:20px 0 0;border-left:0;border-top:1px solid var(--editorial-rule)}}
+@media(max-width:640px){.calculator-header{padding:24px 0 22px}.model-pages>.company-summary{display:grid;padding:24px 0 26px}.model-pages>#output{padding-top:28px}}
+
+/* Minimal calculator entry: one title, one action, then the result. */
+.calculator-header{padding:24px 0;border-bottom:1px solid var(--editorial-rule)}
+.calculator-header .hero-copy{display:grid;grid-template-columns:minmax(240px,.55fr) minmax(440px,1.45fr);grid-template-rows:auto;column-gap:clamp(36px,6vw,90px);align-items:center}
+.calculator-header .hero-copy>h1{grid-column:1;grid-row:1;margin:0;font-size:clamp(40px,5vw,66px);line-height:.92}
+.calculator-header .hero-copy>.ticker-search{grid-column:2;grid-row:1;width:100%;max-width:none}
+.calculator-header .hero-copy>.api-error{grid-column:2;grid-row:2;margin-top:10px}
+.model-pages>#output{padding-top:26px;border-top:0}
+.output-section>.output-screen{margin-top:0}
+@media(max-width:760px){.calculator-header .hero-copy{display:block}.calculator-header .hero-copy>h1{margin-bottom:20px}.model-pages>#output{padding-top:20px}}

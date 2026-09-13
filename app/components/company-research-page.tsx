@@ -1,27 +1,20 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import CompanyNavigation, { type CompanyNavView } from "@/app/components/company-navigation";
 import CompanyNews from "@/app/components/company-news";
-import StockPriceChart, { type PricePoint } from "@/app/components/stock-price-chart";
-
-type RiskItem = { level: "high" | "medium" | "low"; title: string; detail: string };
-type ResearchCompany = {
-  source: string;
-  asOf: string;
-  company: { symbol: string; name: string; description: string; ipoDate?: string | null; exchange: string; country: string; sector: string; industry: string };
-  market: { priceHistory?: PricePoint[] };
-  metrics: { revenue: number; debt: number; capexPercentRevenue: number; ebitMargin: number };
-  historical: Array<{ year: string; ebitMargin: number }>;
-  businessAnalysis?: { supplyChain?: { signals?: RiskItem[]; filingReviewed?: boolean } };
-};
+import StockPriceChart from "@/app/components/stock-price-chart";
+import { readCompanyData, readResearchData, storeCompanyData } from "@/lib/client/company-storage";
+import { apiErrorMessage } from "@/lib/client/api-error";
+import type { CompanyData, RiskItem } from "@/lib/company-data";
 
 const fmt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
 const longDate = (date: string) => new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" }).format(new Date(`${date}T00:00:00Z`));
 const riskAssumption = (title: string) => /capital/i.test(title) ? "Capex and free cash flow" : /leverage|debt|credit/i.test(title) ? "WACC and equity bridge" : /margin/i.test(title) ? "EBIT margin" : /customer|supplier|supply/i.test(title) ? "Revenue and operating margin" : /terminal/i.test(title) ? "Terminal value" : "Company forecast";
 const riskDirection = (title: string) => /leverage|debt|credit/i.test(title) ? "Higher discount rate or lower equity value" : /capital|margin|customer|supplier|supply/i.test(title) ? "Lower forecast cash flow" : /terminal/i.test(title) ? "Lower terminal value" : "Review forecast assumptions";
 
-function baselineRisks(data: ResearchCompany): RiskItem[] {
+function baselineRisks(data: CompanyData): RiskItem[] {
   const capex = data.metrics.capexPercentRevenue;
   const leverage = data.metrics.debt / Math.max(data.metrics.revenue, 1);
   const margins = data.historical.map((row) => row.ebitMargin).filter(Number.isFinite);
@@ -35,74 +28,50 @@ function baselineRisks(data: ResearchCompany): RiskItem[] {
   ];
 }
 
-function storedCompany(requested?: string) {
-  const raw = sessionStorage.getItem("dcf:last-company") || localStorage.getItem("dcf:last-company");
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw) as ResearchCompany;
-    return !requested || parsed.company.symbol === requested ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-function storedRisks(symbol: string) {
-  const raw = sessionStorage.getItem("dcf:last-research") || localStorage.getItem("dcf:last-research");
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw) as { symbol: string; risks: RiskItem[] };
-    return parsed.symbol === symbol && Array.isArray(parsed.risks) ? parsed.risks : null;
-  } catch {
-    return null;
-  }
-}
-
 export default function CompanyResearchPage({ view }: { view: "price" | "news" | "risks" }) {
-  const [data, setData] = useState<ResearchCompany | null>(null);
+  const [data, setData] = useState<CompanyData | null>(null);
   const [risks, setRisks] = useState<RiskItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const requested = new URLSearchParams(window.location.search).get("symbol")?.trim().toUpperCase();
-    const cached = storedCompany(requested);
-    if (cached) {
-      setData(cached);
-      setRisks(storedRisks(cached.company.symbol) || baselineRisks(cached));
-      setLoading(false);
-      return;
-    }
-    if (!requested || !/^[A-Z0-9.\-]{1,12}$/.test(requested)) {
-      setError("Load a ticker in the DCF model first.");
-      setLoading(false);
-      return;
-    }
     const controller = new AbortController();
-    fetch(`/api/company?symbol=${encodeURIComponent(requested)}`, { cache: "no-store", signal: controller.signal })
-      .then(async (response) => {
+    void Promise.resolve().then(async () => {
+      if (controller.signal.aborted) return;
+      const requested = new URLSearchParams(window.location.search).get("symbol")?.trim().toUpperCase();
+      const cached = readCompanyData(requested);
+      if (cached) {
+        setData(cached);
+        setRisks(readResearchData(cached.company.symbol)?.risks || baselineRisks(cached));
+        setLoading(false);
+        return;
+      }
+      if (!requested || !/^[A-Z0-9.\-]{1,12}$/.test(requested)) {
+        setError("Load a ticker in the DCF model first.");
+        setLoading(false);
+        return;
+      }
+      try {
+        const response = await fetch(`/api/company?symbol=${encodeURIComponent(requested)}`, { signal: controller.signal });
         const payload = await response.json();
-        if (!response.ok) throw new Error(payload.error || "Unable to load this company.");
-        return payload as ResearchCompany;
-      })
-      .then((company) => {
-        const serialized = JSON.stringify(company);
-        sessionStorage.setItem("dcf:last-company", serialized);
-        localStorage.setItem("dcf:last-company", serialized);
+        if (!response.ok) throw new Error(apiErrorMessage(payload, "Unable to load this company."));
+        const company = payload as CompanyData;
+        if (controller.signal.aborted) return;
+        storeCompanyData(company);
         setData(company);
         setRisks(baselineRisks(company));
-      })
-      .catch((caught) => {
+      } catch (caught) {
         if (caught instanceof DOMException && caught.name === "AbortError") return;
-        setError(caught instanceof Error ? caught.message : "Unable to load this company.");
-      })
-      .finally(() => {
+        if (!controller.signal.aborted) setError(caught instanceof Error ? caught.message : "Unable to load this company.");
+      } finally {
         if (!controller.signal.aborted) setLoading(false);
-      });
+      }
+    });
     return () => controller.abort();
   }, []);
 
   const active = view as CompanyNavView;
-  if (!data) return <main className="company-view-page"><CompanyNavigation active={active}/><section className="company-view-missing"><span>{view.toUpperCase()}</span><h1>{loading ? "Loading company…" : "Company not loaded"}</h1><p>{error || "Open the DCF model and enter a ticker first."}</p><a href="/">Open DCF model →</a></section></main>;
+  if (!data) return <main className="company-view-page"><CompanyNavigation active={active}/><section className="company-view-missing"><span>{view.toUpperCase()}</span><h1>{loading ? "Loading company…" : "Company not loaded"}</h1><p>{error || "Open the DCF model and enter a ticker first."}</p><Link href="/">Open DCF model →</Link></section></main>;
 
   const intro = view === "price"
     ? { eyebrow: "Market data", title: "Stock price", detail: data.source === "Sample data" ? "Illustrative price history." : data.company.ipoDate ? `${data.company.name} first traded publicly on ${longDate(data.company.ipoDate)}.` : `A reliable public-market debut date was not available for ${data.company.name}.` }

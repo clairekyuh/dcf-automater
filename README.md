@@ -85,10 +85,28 @@ For SEC fair-access compliance, copy `.env.example` to `.env.local` and set `SEC
 ## Verification
 
 ```bash
+npm run check
 npm test
 npm run build
+npm audit --omit=dev
 ```
 
-The regression suite checks partial-year timing, non-calendar fiscal timing, terminal reinvestment and ROIC linkage, independence between perpetual growth and the exit-multiple method, invalid operating and terminal assumptions, raw and adjusted beta, normalized taxes, foreign share-count units, exact WACC reconciliation, and the financial-sector DCF block.
+`npm run check` runs ESLint, TypeScript, and the complete regression suite. The tests cover partial-year timing, non-calendar fiscal timing, terminal reinvestment and ROIC linkage, independence between perpetual growth and the exit-multiple method, invalid operating and terminal assumptions, raw and adjusted beta, normalized taxes, foreign share-count units, exact WACC reconciliation, API validation, request limits, provider retries, client storage guards, peer selection, risk classification, and the financial-sector DCF block.
+
+## Diagnostics and troubleshooting
+
+Every API response includes an `X-Request-ID` correlation value and a `Server-Timing` duration. Server events are emitted as single-line JSON with bounded fields such as `route`, `symbol`, `provider`, `durationMs`, `status`, `outcome`, and `errorCode`. Failed UI requests display the safe error code and request ID so a developer—or an AI troubleshooting assistant—can locate the matching server event without receiving the request body, provider response, credentials, or stack trace.
+
+Provider calls use explicit timeouts, bounded retries for HTTP 429 and 5xx responses, capped `Retry-After` delays, and cancellation. The browser cancels stale ticker requests so a slow earlier response cannot replace a newer result. Excel export requests are schema-checked, size-limited, rate-limited, and concurrency-limited before workbook generation. These limits are per running application instance; a multi-instance production deployment should use a shared rate-limit store if global enforcement is required.
+
+Useful local checks:
+
+```bash
+# Start the production build and watch structured request logs.
+npm run build && npm start
+
+# Inspect response correlation and timing headers.
+curl -i "http://localhost:3000/api/company?symbol=AAPL"
+```
 
 > For educational purposes only. Not investment advice.

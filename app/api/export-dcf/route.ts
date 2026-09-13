@@ -2,9 +2,26 @@ import { NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { calculateDcf, calculateWacc, type DcfModel } from "@/lib/dcf-engine";
 import { historicalEffectiveTaxRate, historicalRevenueGrowth, historicalUfcf } from "@/lib/historical-dcf";
+import { normalizeTicker } from "@/lib/ticker";
+import { createRequestDiagnostics, logDiagnostic, safeErrorType, withDiagnosticHeaders } from "@/lib/server/diagnostics";
+import { exportRequestLimits, validateExportPayload, validateExportRequestHeaders } from "@/lib/export/validate-export";
+import { createConcurrencyGate, createFixedWindowRateLimiter, requestClientKey } from "@/lib/server/request-limits";
+import {
+  applyWorkbookBodyStyle as applyBodyStyle,
+  setWorkbookTitle as setTitle,
+  styleWorkbookFormula as styleFormula,
+  styleWorkbookInput as styleInput,
+  styleWorkbookSection as styleSection,
+  styleWorkbookTableHeader as styleTableHeader,
+  workbookColors,
+  workbookFormats,
+} from "@/lib/export/workbook-styles";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
+
+const exportConcurrency = createConcurrencyGate(2);
+const exportRateLimit = createFixedWindowRateLimiter({ limit: 12, windowMs: 60_000 });
 
 type ExportHistorical = {
   year: string;
@@ -44,19 +61,8 @@ type ExportPayload = {
   comparison?: { nicheLabel?: string; peers?: ExportPeer[] };
 };
 
-const navy = "17324D";
-const blue = "0000FF";
-const teal = "20B7C9";
-const paleBlue = "E8F2F7";
-const paleGreen = "EEF5E6";
-const gray = "66727A";
-const lightBorder = "C8D1D6";
-const white = "FFFFFF";
-const black = "000000";
-const moneyFormat = "$#,##0;[Red]($#,##0);-";
-const perShareFormat = "$0.00;[Red]($0.00);-";
-const percentFormat = "0.0%;[Red](0.0%);-";
-const multipleFormat = "0.0x;[Red](0.0x);-";
+const { navy, teal, paleBlue, paleGreen, gray, lightBorder, white, black } = workbookColors;
+const { money: moneyFormat, perShare: perShareFormat, percent: percentFormat, multiple: multipleFormat } = workbookFormats;
 
 function asDate(value: string) {
   return new Date(`${value}T00:00:00Z`);
@@ -66,74 +72,61 @@ function formulaCell(formula: string, result: number | string) {
   return { formula, result } as ExcelJS.CellFormulaValue;
 }
 
-function setTitle(sheet: ExcelJS.Worksheet, range: string, title: string, subtitle?: string) {
-  sheet.mergeCells(range);
-  const cell = sheet.getCell(range.split(":")[0]);
-  cell.value = title;
-  cell.font = { name: "Aptos Display", size: 18, bold: true, color: { argb: white } };
-  cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: navy } };
-  cell.alignment = { vertical: "middle" };
-  if (subtitle) cell.note = subtitle;
-}
-
-function styleSection(row: ExcelJS.Row, from = 2, to = 12) {
-  row.height = 21;
-  for (let column = from; column <= to; column += 1) {
-    const cell = row.getCell(column);
-    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: navy } };
-    cell.font = { name: "Aptos", size: 10, bold: true, color: { argb: white } };
-    cell.border = { bottom: { style: "thin", color: { argb: navy } } };
-  }
-}
-
-function styleInput(cell: ExcelJS.Cell, note?: string) {
-  cell.font = { name: "Aptos", size: 10, color: { argb: blue } };
-  cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFCE6" } };
-  if (note) cell.note = note;
-}
-
-function styleFormula(cell: ExcelJS.Cell, linked = false) {
-  cell.font = { name: "Aptos", size: 10, color: { argb: linked ? "008000" : black } };
-}
-
-function styleTableHeader(row: ExcelJS.Row, from: number, to: number) {
-  row.height = 24;
-  for (let column = from; column <= to; column += 1) {
-    const cell = row.getCell(column);
-    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: navy } };
-    cell.font = { name: "Aptos", size: 9, bold: true, color: { argb: white } };
-    cell.alignment = { vertical: "middle", horizontal: column === from ? "left" : "right", wrapText: true };
-    cell.border = { bottom: { style: "thin", color: { argb: white } } };
-  }
-}
-
-function applyBodyStyle(sheet: ExcelJS.Worksheet, range: string) {
-  const [from, to] = range.split(":");
-  const start = sheet.getCell(from);
-  const end = sheet.getCell(to);
-  for (let row = start.row; row <= end.row; row += 1) {
-    for (let column = start.col; column <= end.col; column += 1) {
-      const cell = sheet.getCell(row, column);
-      cell.font = cell.font?.name ? cell.font : { name: "Aptos", size: 10, color: { argb: black } };
-      cell.border = { bottom: { style: "hair", color: { argb: lightBorder } } };
-      cell.alignment = { vertical: "middle", horizontal: column === start.col ? "left" : "right" };
-    }
-  }
-}
-
 function safeResult(value: number) {
   return Number.isFinite(value) ? value : 0;
 }
 
 export async function POST(request: Request) {
+  const diagnostics = createRequestDiagnostics(request, "/api/export-dcf");
+  const rate = exportRateLimit(requestClientKey(request));
+  if (!rate.allowed) {
+    logDiagnostic("warn", diagnostics, { event: "export_rate_limited", status: 429, outcome: "rejected" });
+    const response = NextResponse.json({ error: "Too many export requests. Try again shortly.", code: "EXPORT_RATE_LIMITED", requestId: diagnostics.requestId }, { status: 429 });
+    response.headers.set("Retry-After", String(rate.retryAfterSeconds));
+    return withDiagnosticHeaders(response, diagnostics);
+  }
+  const releaseExport = exportConcurrency.tryEnter();
+  if (!releaseExport) {
+    logDiagnostic("warn", diagnostics, { event: "export_capacity_reached", status: 503, outcome: "rejected" });
+    const response = NextResponse.json({ error: "The export service is busy. Try again shortly.", code: "EXPORT_BUSY", requestId: diagnostics.requestId }, { status: 503 });
+    response.headers.set("Retry-After", "3");
+    return withDiagnosticHeaders(response, diagnostics);
+  }
   try {
-    const payload = await request.json() as ExportPayload;
-    if (!payload?.company?.symbol || !payload?.model || !Array.isArray(payload.model.forecastDrivers)) {
-      return NextResponse.json({ error: "A loaded company and complete model are required." }, { status: 400 });
+    const headerIssue = validateExportRequestHeaders(request);
+    if (headerIssue) {
+      const status = /too large/i.test(headerIssue) ? 413 : 415;
+      logDiagnostic("warn", diagnostics, { event: "export_request_rejected", status, outcome: "rejected" });
+      return withDiagnosticHeaders(NextResponse.json({ error: headerIssue, code: "INVALID_EXPORT_REQUEST", requestId: diagnostics.requestId }, { status }), diagnostics);
+    }
+    const rawPayload = await request.text();
+    if (Buffer.byteLength(rawPayload, "utf8") > exportRequestLimits.maxBytes) {
+      logDiagnostic("warn", diagnostics, { event: "export_request_rejected", status: 413, outcome: "rejected" });
+      return withDiagnosticHeaders(NextResponse.json({ error: "The export request is too large.", code: "INVALID_EXPORT_REQUEST", requestId: diagnostics.requestId }, { status: 413 }), diagnostics);
+    }
+    let parsedPayload: unknown;
+    try {
+      parsedPayload = JSON.parse(rawPayload);
+    } catch {
+      logDiagnostic("warn", diagnostics, { event: "export_request_rejected", status: 400, outcome: "rejected" });
+      return withDiagnosticHeaders(NextResponse.json({ error: "The export request must contain valid JSON.", code: "INVALID_EXPORT_REQUEST", requestId: diagnostics.requestId }, { status: 400 }), diagnostics);
+    }
+    const payloadIssue = validateExportPayload(parsedPayload);
+    if (payloadIssue) {
+      logDiagnostic("warn", diagnostics, { event: "export_request_rejected", status: 400, outcome: "rejected" });
+      return withDiagnosticHeaders(NextResponse.json({ error: payloadIssue, code: "INVALID_EXPORT_MODEL", requestId: diagnostics.requestId }, { status: 400 }), diagnostics);
+    }
+    const payload = parsedPayload as ExportPayload;
+    const symbol = normalizeTicker(payload?.company?.symbol);
+    if (!symbol || !payload?.model || !Array.isArray(payload.model.forecastDrivers)) {
+      logDiagnostic("warn", diagnostics, { event: "export_request_rejected", status: 400, symbol, outcome: "rejected" });
+      return withDiagnosticHeaders(NextResponse.json({ error: "A loaded company and complete model are required.", code: "INVALID_EXPORT_MODEL", requestId: diagnostics.requestId }, { status: 400 }), diagnostics);
     }
     if (payload.model.forecastDrivers.length !== 6) {
-      return NextResponse.json({ error: "The Excel model requires exactly six forecast periods." }, { status: 400 });
+      logDiagnostic("warn", diagnostics, { event: "export_request_rejected", status: 400, symbol, outcome: "rejected" });
+      return withDiagnosticHeaders(NextResponse.json({ error: "The Excel model requires exactly six forecast periods.", code: "INVALID_FORECAST_PERIODS", requestId: diagnostics.requestId }, { status: 400 }), diagnostics);
     }
+    payload.company.symbol = symbol;
 
     const perpetuity = calculateDcf(payload, payload.model, "perpetuity");
     const multiple = calculateDcf(payload, payload.model, "multiple");
@@ -282,7 +275,7 @@ export async function POST(request: Request) {
         23: null,
         24: row.ebit + row.depreciation,
       };
-      Object.entries(actuals).forEach(([rowNumber, value]) => { if (value !== null) build.getCell(`${historyColumns[index + historyOffset]}${rowNumber}`).value = value; });
+      Object.entries(actuals).forEach(([rowNumber, value]) => { if (value !== null) build.getCell(`${column}${rowNumber}`).value = value; });
     });
     forecastColumns.forEach((column, index) => {
       const previousRevenue = index === 0 ? "'Inputs'!$C$9" : `${forecastColumns[index - 1]}6`;
@@ -503,15 +496,19 @@ export async function POST(request: Request) {
 
     const buffer = await workbook.xlsx.writeBuffer();
     const filename = `${payload.company.symbol.replace(/[^A-Z0-9.-]/gi, "-")}-DCF-Model.xlsx`;
-    return new NextResponse(Buffer.from(buffer), {
+    const response = new NextResponse(Buffer.from(buffer), {
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "Content-Disposition": `attachment; filename="${filename}"`,
         "Cache-Control": "no-store",
       },
     });
+    logDiagnostic("info", diagnostics, { event: "export_request_completed", status: 200, symbol, outcome: "success" });
+    return withDiagnosticHeaders(response, diagnostics);
   } catch (error) {
-    console.error("DCF export failed", error);
-    return NextResponse.json({ error: "Unable to create the Excel model." }, { status: 500 });
+    logDiagnostic("error", diagnostics, { event: "export_request_failed", status: 500, outcome: "error", errorType: safeErrorType(error) });
+    return withDiagnosticHeaders(NextResponse.json({ error: "Unable to create the Excel model.", code: "EXPORT_GENERATION_FAILED", requestId: diagnostics.requestId }, { status: 500 }), diagnostics);
+  } finally {
+    releaseExport();
   }
 }

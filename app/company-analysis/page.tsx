@@ -3,34 +3,9 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import CompanyNavigation, { type CompanyNavView } from "@/app/components/company-navigation";
-
-type CustomerDisclosure = { customer: string; revenuePercent: number; disclosure: string };
-type Signal = { level: "high" | "medium" | "low"; title: string; detail: string };
-type CompanyAnalysisData = {
-  source: string;
-  asOf: string;
-  company: { symbol: string; name: string; description: string; exchange: string; country: string; sector: string; industry: string };
-  businessAnalysis?: {
-    source: string;
-    secStatus?: "available" | "unavailable";
-    secUnavailableReason?: string | null;
-    asOf: string | null;
-    companyDescription: string;
-    financials: {
-      revenue: number | null; cogs: number | null; cogsPercentRevenue: number | null; grossProfit: number | null; grossMargin: number | null;
-      operatingCashFlow: number | null; freeCashFlow: number | null; currentAssets: number | null; currentLiabilities: number | null;
-      interestExpense: number | null; ebitda: number | null; netDebt: number | null;
-    };
-    customerConcentration: { disclosures: CustomerDisclosure[]; noMajorCustomer: boolean; disclosureThreshold: number };
-    supplyChain: { stages: Array<{ name: string; detail: string }>; signals: Signal[]; filingReviewed: boolean };
-    defaultRisk: {
-      level: "high" | "moderate" | "low" | "insufficient"; points: number; availableChecks?: number; drivers: string[];
-      ratios: { debtToRevenue: number | null; netDebtToEbitda: number | null; currentRatio: number | null; interestCoverage: number | null; fcfToDebt: number | null };
-      altmanZ: number | null; altmanZone: string | null; altmanApplicable: boolean; altmanReason?: string; methodology: string;
-    };
-    filing: { form: string; filingDate: string; reportDate: string; url: string } | null;
-  };
-};
+import ComparableCompanyAnalysis from "@/app/components/comparable-company-analysis";
+import { readCompanyData } from "@/lib/client/company-storage";
+import type { CompanyData } from "@/lib/company-data";
 
 const fmt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
@@ -47,21 +22,20 @@ function Metric({ label, value, detail }: { label: string; value: string; detail
 }
 
 export default function CompanyAnalysisPage() {
-  const [data, setData] = useState<CompanyAnalysisData | null>(null);
+  const [data, setData] = useState<CompanyData | null>(null);
   const [missing, setMissing] = useState(false);
   const [activeView, setActiveView] = useState<CompanyNavView>("company");
 
   useEffect(() => {
-    const requested = new URLSearchParams(window.location.search).get("symbol")?.toUpperCase();
-    const stored = sessionStorage.getItem("dcf:last-company") || localStorage.getItem("dcf:last-company");
-    if (!stored) { setMissing(true); return; }
-    try {
-      const parsed = JSON.parse(stored) as CompanyAnalysisData;
-      if (requested && parsed.company.symbol !== requested) { setMissing(true); return; }
-      setData(parsed);
-    } catch {
-      setMissing(true);
-    }
+    let active = true;
+    void Promise.resolve().then(() => {
+      if (!active) return;
+      const requested = new URLSearchParams(window.location.search).get("symbol")?.toUpperCase();
+      const stored = readCompanyData(requested);
+      if (!stored) { setMissing(true); return; }
+      setData(stored);
+    });
+    return () => { active = false; };
   }, []);
 
   useEffect(() => {
@@ -95,6 +69,8 @@ export default function CompanyAnalysisPage() {
   return <main className="analysis-page">
     <CompanyNavigation symbol={data.company.symbol} name={data.company.name} active={activeView} onViewChange={(view) => { if (view === "company" || view === "credit") setActiveView(view); }}/>
     <header className="analysis-hero" id="analysis-top"><p>{isSample ? "ILLUSTRATIVE COMPANY ANALYSIS" : analysis.filing ? "FILING-BASED COMPANY ANALYSIS" : "COMPANY ANALYSIS · SEC DATA UNAVAILABLE"}</p><h1>{data.company.name}</h1><div><span>{data.company.sector}</span><span>{data.company.industry}</span><span>{data.company.country}</span></div><h2>What the company does</h2><p>{shortDescription(analysis.filing ? analysis.companyDescription : data.company.description)}</p>{!isSample && !analysis.filing && <div className="api-error"><b>SEC status:</b> {analysis.secUnavailableReason || analysis.source}</div>}</header>
+
+    <ComparableCompanyAnalysis data={data}/>
 
     {secUnavailable && <section className="analysis-data-state" id="credit-screen"><div><span>Data unavailable</span><h2>SEC filing analysis could not be loaded</h2><p>Supply-chain disclosures, customer concentration, SEC-derived cost structure, and the credit screen are unavailable. No substitute data was presented as SEC-reported.</p></div><details><summary>Technical details</summary><p>{analysis.secUnavailableReason || analysis.source}</p></details><Link href={`/?symbol=${encodeURIComponent(data.company.symbol)}`}>Reload company data →</Link></section>}
 

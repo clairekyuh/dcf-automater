@@ -224,7 +224,6 @@ export function calculateDcf(
   const rawEquityValue = enterpriseValue + model.cash - totalDebt - model.preferredInterest;
   const equityValue = Math.max(0, rawEquityValue);
   const perShare = equityValue / Math.max(model.shares, 1);
-  const terminalReinvestment = terminalNopat - terminalFcf;
   const impliedTerminalRoic = method === "perpetuity" && terminalReinvestmentRate !== null ? model.terminalRoic : null;
 
   return {

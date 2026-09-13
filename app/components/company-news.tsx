@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { apiErrorMessage } from "@/lib/client/api-error";
 import type { CompanyNewsItem } from "@/lib/company-news";
 
 type NewsResponse = {
@@ -24,23 +25,23 @@ export default function CompanyNews({ symbol, name, showHeading = true }: { symb
 
   useEffect(() => {
     const controller = new AbortController();
-    setLoading(true);
-    setError("");
-    setNews(null);
-    fetch(`/api/news?symbol=${encodeURIComponent(symbol)}&name=${encodeURIComponent(name)}`, { signal: controller.signal })
-      .then(async (response) => {
+    void Promise.resolve().then(async () => {
+      if (controller.signal.aborted) return;
+      setLoading(true);
+      setError("");
+      setNews(null);
+      try {
+        const response = await fetch(`/api/news?symbol=${encodeURIComponent(symbol)}&name=${encodeURIComponent(name)}`, { signal: controller.signal });
         const payload = await response.json();
-        if (!response.ok) throw new Error(payload.error || "Current news is temporarily unavailable.");
-        return payload as NewsResponse;
-      })
-      .then(setNews)
-      .catch((caught) => {
+        if (!response.ok) throw new Error(apiErrorMessage(payload, "Current news is temporarily unavailable."));
+        if (!controller.signal.aborted) setNews(payload as NewsResponse);
+      } catch (caught) {
         if (caught instanceof DOMException && caught.name === "AbortError") return;
-        setError(caught instanceof Error ? caught.message : "Current news is temporarily unavailable.");
-      })
-      .finally(() => {
+        if (!controller.signal.aborted) setError(caught instanceof Error ? caught.message : "Current news is temporarily unavailable.");
+      } finally {
         if (!controller.signal.aborted) setLoading(false);
-      });
+      }
+    });
     return () => controller.abort();
   }, [symbol, name, reloadKey]);
 
