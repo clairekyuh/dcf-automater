@@ -159,7 +159,7 @@ export default function PitchDeck({
     <article className="pitch-slide" key="conclusion">
       <header><span>06 · DECISION FRAME</span><h3>The model identifies what must be true before capital is committed</h3></header>
       <div className="pitch-conclusion"><div><h4>Evidence to establish</h4><ul><li>Revenue growth and margins can coexist at the modeled scale.</li><li>Reinvestment produces returns above the cost of capital.</li><li>Debt, dilution, and refinancing remain manageable.</li></ul></div><div><h4>Model limitations</h4><ul><li>Later forecast years are automated estimates.</li><li>Peer multiples may not be forward or fiscal-aligned.</li><li>Missing or delayed source data can change the result.</li></ul></div></div>
-      <p className="pitch-disclaimer">This deck is educational decision support. It is not personalized investment advice or an analyst price target.</p>
+      <p className="pitch-disclaimer">THIS IS NOT FINANCIAL ADVICE</p>
       <footer><span>{data.company.symbol} · {model.valuationDate}</span><span>Sources disclosed in the calculator</span></footer>
     </article>,
   ];

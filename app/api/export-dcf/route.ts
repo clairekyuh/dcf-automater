@@ -162,7 +162,7 @@ export async function POST(request: Request) {
     });
     cover.getCell("B14").value = "Model convention";
     cover.getCell("B14").font = { bold: true, color: { argb: navy } };
-    cover.getCell("C14").value = "USD millions except per-share values. Five-year exact valuation window using partial-year weights and mid-year discounting. Scenario outputs are not analyst price targets.";
+    cover.getCell("C14").value = "USD millions except per-share values. Five-year valuation window using partial-year weights and mid-year discounting.";
     cover.getCell("C14").alignment = { wrapText: true };
 
     inputs.columns = [
@@ -491,7 +491,7 @@ export async function POST(request: Request) {
     output.getCell("B19").fill = { type: "pattern", pattern: "solid", fgColor: { argb: paleGreen } };
     output.getCell("H19").fill = { type: "pattern", pattern: "solid", fgColor: { argb: paleGreen } };
     checks.getCell("C5").fill = { type: "pattern", pattern: "solid", fgColor: { argb: paleBlue } };
-    cover.getCell("C16").value = "Educational decision support only — not personalized investment advice.";
+    cover.getCell("C16").value = "THIS IS NOT FINANCIAL ADVICE";
     cover.getCell("C16").font = { italic: true, color: { argb: gray } };
 
     const buffer = await workbook.xlsx.writeBuffer();

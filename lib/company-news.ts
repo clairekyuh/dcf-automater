@@ -27,7 +27,7 @@ const categories = [
   {
     label: "Customers & demand",
     pattern: /\b(customer|contract|backlog|booking|order|partnership|partner|supplier|demand|award|multi-year deal)\b/i,
-    why: "May affect revenue visibility, customer concentration, pricing, and the durability of forecast growth.",
+    why: "Relevant to revenue visibility, customer concentration, pricing, and forecast growth.",
     weight: 7,
   },
   {
@@ -39,13 +39,13 @@ const categories = [
   {
     label: "Financing & balance sheet",
     pattern: /\b(debt|loan|bond|credit facility|financing|refinanc|liquidity|share offering|stock offering|convertible|buyback|repurchase|dividend)\b/i,
-    why: "May affect debt, cash, diluted shares, cost of capital, or the enterprise-to-equity value bridge.",
+    why: "Relevant to debt, cash, diluted shares, cost of capital, and the enterprise-to-equity bridge.",
     weight: 7,
   },
   {
     label: "Regulation & legal",
     pattern: /\b(regulat|antitrust|lawsuit|litigation|court|probe|investigation|tariff|sanction|export (?:ban|control|restriction)|fine|settlement)\b/i,
-    why: "May affect addressable markets, operating costs, forecast risk, or the company-specific risk premium in WACC.",
+    why: "Relevant to addressable markets, operating costs, forecast risk, and the company-specific risk premium.",
     weight: 7,
   },
   {
@@ -57,13 +57,13 @@ const categories = [
   {
     label: "Competitive landscape",
     pattern: /\b(competitor|competition|competes?|competitive|entering .{0,80} market|market entry|cloud business plan)\b/i,
-    why: "May affect market share, pricing, customer retention, long-run growth, margins, or the risk assigned to the forecast.",
+    why: "Relevant to market share, pricing, customer retention, growth, margins, and forecast risk.",
     weight: 5,
   },
   {
     label: "Products & operations",
     pattern: /\b(launch|unveil|introduc|product|service|platform|production|shipment|outage|recall|security breach|cyberattack|patent|approval)\b/i,
-    why: "May affect demand, pricing, operating costs, competitive position, or the timing of future cash flows.",
+    why: "Relevant to demand, pricing, operating costs, competitive position, and cash-flow timing.",
     weight: 5,
   },
   {
@@ -74,7 +74,7 @@ const categories = [
   },
 ] as const;
 
-const hardFluff = /analyst blog|research reports?|stock reports?|technical outlook|golden cross|\bvs\.?\b|should you buy|is .* (?:stock )?a buy|buy the dip|still a buy|better buy|buy today|buy before|buy now|buy instead|buying aggressively|buy this|buy,? sell or hold|worth buying|bargain|value trap|rebound bet|stock to buy|top momentum stock|best .* stock|which .* stock|could double|trillion company|well-positioned to win|most valuable company|biggest company|prediction:|time to sell|for .* stock investors|millionaire-maker|options? (?:activity|now available)|most active|etf (?:inflow|outflow)|general market|outperform(?:s|ed)? broader market|up \d+(?:\.\d+)?% since|thesis|before earnings/i;
+const hardFluff = /analyst blog|research reports?|stock reports?|technical outlook|golden cross|\bvs\.?\b|should you buy|is .* (?:stock )?a buy|stock a buy|buy the dip|still a buy|better buy|buy today|buy before|buy now|buy instead|buying aggressively|buying now|i(?:'m| am) buying|buy this|buy,? sell or hold|worth buying|time to buy|bargain|value trap|rebound bet|stock to buy|top momentum stock|best .* stock|which .* stock|could double|trillion company|well-positioned to win|most valuable company|biggest company|prediction:|time to sell|for .* stock investors|millionaire-maker|options? (?:activity|now available)|most active|etf (?:inflow|outflow)|general market|outperform(?:s|ed)? broader market|rises? higher than (?:the )?market|up \d+(?:\.\d+)?% since|thesis|before earnings|if you (?:had )?(?:bought|invested)|would be worth|warren buffett|berkshire hathaway|power .* stock higher|fuel .* growth cycle for the stock|stock'?s? (?:muted )?reaction|shareholder returns|total return|offers? (?:far )?(?:greater )?upside|market cap.*(?:buy|largest)|for .* investors|what should investors expect|key facts\s*$|flourish or flop|legacy .* will be defined by/i;
 const marketChatter = /price target|analyst rating|upgrade|downgrade|stock (?:moves?|rises?|falls?|jumps?|drops?|sinks?|tanks?|slumps?|soars?|keeps|hits|tumbles?)|\b[A-Za-z]+ rises? \d|shares? (?:slip|fall|drop|jump)|why .* stock|what(?:'s| is) wrong with|investors? (?:should|be scared|worry)/i;
 const concreteEvent = /\b(earnings|results|guidance|launch|unveil|introduc|sign|contract|order|debt|credit facility|financing|offering|buyback|acquir|merger|appoint|resign|ceo|cfo|lawsuit|settlement|regulat|approval|recall|outage|data cent(?:er|re)|factory|capacity expansion)\b/i;
 const corporateSuffixes = new Set(["inc", "incorporated", "corp", "corporation", "company", "companies", "holdings", "holding", "group", "plc", "ltd", "limited", "common", "stock", "class", "ordinary", "shares", "the"]);
@@ -92,9 +92,10 @@ function directlyMentionsCompany(row: NasdaqNewsRow, symbol: string, name: strin
   // Nasdaq can tag a story with every peer mentioned in its body. Requiring the
   // focus company in the headline keeps peer-only stories out of company news.
   const text = String(row.title || "").toLowerCase();
+  const terms = companyTerms(name);
+  if (terms.length) return terms.some((term) => new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(text));
   const tickerPattern = new RegExp(`\\b${symbol.toLowerCase().replace(/[^a-z0-9]/g, "")}\\b`, "i");
-  if (tickerPattern.test(text)) return true;
-  return companyTerms(name).some((term) => new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(text));
+  return tickerPattern.test(text);
 }
 
 function parseNasdaqDate(value?: string | null) {

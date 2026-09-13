@@ -22,7 +22,7 @@ const NASDAQ_HEADERS = {
   Referer: "https://www.nasdaq.com/",
 };
 const SEC_HEADERS = {
-  "User-Agent": process.env.SEC_USER_AGENT || "DCF Automater clairekyuh@users.noreply.github.com",
+  "User-Agent": process.env.SEC_USER_AGENT?.trim() || "DCF Automater https://dcf-automater.vercel.app",
   Accept: "application/json,text/html,*/*",
   "Accept-Encoding": "gzip, deflate",
 };
@@ -841,7 +841,7 @@ export async function GET(request: NextRequest) {
             ? "No credit screen was calculated because SEC annual facts were unavailable. Missing inputs were not replaced with provider estimates."
             : financialCompany
             ? "Standard corporate leverage screening is not applicable to financial institutions. This page does not estimate a probability of default or credit rating."
-            : "Automated historical credit and liquidity screen calculated from the latest SEC annual facts: leverage, liquidity, interest coverage, and free-cash-flow coverage. It is not a credit rating or a probability of default.",
+            : "Automated historical credit and liquidity screen calculated from the latest SEC annual facts: leverage, liquidity, interest coverage, and free-cash-flow coverage.",
         },
         filing: sec?.filing ? { form: sec.filing.form, filingDate: sec.filing.filingDate, reportDate: sec.filing.reportDate, url: sec.filing.url } : null,
       },

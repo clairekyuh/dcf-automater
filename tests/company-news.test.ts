@@ -35,6 +35,38 @@ const rows: NasdaqNewsRow[] = [
     url: "/articles/buy-opinion",
     related_symbols: ["crwv|stocks"],
   },
+  {
+    title: "If You Had Invested $10,000 in CoreWeave, Here's What You'd Have Today",
+    description: "A retrospective return article.",
+    created: "Jul 21, 2026",
+    publisher: "Example",
+    url: "/articles/hypothetical-return",
+    related_symbols: ["crwv|stocks"],
+  },
+  {
+    title: "Can a New Product Power CoreWeave Stock Higher?",
+    description: "Speculation about the share price.",
+    created: "Jul 21, 2026",
+    publisher: "Example",
+    url: "/articles/stock-higher",
+    related_symbols: ["crwv|stocks"],
+  },
+  {
+    title: "CoreWeave Delivered a 900% Total Return for Early Investors",
+    description: "A retrospective return article.",
+    created: "Jul 21, 2026",
+    publisher: "Example",
+    url: "/articles/total-return",
+    related_symbols: ["crwv|stocks"],
+  },
+  {
+    title: "CoreWeave Rises Higher Than the Market: Key Facts",
+    description: "Daily share-price commentary.",
+    created: "Jul 21, 2026",
+    publisher: "Example",
+    url: "/articles/higher-than-market",
+    related_symbols: ["crwv|stocks"],
+  },
 ];
 
 test("news screen keeps company-specific fundamental events and removes price chatter", () => {
