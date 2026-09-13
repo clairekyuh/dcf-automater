@@ -132,7 +132,7 @@ export async function POST(request: Request) {
     const multiple = calculateDcf(payload, payload.model, "multiple");
     const wacc = calculateWacc(payload.model);
     const workbook = new ExcelJS.Workbook();
-    workbook.creator = "DCF Valuation Studio";
+    workbook.creator = "DCF Calculator";
     workbook.created = new Date();
     workbook.modified = new Date();
     workbook.calcProperties.fullCalcOnLoad = true;
@@ -473,7 +473,7 @@ export async function POST(request: Request) {
       ["Company and historical financials", payload.source, payload.asOf, "Public-data extraction shown on the website."],
       ["Market price and share count", payload.source, payload.model.valuationDate, payload.sharesSource || "Verify current diluted shares."],
       ["Forecast drivers", "Website editable assumptions", payload.model.valuationDate, "Every forecast driver is visible on Inputs rows 36–41."],
-      ["Valuation formulas", "DCF Valuation Studio", payload.model.valuationDate, "Formula-driven UFCF, WACC, two terminal methods, and enterprise-to-equity bridge."],
+      ["Valuation formulas", "DCF Calculator", payload.model.valuationDate, "Formula-driven UFCF, WACC, two terminal methods, and enterprise-to-equity bridge."],
     ];
     sourceRows.forEach(([item, source, date, note], index) => {
       const row = 14 + index;
@@ -485,7 +485,7 @@ export async function POST(request: Request) {
     for (const sheet of workbook.worksheets) {
       sheet.properties.defaultRowHeight = 18;
       sheet.pageSetup = { orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.25, right: 0.25, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 } };
-      sheet.headerFooter.oddFooter = "&LDCF Valuation Studio&CPage &P of &N&R" + payload.company.symbol;
+      sheet.headerFooter.oddFooter = "&LDCF Calculator&CPage &P of &N&R" + payload.company.symbol;
     }
     inputs.getCell("B34").fill = { type: "pattern", pattern: "solid", fgColor: { argb: navy } };
     output.getCell("B19").fill = { type: "pattern", pattern: "solid", fgColor: { argb: paleGreen } };
