@@ -44,6 +44,95 @@
   font-family: "Google Sans", Arial, sans-serif;
 }
 
+.loadingSummary {
+  width: min(92vw, 1380px);
+  box-sizing: border-box;
+  margin: 32px auto;
+  color: #14231d;
+  font-family: "Google Sans", Arial, sans-serif;
+}
+
+.loadingStatus {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding-bottom: 16px;
+  color: #52635a;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.loadingPulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #41651c;
+  animation: loading-pulse 1.2s ease-in-out infinite;
+}
+
+.loadingCompanyRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(220px, .5fr);
+  gap: 48px;
+  padding: 32px 0;
+  border-top: 1px solid #cbd1cc;
+  border-bottom: 1px solid #cbd1cc;
+}
+
+.skeletonLine {
+  display: block;
+  border-radius: 2px;
+  background: linear-gradient(90deg, #e8ebe7 25%, #f4f5f2 50%, #e8ebe7 75%);
+  background-size: 200% 100%;
+  animation: loading-shimmer 1.35s ease-in-out infinite;
+}
+
+.skeletonEyebrow { width: 92px; height: 12px; }
+.skeletonCompany { width: min(440px, 78%); height: 46px; margin-top: 13px; }
+.skeletonDescription { width: min(690px, 92%); height: 14px; margin-top: 20px; }
+.skeletonDescriptionShort { width: min(520px, 68%); height: 14px; margin-top: 9px; }
+.skeletonValue { width: 132px; height: 42px; margin-top: 9px; }
+
+.loadingPrice {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding-left: 32px;
+  border-left: 1px solid #cbd1cc;
+}
+
+.loadingPrice > span:first-child,
+.loadingMethods > div > span:first-child {
+  color: #66756d;
+  font-size: 13px;
+}
+
+.loadingMethods {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-bottom: 1px solid #cbd1cc;
+}
+
+.loadingMethods > div { padding: 28px 0; }
+.loadingMethods > div + div { padding-left: 48px; border-left: 1px solid #cbd1cc; }
+
+.loadingAssumptions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px 30px;
+  padding: 18px 0;
+  border-bottom: 1px solid #cbd1cc;
+}
+
+.loadingAssumptions span {
+  min-width: 130px;
+  color: #7a847e;
+  font-size: 12px;
+}
+
+@keyframes loading-shimmer { to { background-position: -200% 0; } }
+@keyframes loading-pulse { 50% { opacity: .35; } }
+
 .companyRow {
   display: grid;
   grid-template-columns: minmax(0, 1.5fr) minmax(220px, .5fr);
@@ -273,6 +362,11 @@
   .tickerSearch label { min-height: 52px; }
   .tickerSearch button { min-height: 48px; border-top: 1px solid #79867f; border-left: 0; }
   .companyRow { grid-template-columns: 1fr; gap: 24px; padding: 24px 0; }
+  .loadingSummary { width: calc(100% - 32px); }
+  .loadingCompanyRow { grid-template-columns: 1fr; gap: 24px; padding: 24px 0; }
+  .loadingPrice { padding: 20px 0 0; border-top: 1px solid #cbd1cc; border-left: 0; }
+  .loadingMethods > div { padding: 22px 0; }
+  .loadingMethods > div + div { padding-left: 20px; }
   .marketPrice { padding: 20px 0 0; border-top: 1px solid #cbd1cc; border-left: 0; }
   .valuationMethods { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .valuationMethods article { padding: 22px 0; }
@@ -290,6 +384,11 @@
   .forecastReview article + article { padding-left: 0; border-top: 1px solid #cbd1cc; border-left: 0; }
   .sensitivityTitle { align-items: flex-start; flex-direction: column; gap: 3px; }
   .detailPanel :global(.model-table-wrap)::before, .detailPanel :global(.table-scroll)::before { content: "Swipe to view columns →"; display: block; padding: 8px 10px; color: #52635a; font: 600 12px "Google Sans", Arial, sans-serif; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loadingPulse,
+  .skeletonLine { animation: none; }
 }
 
 @media (max-width: 360px) {

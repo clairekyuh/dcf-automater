@@ -455,7 +455,7 @@ function secSupplyChainStages(description: string, filing: string) {
   return profiles.find((profile) => profile.match.test(text))?.stages || [];
 }
 
-async function secDatasetRaw(symbol: string) {
+async function secDatasetRaw(symbol: string, includeNarrative = true) {
   const tickerResponse = await secFetch("https://www.sec.gov/files/company_tickers.json", 604800);
     const tickers = await tickerResponse.json() as Record<string, { cik_str: number; ticker: string }>;
     const match = Object.values(tickers).find((company) => company.ticker.toUpperCase() === symbol);
@@ -535,11 +535,13 @@ async function secDatasetRaw(symbol: string) {
       ? `https://www.sec.gov/Archives/edgar/data/${cikPath}/${accessionPath}/${accession}.txt`
       : primaryUrl;
     let text = "";
-    try {
-      const filingResponse = await secFetch(documentUrl, 86400);
-      if (filingResponse.ok) text = filingText(await filingResponse.text());
-    } catch {
-      // Structured SEC facts remain usable if narrative filing retrieval fails.
+    if (includeNarrative) {
+      try {
+        const filingResponse = await secFetch(documentUrl, 86400);
+        if (filingResponse.ok) text = filingText(await filingResponse.text());
+      } catch {
+        // Structured SEC facts remain usable if narrative filing retrieval fails.
+      }
     }
     const businessDescription = text ? filingBusinessDescription(text) : "";
     return {
@@ -564,9 +566,9 @@ async function secDatasetRaw(symbol: string) {
     };
 }
 
-async function secDataset(symbol: string) {
+async function secDataset(symbol: string, includeNarrative = true) {
   try {
-    const data = await secDatasetRaw(symbol);
+    const data = await secDatasetRaw(symbol, includeNarrative);
     return data
       ? { data, status: "available" as const, reason: null }
       : { data: null, status: "unavailable" as const, reason: "No matching SEC registrant or annual filing was returned." };
@@ -578,6 +580,7 @@ async function secDataset(symbol: string) {
 export async function GET(request: NextRequest) {
   const diagnostics = createRequestDiagnostics(request, "/api/company");
   const symbol = normalizeTicker(request.nextUrl.searchParams.get("symbol"));
+  const valuationOnly = request.nextUrl.searchParams.get("view") === "valuation";
   if (!symbol) {
     logDiagnostic("warn", diagnostics, { event: "company_request_rejected", status: 400, outcome: "rejected" });
     return withDiagnosticHeaders(NextResponse.json({ error: "Enter a valid ticker symbol.", code: "INVALID_TICKER", requestId: diagnostics.requestId }, { status: 400 }), diagnostics);
@@ -590,7 +593,7 @@ export async function GET(request: NextRequest) {
       primaryPromise,
       measureDiagnostic(diagnostics, { event: "provider_price_history", provider: "nasdaq", symbol }, () => nasdaqPriceHistory(symbol)).catch(() => []),
       measureDiagnostic(diagnostics, { event: "provider_market_history", provider: "nasdaq", symbol }, () => nasdaqPriceHistory("SPY", "etf")).catch(() => []),
-      measureDiagnostic(diagnostics, { event: "provider_sec_dataset", provider: "sec", symbol }, () => secDataset(symbol)),
+      measureDiagnostic(diagnostics, { event: "provider_sec_dataset", provider: "sec", symbol }, () => secDataset(symbol, !valuationOnly)),
       measureDiagnostic(diagnostics, { event: "provider_company_metadata", provider: "stock-analysis", symbol }, () => publicCompanyMetadata(symbol)),
       revenueForecastPromise,
       measureDiagnostic(diagnostics, { event: "provider_market_inputs", provider: "internal", symbol }, currentMarketInputs),
@@ -614,7 +617,9 @@ export async function GET(request: NextRequest) {
       description: sec?.company.description || primary.description,
     });
     const selectedPeerSymbols = peerSet.symbols;
-    const peerResults = await Promise.allSettled(selectedPeerSymbols.map((peerSymbol) => measureDiagnostic(diagnostics, { event: "provider_peer_fundamentals", provider: "nasdaq", symbol: peerSymbol }, () => nasdaqFundamentals(peerSymbol))));
+    const peerResults = valuationOnly
+      ? []
+      : await Promise.allSettled(selectedPeerSymbols.map((peerSymbol) => measureDiagnostic(diagnostics, { event: "provider_peer_fundamentals", provider: "nasdaq", symbol: peerSymbol }, () => nasdaqFundamentals(peerSymbol))));
     const peers = peerResults
       .filter((result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof nasdaqFundamentals>>> => result.status === "fulfilled")
       .map((result) => {
@@ -728,7 +733,7 @@ export async function GET(request: NextRequest) {
     ];
     if (latest.capexPercentRevenue > 50) qualityNotes.push("Latest capex is unusually high. The explicit forecast begins near the latest reported intensity and fades only through the visible, editable annual capex assumptions.");
     if (!priceHistory.length) qualityNotes.push("Monthly stock-price history was unavailable, so the price chart could not be populated for this request.");
-    if (peers.length < selectedPeerSymbols.length) qualityNotes.push(`Comparable-company data is partial: Nasdaq returned ${peers.length} of ${selectedPeerSymbols.length} selected peers. Peer failures do not block the main DCF.`);
+    if (!valuationOnly && peers.length < selectedPeerSymbols.length) qualityNotes.push(`Comparable-company data is partial: Nasdaq returned ${peers.length} of ${selectedPeerSymbols.length} selected peers. Peer failures do not block the main DCF.`);
     if (industryGrowthRate !== null) qualityNotes.push(`Niche growth is represented by median latest annual revenue growth for the returned ${peerSet.label.toLowerCase()} peer group; it is a near-term benchmark, not a perpetual-growth forecast.`);
     if (revenueForecast) qualityNotes.push(`Years 1 and 2 revenue use current S&P Global analyst consensus surfaced by Stock Analysis; Years 3 through 6 are explicitly labeled model estimates. Perpetual growth does not change those operating forecasts.`);
     else qualityNotes.push("A validated two-year analyst revenue forecast was unavailable, so all six revenue forecast rows are clearly labeled editable model estimates.");
@@ -743,6 +748,7 @@ export async function GET(request: NextRequest) {
       : "A factual business description could not be extracted from the latest SEC annual filing.";
 
     const normalizedResponse = NextResponse.json({
+      coverage: valuationOnly ? "valuation" : "full",
       source: usedSec ? "Nasdaq financials and market data + SEC filings" : "Nasdaq financials and market data; SEC unavailable",
       asOf: latest.fiscalDate,
       qualityNotes,
@@ -848,14 +854,14 @@ export async function GET(request: NextRequest) {
       historical: [...historical].reverse(),
     });
     normalizedResponse.headers.set("Cache-Control", "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400");
-    const degraded = secResult.status !== "available" || peers.length < selectedPeerSymbols.length;
+    const degraded = secResult.status !== "available" || !valuationOnly && peers.length < selectedPeerSymbols.length;
     logDiagnostic(degraded ? "warn" : "info", diagnostics, {
       event: "company_request_completed",
       status: 200,
       symbol,
       secStatus: secResult.status,
       peerCount: peers.length,
-      expectedPeerCount: selectedPeerSymbols.length,
+      expectedPeerCount: valuationOnly ? 0 : selectedPeerSymbols.length,
       outcome: degraded ? "degraded" : "success",
     });
     return withDiagnosticHeaders(normalizedResponse, diagnostics);

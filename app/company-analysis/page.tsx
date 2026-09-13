@@ -34,7 +34,7 @@ export default function CompanyAnalysisPage() {
       const cached = readCompanyData(requested);
       if (cached) setData(cached);
       const symbol = requested || cached?.company.symbol;
-      const needsRefresh = !cached || cached.businessAnalysis?.secStatus !== "available" || !cached.businessAnalysis.filing;
+      const needsRefresh = !cached || cached.coverage !== "full" || cached.businessAnalysis?.secStatus !== "available" || !cached.businessAnalysis.filing;
       if (!symbol || !/^[A-Z0-9.\-]{1,12}$/.test(symbol)) {
         setLoading(false);
         return;

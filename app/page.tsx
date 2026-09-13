@@ -6,8 +6,9 @@ import { DateField, NumberField } from "@/app/components/dcf/assumption-fields";
 import { DcfRowLabel, DefinedTerm } from "@/app/components/dcf/defined-term";
 import OutputScreen, { type AssumptionTarget } from "@/app/components/dcf/output-screen";
 import DcfCashFlowOutput from "@/app/components/dcf/dcf-cash-flow-output";
+import DcfSummarySkeleton from "@/app/components/dcf/dcf-summary-skeleton";
 import dashboardStyles from "@/app/components/dcf/dcf-dashboard.module.css";
-import { storeCompanyData, storeResearchData } from "@/lib/client/company-storage";
+import { readCompanyData, storeCompanyData, storeResearchData } from "@/lib/client/company-storage";
 import { apiErrorMessage } from "@/lib/client/api-error";
 import type { CompanyData, HistoricalRow, PricePoint } from "@/lib/company-data";
 import { actualFiscalLabel, historicalEffectiveTaxRate, historicalRevenueGrowth, historicalUfcf } from "@/lib/historical-dcf";
@@ -301,6 +302,8 @@ export default function Home() {
   const [excelExportError, setExcelExportError] = useState("");
   const [error, setError] = useState("");
   const companyRequestController = useRef<AbortController | null>(null);
+  const supplementalRequestController = useRef<AbortController | null>(null);
+  const supplementalTimer = useRef<number | null>(null);
   const companyRequestVersion = useRef(0);
   const dailyHistoryRetries = useRef(new Set<string>());
   const rec = useMemo(() => recommendations(data), [data]);
@@ -340,13 +343,23 @@ export default function Home() {
         ? { symbol: requested, name: requested }
         : LARGE_COMPANY_EXAMPLES[initialIndex];
       setStartingExample(initialCompany);
+      if (requested) setTicker(initialCompany.symbol);
+      const cached = readCompanyData(initialCompany.symbol);
+      if (cached) {
+        setData(cached);
+        setModel(buildModel(cached));
+        setTicker(cached.company.symbol);
+        setCompanyReady(true);
+      }
       void loadCompany(initialCompany.symbol);
     });
     return () => {
       active = false;
       companyRequestController.current?.abort();
+      supplementalRequestController.current?.abort();
+      if (supplementalTimer.current !== null) window.clearTimeout(supplementalTimer.current);
     };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- Initial company loading runs once per page mount.
 
   useEffect(() => {
     if (!companyReady) return;
@@ -368,26 +381,40 @@ export default function Home() {
       dailyHistoryRetries.current.add(symbol);
       void loadCompany(symbol);
     }
-  }, [companyReady, data.company.symbol, data.market.priceHistory, data.source]);
+  }, [companyReady, data.company.symbol, data.market.priceHistory, data.source]); // eslint-disable-line react-hooks/exhaustive-deps -- The guarded retry is keyed by the loaded company data.
 
   async function loadCompany(symbol: string) {
     companyRequestController.current?.abort();
+    supplementalRequestController.current?.abort();
+    if (supplementalTimer.current !== null) window.clearTimeout(supplementalTimer.current);
     const controller = new AbortController();
     const requestVersion = companyRequestVersion.current + 1;
+    const replacingCompany = companyReady && data.company.symbol !== symbol;
     companyRequestController.current = controller;
     companyRequestVersion.current = requestVersion;
+    setStartingExample({ symbol, name: symbol });
+    setTicker(symbol);
+    if (replacingCompany) setCompanyReady(false);
     setLoading(true);
     setError("");
     try {
-      const response = await fetch(`/api/company?symbol=${encodeURIComponent(symbol)}`, { signal: controller.signal });
+      const response = await fetch(`/api/company?symbol=${encodeURIComponent(symbol)}&view=valuation`, { signal: controller.signal });
       const json = await response.json();
       if (!response.ok) throw new Error(apiErrorMessage(json, "Unable to load company."));
       if (requestVersion !== companyRequestVersion.current) return;
-      setData(json);
+      setData((current) => current.company.symbol === json.company.symbol && current.coverage === "full" ? {
+        ...json,
+        coverage: "full",
+        comparison: current.comparison,
+        businessAnalysis: current.businessAnalysis,
+      } : json);
       setModel(buildModel(json));
       setTicker(json.company.symbol);
       setCompanyReady(true);
       window.history.replaceState(null, "", `/?symbol=${encodeURIComponent(json.company.symbol)}`);
+      if (readCompanyData(json.company.symbol)?.coverage !== "full") {
+        supplementalTimer.current = window.setTimeout(() => void loadSupplementalCompany(json.company.symbol, requestVersion), 500);
+      }
     } catch (caught) {
       if (controller.signal.aborted || requestVersion !== companyRequestVersion.current) return;
       setError(caught instanceof Error ? caught.message : "Unable to load company.");
@@ -396,6 +423,36 @@ export default function Home() {
         if (companyRequestController.current === controller) companyRequestController.current = null;
         setLoading(false);
       }
+    }
+  }
+
+  async function loadSupplementalCompany(symbol: string, requestVersion: number) {
+    supplementalTimer.current = null;
+    if (requestVersion !== companyRequestVersion.current) return;
+    const controller = new AbortController();
+    supplementalRequestController.current = controller;
+    try {
+      const response = await fetch(`/api/company?symbol=${encodeURIComponent(symbol)}`, { signal: controller.signal });
+      const fullData = await response.json();
+      if (!response.ok || controller.signal.aborted || requestVersion !== companyRequestVersion.current) return;
+      setData((current) => current.company.symbol === symbol ? {
+        ...current,
+        coverage: "full",
+        source: fullData.source,
+        qualityNotes: fullData.qualityNotes,
+        company: {
+          ...current.company,
+          description: fullData.company.description,
+          descriptionSource: fullData.company.descriptionSource,
+          country: fullData.company.country,
+        },
+        comparison: fullData.comparison,
+        businessAnalysis: fullData.businessAnalysis,
+      } : current);
+    } catch {
+      // Research-only enrichment must not interrupt an already usable valuation.
+    } finally {
+      if (supplementalRequestController.current === controller) supplementalRequestController.current = null;
     }
   }
 
@@ -560,7 +617,7 @@ export default function Home() {
       </div>
     </header>
 
-    {!companyReady ? <section className="example-loader" aria-live="polite"><span>Loading company data</span><h2>{startingExample.name === startingExample.symbol ? startingExample.symbol : `${startingExample.name} · ${startingExample.symbol}`}</h2></section> : <div className="model-pages">
+    {!companyReady ? <DcfSummarySkeleton symbol={startingExample.symbol}/> : <div className="model-pages">
     {financialUnsupported && <section className="sheet-section sector-notice"><div className="section-heading"><div><p>SECTOR LIMIT</p><h2>Standard unlevered DCF is disabled</h2></div></div><p>{data.company.name} is a financial institution. Debt, interest, and regulatory capital are operating inputs for banks and insurers, so treating debt as a financing claim and valuing UFCF would produce a misleading result. Use a dividend-discount, residual-income, excess-return, or price-to-book framework with regulatory-capital forecasts instead.</p></section>}
 
     {!financialUnsupported && <section className="sheet-section output-section" id="output">

@@ -44,7 +44,7 @@ export default function CompanyResearchPage({ view }: { view: "price" | "news" |
         setData(cached);
         setRisks(readResearchData(cached.company.symbol)?.risks || baselineRisks(cached));
         setLoading(false);
-        return;
+        if (view !== "risks" || cached.coverage === "full") return;
       }
       if (!requested || !/^[A-Z0-9.\-]{1,12}$/.test(requested)) {
         setError("Load a ticker in the DCF model first.");
@@ -68,7 +68,7 @@ export default function CompanyResearchPage({ view }: { view: "price" | "news" |
       }
     });
     return () => controller.abort();
-  }, []);
+  }, [view]);
 
   const active = view as CompanyNavView;
   if (!data) return <main className="company-view-page"><CompanyNavigation active={active}/><section className="company-view-missing"><span>{view.toUpperCase()}</span><h1>{loading ? "Loading company…" : "Company not loaded"}</h1><p>{error || "Open the DCF model and enter a ticker first."}</p><Link href="/">Open DCF model →</Link></section></main>;

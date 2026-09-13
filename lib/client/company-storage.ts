@@ -85,6 +85,7 @@ function isBusinessAnalysis(value: unknown) {
 
 export function isCompanyData(value: unknown): value is CompanyData {
   if (!isRecord(value) || !isRecord(value.company) || !isRecord(value.market) || !isRecord(value.metrics)) return false;
+  if (value.coverage !== undefined && value.coverage !== "valuation" && value.coverage !== "full") return false;
   const company = value.company;
   const market = value.market;
   const metrics = value.metrics;

@@ -113,6 +113,7 @@ export type BusinessAnalysis = {
 };
 
 export type CompanyData = {
+  coverage?: "valuation" | "full";
   source: string;
   asOf: string;
   qualityNotes?: string[];

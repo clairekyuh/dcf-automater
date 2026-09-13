@@ -25,8 +25,9 @@ class MemoryStorage implements StorageLike {
   removeItem(key: string) { this.values.delete(key); }
 }
 
-function company(): CompanyData {
+function company(coverage: CompanyData["coverage"] = "full"): CompanyData {
   return {
+    coverage,
     source: "Test source",
     asOf: "2026-06-30",
     company: {
@@ -55,6 +56,19 @@ test("company storage writes one versioned copy and reads it after runtime valid
   assert.equal(JSON.parse(raw).version, COMPANY_STORAGE_VERSION);
   assert.equal(readCompanyData("AAPL", { local, session })?.company.name, "Apple");
   assert.equal(readCompanyData("MSFT", { local, session }), null);
+});
+
+test("company storage preserves progressive-loading coverage", () => {
+  const local = new MemoryStorage();
+  assert.equal(storeCompanyData(company("valuation"), { local }), true);
+  assert.equal(readCompanyData("AAPL", { local })?.coverage, "valuation");
+
+  assert.equal(storeCompanyData(company("full"), { local }), true);
+  assert.equal(readCompanyData("AAPL", { local })?.coverage, "full");
+
+  const invalidCoverage = { ...company(), coverage: "partial" };
+  local.setItem(COMPANY_STORAGE_KEY, JSON.stringify(invalidCoverage));
+  assert.equal(readCompanyData("AAPL", { local }), null);
 });
 
 test("legacy company payloads are accepted only when valid and migrated to an envelope", () => {
