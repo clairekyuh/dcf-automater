@@ -22,7 +22,7 @@ const NASDAQ_HEADERS = {
   Referer: "https://www.nasdaq.com/",
 };
 const SEC_HEADERS = {
-  "User-Agent": process.env.SEC_USER_AGENT?.trim() || "DCF Calculator https://dcf-calculator.vercel.app",
+  "User-Agent": process.env.SEC_USER_AGENT?.trim() || "DCF Calculator https://dcf-calculator-claire.vercel.app",
   Accept: "application/json,text/html,*/*",
   "Accept-Encoding": "gzip, deflate",
 };
