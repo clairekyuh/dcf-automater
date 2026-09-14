@@ -326,13 +326,10 @@ export default function ValuationVisuals({ data, model, perpetuity, multiple }: 
       <MarginChart data={data} result={perpetuity}/>
       <RangeChart data={data} model={model}/>
     </div>
-    <details className={styles.additionalAnalysis}>
-      <summary><b>Additional analysis</b><span>Peers, equity bridge, and terminal value</span></summary>
-      <div className={styles.additionalCharts}>
-        <PeerScatter data={data}/>
-        <EnterpriseToEquityWaterfall model={model} perpetuity={perpetuity} multiple={multiple}/>
-        <TerminalDependency perpetuity={perpetuity} multiple={multiple}/>
-      </div>
-    </details>
+    <div className={styles.additionalCharts}>
+      <PeerScatter data={data}/>
+      <EnterpriseToEquityWaterfall model={model} perpetuity={perpetuity} multiple={multiple}/>
+      <TerminalDependency perpetuity={perpetuity} multiple={multiple}/>
+    </div>
   </div>;
 }

@@ -150,29 +150,6 @@
   opacity: 1;
 }
 
-.additionalAnalysis {
-  margin-top: 12px;
-  border-top: 1px solid #aeb7b0;
-  border-bottom: 1px solid #aeb7b0;
-}
-
-.additionalAnalysis > summary {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: 14px;
-  padding: 18px 0;
-  color: #14231d;
-  cursor: pointer;
-  list-style: none;
-}
-
-.additionalAnalysis > summary::-webkit-details-marker { display: none; }
-.additionalAnalysis > summary b { font-size: 14px; }
-.additionalAnalysis > summary span { color: #66756d; font-size: 12px; }
-.additionalAnalysis > summary::after { content: "+"; color: #41651c; font-size: 22px; line-height: 1; }
-.additionalAnalysis[open] > summary::after { content: "−"; }
-
 .additionalCharts .chartBlock:last-child {
   grid-column: 1 / -1;
 }
@@ -265,7 +242,4 @@
   .chartBlock svg { min-width: 640px; }
   .legend { justify-content: start; }
   .chartBlock header { display: block; }
-  .additionalAnalysis > summary { grid-template-columns: 1fr auto; }
-  .additionalAnalysis > summary span { grid-column: 1 / -1; grid-row: 2; }
-  .additionalAnalysis > summary::after { grid-column: 2; grid-row: 1; }
 }
