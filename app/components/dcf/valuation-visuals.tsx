@@ -257,6 +257,22 @@ function PeerScatter({ data }: { data: CompanyData }) {
   const yDomain = scaleDomain(peers.map((peer) => peer.evToRevenue), 2);
   const x = (value: number) => padding.left + (value - xDomain.minimum) / xDomain.span * (width - padding.left - padding.right);
   const y = (value: number) => padding.top + (yDomain.maximum - value) / yDomain.span * (height - padding.top - padding.bottom);
+  const labelGap = 24;
+  const plotBottom = height - padding.bottom;
+  const orderedPeers = peers
+    .map((peer) => ({ peer, pointX: x(peer.revenueGrowth), pointY: y(peer.evToRevenue) }))
+    .sort((first, second) => first.pointY - second.pointY);
+  const forwardPositionedPeers = orderedPeers.reduce<Array<(typeof orderedPeers)[number] & { labelY: number }>>((positioned, point) => {
+    const previousLabelY = positioned.at(-1)?.labelY ?? padding.top + 8 - labelGap;
+    const labelY = Math.max(Math.max(padding.top + 8, point.pointY), previousLabelY + labelGap);
+    return [...positioned, { ...point, labelY }];
+  }, []);
+  const plottedPeers = forwardPositionedPeers.reduceRight<typeof forwardPositionedPeers>((positioned, point) => {
+    const nextLabelY = positioned[0]?.labelY ?? plotBottom - 8 + labelGap;
+    return [{ ...point, labelY: Math.min(point.labelY, nextLabelY - labelGap) }, ...positioned];
+  }, []);
+  const tooltipWidth = 190;
+  const tooltipHeight = 66;
 
   return <article className={styles.chartBlock}>
     <header><div><h3>Peer valuation</h3><p>Revenue growth versus EV / revenue</p></div></header>
@@ -265,12 +281,33 @@ function PeerScatter({ data }: { data: CompanyData }) {
       <line x1={padding.left} x2={padding.left} y1={padding.top} y2={height - padding.bottom} className={styles.grid}/>
       <text x={width / 2} y={height - 12} textAnchor="middle">Revenue growth</text>
       <text x="18" y={height / 2} textAnchor="middle" transform={`rotate(-90 18 ${height / 2})`}>EV / revenue</text>
-      {peers.map((peer) => {
+      {plottedPeers.map(({ peer, pointX, pointY, labelY }) => {
         const isCompany = peer.symbol === data.company.symbol;
+        const placeLeft = pointX > width - padding.right - 120;
+        const labelX = pointX + (placeLeft ? -16 : 16);
+        const labelAnchor = placeLeft ? "end" : "start";
         return <g key={peer.symbol}>
-          <circle cx={x(peer.revenueGrowth)} cy={y(peer.evToRevenue)} r={isCompany ? 10 : 7} className={isCompany ? styles.peerCompany : styles.peerPoint}/>
-          <text x={x(peer.revenueGrowth) + 12} y={y(peer.evToRevenue) - 9}>{peer.symbol}</text>
-          <text x={x(peer.revenueGrowth) + 12} y={y(peer.evToRevenue) + 7}>{oneDecimal.format(peer.revenueGrowth)}% · {oneDecimal.format(peer.evToRevenue)}×</text>
+          <circle cx={pointX} cy={pointY} r={isCompany ? 10 : 7} className={isCompany ? styles.peerCompany : styles.peerPoint}/>
+          <line x1={pointX} y1={pointY} x2={labelX + (placeLeft ? 4 : -4)} y2={labelY} className={styles.peerLeader}/>
+          <text x={labelX} y={labelY + 4} textAnchor={labelAnchor} className={styles.peerLabel}>{peer.symbol}</text>
+        </g>;
+      })}
+      {plottedPeers.map(({ peer, pointX, pointY, labelY }) => {
+        const placeLeft = pointX > width - padding.right - 120;
+        const labelX = pointX + (placeLeft ? -16 : 16);
+        const hitX = placeLeft ? labelX - 54 : labelX - 5;
+        const tooltipX = Math.min(width - padding.right - tooltipWidth, Math.max(padding.left, pointX - tooltipWidth / 2));
+        const tooltipY = Math.min(plotBottom - tooltipHeight, Math.max(padding.top, pointY - tooltipHeight - 14));
+        const accessibleLabel = `${peer.symbol}. Revenue growth ${oneDecimal.format(peer.revenueGrowth)}%. Enterprise value to revenue ${oneDecimal.format(peer.evToRevenue)} times.`;
+        return <g key={`hover-${peer.symbol}`} className={styles.peerHover} tabIndex={0} role="group" aria-label={accessibleLabel}>
+          <circle cx={pointX} cy={pointY} r="14" className={styles.peerHitTarget}/>
+          <rect x={hitX} y={labelY - 12} width="59" height="24" className={styles.peerHitTarget}/>
+          <g className={styles.peerTooltip} transform={`translate(${tooltipX} ${tooltipY})`}>
+            <rect width={tooltipWidth} height={tooltipHeight} rx="3"/>
+            <text x="12" y="20" className={styles.tooltipTitle}>{peer.symbol}</text>
+            <text x="12" y="40">Revenue growth</text><text x={tooltipWidth - 12} y="40" textAnchor="end">{oneDecimal.format(peer.revenueGrowth)}%</text>
+            <text x="12" y="57">EV / revenue</text><text x={tooltipWidth - 12} y="57" textAnchor="end">{oneDecimal.format(peer.evToRevenue)}×</text>
+          </g>
         </g>;
       })}
     </svg>

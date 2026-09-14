@@ -220,6 +220,32 @@
 .waterfallEquity { stroke: #14231d; stroke-width: 3; }
 .peerPoint { fill: #a9b7ac; stroke: #52635a; stroke-width: 1; }
 .peerCompany { fill: #b9dc63; stroke: #25463a; stroke-width: 3; }
+.peerLeader { stroke: #98a49d; stroke-width: 1; }
+.peerLabel { fill: #14231d !important; font-weight: 700 !important; }
+.peerHover { outline: none; }
+.peerHitTarget { fill: transparent; cursor: crosshair; }
+.peerTooltip {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .12s ease;
+}
+.peerTooltip rect {
+  fill: #14231d;
+  stroke: #65766d;
+  stroke-width: 1;
+}
+.peerTooltip text {
+  fill: #f7f8f5 !important;
+  font-size: 11px !important;
+}
+.peerTooltip .tooltipTitle {
+  fill: #b9dc63 !important;
+  font-weight: 700 !important;
+}
+.peerHover:hover .peerTooltip,
+.peerHover:focus .peerTooltip {
+  opacity: 1;
+}
 
 @media (max-width: 900px) {
   .coreCharts,
