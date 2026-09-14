@@ -103,6 +103,53 @@
   font-weight: 650 !important;
 }
 
+.hoverPeriod {
+  outline: none;
+}
+
+.hoverTarget {
+  fill: transparent;
+  cursor: crosshair;
+}
+
+.hoverGuide {
+  opacity: 0;
+  stroke: #59675f;
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  pointer-events: none;
+  transition: opacity .12s ease;
+}
+
+.pointTooltip {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .12s ease;
+}
+
+.pointTooltip rect {
+  fill: #14231d;
+  stroke: #65766d;
+  stroke-width: 1;
+}
+
+.pointTooltip text {
+  fill: #f7f8f5 !important;
+  font-size: 11px !important;
+}
+
+.pointTooltip .tooltipTitle {
+  fill: #b9dc63 !important;
+  font-weight: 700 !important;
+}
+
+.hoverPeriod:hover .hoverGuide,
+.hoverPeriod:hover .pointTooltip,
+.hoverPeriod:focus .hoverGuide,
+.hoverPeriod:focus .pointTooltip {
+  opacity: 1;
+}
+
 .additionalAnalysis {
   margin-top: 12px;
   border-top: 1px solid #aeb7b0;

@@ -99,6 +99,10 @@ function MarginChart({ data, result }: { data: CompanyData; result: DcfResult })
     .map((point, index) => point[key] === null ? null : `${x(index)},${y(point[key] as number)}`)
     .filter(Boolean)
     .join(" ");
+  const periodWidth = (width - padding.left - padding.right) / Math.max(points.length - 1, 1);
+  const tooltipWidth = 176;
+  const tooltipHeight = 88;
+  const percentLabel = (value: number | null) => value === null ? "N/A" : `${oneDecimal.format(value)}%`;
 
   return <article className={styles.chartBlock}>
     <header>
@@ -110,7 +114,10 @@ function MarginChart({ data, result }: { data: CompanyData; result: DcfResult })
       </div>
     </header>
     <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Historical and forecast EBITDA, EBIT, and unlevered free cash flow margins">
-      <line x1={padding.left} x2={width - padding.right} y1={y(0)} y2={y(0)} className={styles.grid}/>
+      {[domain.minimum, domain.minimum + domain.span / 2, domain.maximum].map((value) => <g key={value}>
+        <line x1={padding.left} x2={width - padding.right} y1={y(value)} y2={y(value)} className={styles.grid}/>
+        <text x={padding.left - 9} y={y(value) + 4} textAnchor="end">{oneDecimal.format(value)}%</text>
+      </g>)}
       {points.map((point, index) => <text key={point.label} x={x(index)} y={height - 19} textAnchor="middle">{point.label}</text>)}
       {keys.map((key) => <polyline key={key} points={line(key)} fill="none" stroke={key === "ebitdaMargin" ? colors.ebitda : key === "ebitMargin" ? colors.ebit : colors.ufcf} strokeWidth="3"/>)}
       {points.flatMap((point, index) => keys.map((key) => point[key] === null ? null : <circle
@@ -120,6 +127,25 @@ function MarginChart({ data, result }: { data: CompanyData; result: DcfResult })
         r="3"
         fill={key === "ebitdaMargin" ? colors.ebitda : key === "ebitMargin" ? colors.ebit : colors.ufcf}
       />))}
+      {points.map((point, index) => {
+        const pointX = x(index);
+        const targetLeft = index === 0 ? padding.left : pointX - periodWidth / 2;
+        const targetRight = index === points.length - 1 ? width - padding.right : pointX + periodWidth / 2;
+        const tooltipX = Math.min(width - padding.right - tooltipWidth, Math.max(padding.left, pointX - tooltipWidth / 2));
+        const periodType = point.period === "actual" ? "Actual" : "Forecast";
+        const accessibleLabel = `${point.label}, ${periodType}. EBITDA margin ${percentLabel(point.ebitdaMargin)}, EBIT margin ${percentLabel(point.ebitMargin)}, UFCF margin ${percentLabel(point.ufcfMargin)}.`;
+        return <g key={`hover-${point.label}`} className={styles.hoverPeriod} tabIndex={0} role="group" aria-label={accessibleLabel}>
+          <rect x={targetLeft} y={padding.top} width={Math.max(1, targetRight - targetLeft)} height={height - padding.top - padding.bottom} className={styles.hoverTarget}/>
+          <line x1={pointX} x2={pointX} y1={padding.top} y2={height - padding.bottom} className={styles.hoverGuide}/>
+          <g className={styles.pointTooltip} transform={`translate(${tooltipX} 16)`}>
+            <rect width={tooltipWidth} height={tooltipHeight} rx="3"/>
+            <text x="12" y="19" className={styles.tooltipTitle}>{point.label} · {periodType}</text>
+            <text x="12" y="39">EBITDA margin</text><text x={tooltipWidth - 12} y="39" textAnchor="end">{percentLabel(point.ebitdaMargin)}</text>
+            <text x="12" y="58">EBIT margin</text><text x={tooltipWidth - 12} y="58" textAnchor="end">{percentLabel(point.ebitMargin)}</text>
+            <text x="12" y="77">UFCF margin</text><text x={tooltipWidth - 12} y="77" textAnchor="end">{percentLabel(point.ufcfMargin)}</text>
+          </g>
+        </g>;
+      })}
     </svg>
   </article>;
 }
