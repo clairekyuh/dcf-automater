@@ -1,36 +1,198 @@
-.visuals { color: #14231d; font-family: "Google Sans", Arial, sans-serif; }
-.primary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 36px; }
-.chartBlock { min-width: 0; padding: 22px 0 28px; border-top: 1px solid #aeb7b0; }
-.chartBlock header { display: flex; min-height: 48px; align-items: start; justify-content: space-between; gap: 18px; margin-bottom: 12px; }
-.chartBlock h3 { margin: 0; font-family: "Anek Devanagari", Arial, sans-serif; font-size: 24px; }
-.chartBlock p { margin: 2px 0 0; color: #66756d; font-size: 12px; }
-.chartBlock svg { display: block; width: 100%; height: auto; overflow: visible; }
-.chartBlock svg text { fill: #59675f; font: 12px "Google Sans", Arial, sans-serif; }
-.grid { stroke: #d7ddd8; stroke-width: 1; }
-.divider { stroke: #7e8a83; stroke-width: 1; stroke-dasharray: 5 5; }
-.legend { display: flex; flex-wrap: wrap; justify-content: end; gap: 10px 14px; color: #59675f; font-size: 11px; }
-.legend span { display: inline-flex; align-items: center; gap: 6px; }
-.legend i { width: 16px; height: 3px; }
-.dcfRange, .marketRange, .compRange { stroke-width: 9; stroke-linecap: square; }
+.visuals {
+  color: #14231d;
+  font-family: "Google Sans", Arial, sans-serif;
+}
+
+.coreCharts,
+.additionalCharts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 36px;
+}
+
+.chartBlock {
+  min-width: 0;
+  padding: 22px 0 28px;
+  border-top: 1px solid #aeb7b0;
+}
+
+.chartBlock header {
+  display: flex;
+  min-height: 48px;
+  align-items: start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 12px;
+}
+
+.chartBlock h3 {
+  margin: 0;
+  font-family: "Anek Devanagari", Arial, sans-serif;
+  font-size: 24px;
+}
+
+.chartBlock p {
+  margin: 2px 0 0;
+  color: #66756d;
+  font-size: 12px;
+}
+
+.chartBlock svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.chartBlock svg text {
+  fill: #59675f;
+  font: 12px "Google Sans", Arial, sans-serif;
+}
+
+.rangeWide {
+  grid-column: 1 / -1;
+}
+
+.grid {
+  stroke: #d7ddd8;
+  stroke-width: 1;
+}
+
+.divider {
+  stroke: #7e8a83;
+  stroke-width: 1;
+  stroke-dasharray: 5 5;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: end;
+  gap: 10px 14px;
+  color: #59675f;
+  font-size: 11px;
+}
+
+.legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend i {
+  width: 16px;
+  height: 3px;
+}
+
+.dcfRange,
+.compRange {
+  stroke-width: 9;
+  stroke-linecap: square;
+}
+
 .dcfRange { stroke: #41651c; }
-.marketRange { stroke: #b8c4b7; }
-.compRange { stroke: #bb7041; }
-.currentMarker { stroke: #14231d; stroke-width: 2; }
-.rangeLabel { font-weight: 650 !important; }
-.allCharts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 36px; }
-.zeroLine { stroke: #89958e; stroke-width: 1; }
-.compositionForecast { fill: #b66a3c; }
-.compositionTerminal { fill: #41651c; }
-.bridgeTable { border-top: 1px solid #cbd1cc; }
-.bridgeTable > div { display: grid; grid-template-columns: 1.2fr repeat(4, 1fr); gap: 12px; padding: 10px 0; border-bottom: 1px solid #d8ddd9; font-size: 12px; }
-.bridgeTable > div:first-child { color: #66756d; }
-.bridgeTable span:not(:first-child), .bridgeTable strong { text-align: right; font-variant-numeric: tabular-nums; }
-.peerMultiples { display: grid; gap: 15px; }
-.peerMultiples > div { display: grid; grid-template-columns: 58px 1fr; align-items: start; gap: 12px; font-size: 12px; }
-.peerMultiples > div > div { display: grid; grid-template-columns: 1fr 54px; align-items: center; gap: 5px 10px; }
-.peerMultiples i { height: 8px; background: #e4e8e3; }
-.peerMultiples i span { display: block; height: 100%; background: #41651c; }
-.peerMultiples i:nth-of-type(2) span { background: #25463a; }
-.peerMultiples strong { text-align: right; font-variant-numeric: tabular-nums; }
-@media (max-width: 900px) { .primary, .allCharts { grid-template-columns: 1fr; gap: 0; } }
-@media (max-width: 600px) { .chartBlock { overflow-x: auto; } .chartBlock svg { min-width: 640px; } .legend { justify-content: start; } .chartBlock header { display: block; } .bridgeTable { overflow-x: auto; } .bridgeTable > div { min-width: 620px; } }
+.compRange { stroke: #b66a3c; }
+
+.currentMarker {
+  stroke: #14231d;
+  stroke-width: 2;
+  stroke-dasharray: 4 4;
+}
+
+.rangeLabel {
+  font-weight: 650 !important;
+}
+
+.additionalAnalysis {
+  margin-top: 12px;
+  border-top: 1px solid #aeb7b0;
+  border-bottom: 1px solid #aeb7b0;
+}
+
+.additionalAnalysis > summary {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 0;
+  color: #14231d;
+  cursor: pointer;
+  list-style: none;
+}
+
+.additionalAnalysis > summary::-webkit-details-marker { display: none; }
+.additionalAnalysis > summary b { font-size: 14px; }
+.additionalAnalysis > summary span { color: #66756d; font-size: 12px; }
+.additionalAnalysis > summary::after { content: "+"; color: #41651c; font-size: 22px; line-height: 1; }
+.additionalAnalysis[open] > summary::after { content: "−"; }
+
+.additionalCharts .chartBlock:last-child {
+  grid-column: 1 / -1;
+}
+
+.terminalDependency {
+  display: grid;
+  gap: 22px;
+  padding: 12px 0 4px;
+}
+
+.terminalDependency > div > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 7px;
+  font-size: 12px;
+}
+
+.terminalDependency strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.terminalDependency i {
+  display: block;
+  height: 12px;
+  background: #e4e8e3;
+}
+
+.terminalDependency i span {
+  display: block;
+  height: 100%;
+  background: #41651c;
+}
+
+.terminalDependency small {
+  display: block;
+  margin-top: 6px;
+  color: #8a4b32;
+  font-size: 11px;
+}
+
+.waterfallEnterprise { fill: #25463a; }
+.waterfallCash { fill: #8cab67; }
+.waterfallClaims { fill: #b66a3c; opacity: .9; }
+.waterfallEquity { stroke: #14231d; stroke-width: 3; }
+.peerPoint { fill: #a9b7ac; stroke: #52635a; stroke-width: 1; }
+.peerCompany { fill: #b9dc63; stroke: #25463a; stroke-width: 3; }
+
+@media (max-width: 900px) {
+  .coreCharts,
+  .additionalCharts {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .rangeWide,
+  .additionalCharts .chartBlock:last-child {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 600px) {
+  .chartBlock { overflow-x: auto; }
+  .chartBlock svg { min-width: 640px; }
+  .legend { justify-content: start; }
+  .chartBlock header { display: block; }
+  .additionalAnalysis > summary { grid-template-columns: 1fr auto; }
+  .additionalAnalysis > summary span { grid-column: 1 / -1; grid-row: 2; }
+  .additionalAnalysis > summary::after { grid-column: 2; grid-row: 1; }
+}

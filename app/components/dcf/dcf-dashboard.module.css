@@ -303,7 +303,7 @@
 
 .detailPanel {
   order: 6;
-  scroll-margin-top: 118px;
+  scroll-margin-top: 8px;
   font-family: "Google Sans", Arial, sans-serif;
 }
 .detailDisclosure {
@@ -404,7 +404,7 @@
   .valuationMethods strong { font-size: 30px; }
   .modelDetails { top: 56px; width: 100%; padding: 0; }
   .workflowBar { width: calc(100% - 32px); padding: 0; }
-  .detailPanel { scroll-margin-top: 112px; }
+  .detailPanel { scroll-margin-top: 8px; }
   .detailsHeading p { max-width: 300px; }
   .detailActions { display: none; }
   .workspaceSelect { display: block; }

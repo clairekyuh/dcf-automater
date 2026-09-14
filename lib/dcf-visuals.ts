@@ -5,8 +5,11 @@ import { historicalUfcf } from "@/lib/historical-dcf";
 export type VisualSeriesPoint = {
   label: string;
   revenue: number;
+  revenueGrowth: number | null;
   ebitda: number;
+  ebitdaMargin: number | null;
   ufcf: number;
+  ufcfMargin: number | null;
   grossMargin: number | null;
   ebitMargin: number;
   period: "actual" | "forecast";
@@ -16,8 +19,7 @@ export type ValuationRange = {
   label: string;
   low: number;
   high: number;
-  current?: number;
-  kind: "dcf" | "market" | "comps";
+  kind: "dcf" | "comps";
 };
 
 export type TerminalMix = {
@@ -29,26 +31,37 @@ export type TerminalMix = {
 };
 
 const finite = (values: number[]) => values.filter((value) => Number.isFinite(value));
-const range = (label: string, values: number[], kind: ValuationRange["kind"], current?: number): ValuationRange | null => {
+const range = (label: string, values: number[], kind: ValuationRange["kind"]): ValuationRange | null => {
   const valid = finite(values);
-  return valid.length ? { label, low: Math.min(...valid), high: Math.max(...valid), current, kind } : null;
+  return valid.length ? { label, low: Math.min(...valid), high: Math.max(...valid), kind } : null;
 };
 
 export function buildOperatingSeries(data: CompanyData, result: ReturnType<typeof calculateDcf>): VisualSeriesPoint[] {
-  const actuals = data.historical.slice(-5).map((row) => ({
-    label: row.year,
-    revenue: row.revenue,
-    ebitda: row.ebit + row.depreciation,
-    ufcf: historicalUfcf(row, data.metrics.taxRate || 21) ?? row.freeCashFlow,
-    grossMargin: row.grossMargin ?? (row.cogs === undefined || !row.revenue ? null : (row.revenue - row.cogs) / row.revenue * 100),
-    ebitMargin: row.ebitMargin,
-    period: "actual" as const,
-  }));
+  const historical = data.historical.slice(-6);
+  const actuals = historical.map((row, index) => {
+    const ufcf = historicalUfcf(row, data.metrics.taxRate || 21) ?? row.freeCashFlow;
+    const previousRevenue = historical[index - 1]?.revenue;
+    return {
+      label: row.year,
+      revenue: row.revenue,
+      revenueGrowth: previousRevenue && row.revenue ? (row.revenue / previousRevenue - 1) * 100 : null,
+      ebitda: row.ebit + row.depreciation,
+      ebitdaMargin: row.revenue ? (row.ebit + row.depreciation) / row.revenue * 100 : null,
+      ufcf,
+      ufcfMargin: row.revenue ? ufcf / row.revenue * 100 : null,
+      grossMargin: row.grossMargin ?? (row.cogs === undefined || !row.revenue ? null : (row.revenue - row.cogs) / row.revenue * 100),
+      ebitMargin: row.ebitMargin,
+      period: "actual" as const,
+    };
+  }).slice(-5);
   const forecasts = result.years.map((year) => ({
     label: fiscalPeriodLabel(year.periodEnd).replace(" E", ""),
     revenue: year.revenue,
+    revenueGrowth: year.growth,
     ebitda: year.ebitda,
+    ebitdaMargin: year.revenue ? year.ebitda / year.revenue * 100 : null,
     ufcf: year.fcf,
+    ufcfMargin: year.revenue ? year.fcf / year.revenue * 100 : null,
     grossMargin: year.grossMargin,
     ebitMargin: year.margin,
     period: "forecast" as const,
@@ -67,21 +80,26 @@ export function buildValuationRanges(data: CompanyData, model: DcfModel): Valuat
       : { wacc, exitMultiple: assumption });
     return result.valid ? result.perShare : Number.NaN;
   }));
-  const prices = data.market.priceHistory || [];
-  const latestTime = prices.reduce((latest, point) => Math.max(latest, Date.parse(point.date) || 0), 0);
-  const priceWindow = (label: string, days: number) => range(label, prices
-    .filter((point) => {
-      const age = latestTime - (Date.parse(point.date) || 0);
-      return age >= 0 && age <= days * 86_400_000;
-    })
-    .map((point) => point.close), "market");
+  const rawPeerMultiples = (data.comparison?.peers || [])
+    .map((peer) => peer.evToRevenue)
+    .filter((value): value is number => value !== null && Number.isFinite(value) && value > 0);
+  const sortedPeerMultiples = [...rawPeerMultiples].sort((a, b) => a - b);
+  const middle = Math.floor(sortedPeerMultiples.length / 2);
+  const medianPeerMultiple = sortedPeerMultiples.length % 2
+    ? sortedPeerMultiples[middle]
+    : (sortedPeerMultiples[middle - 1] + sortedPeerMultiples[middle]) / 2;
+  const peerMultiples = sortedPeerMultiples.length >= 3
+    ? sortedPeerMultiples.filter((multiple) => multiple >= medianPeerMultiple * 0.4 && multiple <= medianPeerMultiple * 2.5)
+    : sortedPeerMultiples;
+  const comparableValues = peerMultiples.map((multiple) => {
+    const enterpriseValue = data.metrics.revenue * multiple;
+    const equityValue = enterpriseValue + model.cash - model.shortDebt - model.longDebt - model.preferredInterest;
+    return model.shares > 0 ? Math.max(0, equityValue / model.shares) : Number.NaN;
+  });
   return [
     range("Perpetual growth", sensitivityValues("perpetuity", growthRates), "dcf"),
     range("Exit multiple", sensitivityValues("multiple", exitMultiples), "dcf"),
-    priceWindow("3-month price", 92),
-    priceWindow("6-month price", 183),
-    priceWindow("52-week price", 366),
-    range("Current price", [model.marketPrice], "market", model.marketPrice),
+    range("Comparable companies", comparableValues, "comps"),
   ].filter((item): item is ValuationRange => item !== null);
 }
 
@@ -89,7 +107,7 @@ export function buildTerminalMix(perpetuity: ReturnType<typeof calculateDcf>, mu
   return [["Perpetual growth", perpetuity], ["Exit multiple", multiple]].map(([label, raw]) => {
     const result = raw as ReturnType<typeof calculateDcf>;
     const total = result.pvForecast + result.pvTerminal;
-    const usable = result.valid && total > 0 && result.pvForecast >= 0 && result.pvTerminal >= 0;
+    const usable = result.valid && total !== 0;
     return {
       label: String(label),
       forecastValue: result.pvForecast,

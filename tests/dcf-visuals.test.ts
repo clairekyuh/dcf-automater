@@ -26,14 +26,33 @@ test("operating visuals keep actual and forecast periods distinct", () => {
   assert.equal(series[0].period, "actual");
   assert.equal(series[1].period, "forecast");
   assert.equal(series[0].grossMargin, 50);
+  assert.equal(series[1].revenueGrowth, 5);
+  assert.ok(series[1].ebitdaMargin !== null);
+  assert.ok(series[1].ufcfMargin !== null);
   assert.equal(series.length, 7);
 });
 
-test("valuation ranges use model sensitivities and standard recent-price windows", () => {
+test("valuation ranges contain valuation methods rather than stock-trading windows", () => {
   const ranges = buildValuationRanges(data, model);
-  assert.deepEqual(ranges.map((item) => item.label), ["Perpetual growth", "Exit multiple", "3-month price", "6-month price", "52-week price", "Current price"]);
+  assert.deepEqual(ranges.map((item) => item.label), ["Perpetual growth", "Exit multiple", "Comparable companies"]);
   assert.ok(ranges.every((item) => item.high >= item.low));
-  assert.equal(ranges.at(-1)?.current, 20);
+  assert.deepEqual(ranges.at(-1), { label: "Comparable companies", low: 40, high: 60, kind: "comps" });
+});
+
+test("comparable valuation range excludes extreme peer-multiple outliers", () => {
+  const outlierData = {
+    ...data,
+    comparison: {
+      ...data.comparison,
+      peers: [
+        { peerFit: "direct", evToRevenue: 4 },
+        { peerFit: "direct", evToRevenue: 6 },
+        { peerFit: "direct", evToRevenue: 40 },
+      ],
+    },
+  } as unknown as CompanyData;
+  const comparableRange = buildValuationRanges(outlierData, model).find((item) => item.kind === "comps");
+  assert.deepEqual(comparableRange, { label: "Comparable companies", low: 40, high: 60, kind: "comps" });
 });
 
 test("terminal mix reconciles to enterprise value components", () => {

@@ -1,39 +1,125 @@
-import type { CompanyData } from "@/lib/company-data";
+import type { ComparableCompany, CompanyData } from "@/lib/company-data";
 import { buildOperatingSeries, buildTerminalMix, buildValuationRanges } from "@/lib/dcf-visuals";
 import { calculateDcf, type DcfModel } from "@/lib/dcf-engine";
 import styles from "./valuation-visuals.module.css";
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
 const compact = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
-const fmt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
-const colors = { revenue: "#b8c4b7", ebitda: "#25463a", ufcf: "#b66a3c", gross: "#41651c", ebit: "#bb7041" };
+const oneDecimal = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
+const colors = {
+  revenue: "#b8c4b7",
+  growth: "#25463a",
+  ebitda: "#41651c",
+  ebit: "#25463a",
+  ufcf: "#b66a3c",
+};
 
-function OperatingChart({ data, result }: { data: CompanyData; result: ReturnType<typeof calculateDcf> }) {
+type DcfResult = ReturnType<typeof calculateDcf>;
+
+function scaleDomain(values: number[], minimumSpan = 1) {
+  const finite = values.filter(Number.isFinite);
+  const minimum = Math.min(0, ...finite);
+  const maximum = Math.max(minimumSpan, ...finite);
+  return { minimum, maximum, span: Math.max(maximum - minimum, minimumSpan) };
+}
+
+function OperatingChart({ data, result }: { data: CompanyData; result: DcfResult }) {
   const points = buildOperatingSeries(data, result);
   const width = 920;
-  const height = 310;
-  const pad = { left: 58, right: 20, top: 22, bottom: 50 };
-  const values = points.flatMap((point) => [point.revenue, point.ebitda, point.ufcf]);
-  const min = Math.min(0, ...values);
-  const max = Math.max(1, ...values);
-  const span = max - min;
-  const plotHeight = height - pad.top - pad.bottom;
-  const baseline = pad.top + max / span * plotHeight;
-  const x = (index: number) => pad.left + (index + .5) * (width - pad.left - pad.right) / Math.max(points.length, 1);
-  const y = (value: number) => pad.top + (max - value) / span * plotHeight;
-  const barWidth = Math.min(42, (width - pad.left - pad.right) / Math.max(points.length, 1) * .46);
-  const line = (key: "ebitda" | "ufcf") => points.map((point, index) => `${x(index)},${y(point[key])}`).join(" ");
+  const height = 320;
+  const padding = { left: 62, right: 54, top: 24, bottom: 52 };
+  const revenue = scaleDomain(points.map((point) => point.revenue));
+  const growthValues = points.map((point) => point.revenueGrowth).filter((value): value is number => value !== null);
+  const growth = scaleDomain(growthValues, 10);
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+  const x = (index: number) => padding.left + (index + 0.5) * plotWidth / Math.max(points.length, 1);
+  const revenueY = (value: number) => padding.top + (revenue.maximum - value) / revenue.span * plotHeight;
+  const growthY = (value: number) => padding.top + (growth.maximum - value) / growth.span * plotHeight;
+  const baseline = revenueY(0);
+  const barWidth = Math.min(42, plotWidth / Math.max(points.length, 1) * 0.48);
+  const growthLine = points
+    .map((point, index) => point.revenueGrowth === null ? null : `${x(index)},${growthY(point.revenueGrowth)}`)
+    .filter(Boolean)
+    .join(" ");
   const forecastStart = points.findIndex((point) => point.period === "forecast");
   const dividerX = forecastStart > 0 ? (x(forecastStart - 1) + x(forecastStart)) / 2 : null;
+
   return <article className={styles.chartBlock}>
-    <header><div><h3>Operating forecast</h3><p>USD millions</p></div><div className={styles.legend}><span><i style={{ background: colors.revenue }}/>Revenue</span><span><i style={{ background: colors.ebitda }}/>EBITDA</span><span><i style={{ background: colors.ufcf }}/>UFCF</span></div></header>
-    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Historical and forecast revenue, EBITDA, and unlevered free cash flow">
-      {[0, .5, 1].map((ratio) => { const value = min + span * ratio; const yy = y(value); return <g key={ratio}><line x1={pad.left} x2={width - pad.right} y1={yy} y2={yy} className={styles.grid}/><text x={pad.left - 10} y={yy + 4} textAnchor="end">{compact.format(value)}</text></g>; })}
-      {points.map((point, index) => <g key={`${point.label}-${index}`}><rect x={x(index) - barWidth / 2} y={Math.min(y(point.revenue), baseline)} width={barWidth} height={Math.max(1, Math.abs(baseline - y(point.revenue)))} fill={colors.revenue}/><text x={x(index)} y={height - 20} textAnchor="middle">{point.label}</text></g>)}
-      {dividerX !== null && <g><line x1={dividerX} x2={dividerX} y1={pad.top} y2={height - pad.bottom} className={styles.divider}/><text x={dividerX + 7} y={pad.top + 12}>FORECAST</text></g>}
-      <polyline points={line("ebitda")} fill="none" stroke={colors.ebitda} strokeWidth="3"/>
-      <polyline points={line("ufcf")} fill="none" stroke={colors.ufcf} strokeWidth="3"/>
-      {points.flatMap((point, index) => (["ebitda", "ufcf"] as const).map((key) => <circle key={`${key}-${index}`} cx={x(index)} cy={y(point[key])} r="3" fill={colors[key]}/>))}
+    <header>
+      <div><h3>Revenue and growth</h3><p>Historical and forecast</p></div>
+      <div className={styles.legend}>
+        <span><i style={{ background: colors.revenue }}/>Revenue</span>
+        <span><i style={{ background: colors.growth }}/>Growth</span>
+      </div>
+    </header>
+    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Historical and forecast revenue with annual growth">
+      {[0, 0.5, 1].map((ratio) => {
+        const value = revenue.minimum + revenue.span * ratio;
+        const y = revenueY(value);
+        return <g key={ratio}>
+          <line x1={padding.left} x2={width - padding.right} y1={y} y2={y} className={styles.grid}/>
+          <text x={padding.left - 10} y={y + 4} textAnchor="end">{compact.format(value)}</text>
+        </g>;
+      })}
+      {points.map((point, index) => <g key={`${point.label}-${index}`}>
+        <rect
+          x={x(index) - barWidth / 2}
+          y={Math.min(revenueY(point.revenue), baseline)}
+          width={barWidth}
+          height={Math.max(1, Math.abs(baseline - revenueY(point.revenue)))}
+          fill={colors.revenue}
+        />
+        <text x={x(index)} y={height - 19} textAnchor="middle">{point.label}</text>
+      </g>)}
+      {dividerX !== null && <g>
+        <line x1={dividerX} x2={dividerX} y1={padding.top} y2={height - padding.bottom} className={styles.divider}/>
+        <text x={dividerX + 7} y={padding.top + 12}>FORECAST</text>
+      </g>}
+      <polyline points={growthLine} fill="none" stroke={colors.growth} strokeWidth="3"/>
+      {points.map((point, index) => point.revenueGrowth === null ? null : <g key={`growth-${point.label}`}>
+        <circle cx={x(index)} cy={growthY(point.revenueGrowth)} r="3" fill={colors.growth}/>
+        <text x={x(index)} y={growthY(point.revenueGrowth) - 9} textAnchor="middle">{oneDecimal.format(point.revenueGrowth)}%</text>
+      </g>)}
+    </svg>
+  </article>;
+}
+
+function MarginChart({ data, result }: { data: CompanyData; result: DcfResult }) {
+  const points = buildOperatingSeries(data, result);
+  const width = 920;
+  const height = 320;
+  const padding = { left: 52, right: 20, top: 24, bottom: 52 };
+  const keys = ["ebitdaMargin", "ebitMargin", "ufcfMargin"] as const;
+  const values = points.flatMap((point) => keys.map((key) => point[key])).filter((value): value is number => value !== null);
+  const domain = scaleDomain(values, 10);
+  const x = (index: number) => padding.left + index * (width - padding.left - padding.right) / Math.max(points.length - 1, 1);
+  const y = (value: number) => padding.top + (domain.maximum - value) / domain.span * (height - padding.top - padding.bottom);
+  const line = (key: typeof keys[number]) => points
+    .map((point, index) => point[key] === null ? null : `${x(index)},${y(point[key] as number)}`)
+    .filter(Boolean)
+    .join(" ");
+
+  return <article className={styles.chartBlock}>
+    <header>
+      <div><h3>Margins and cash conversion</h3><p>Percent of revenue</p></div>
+      <div className={styles.legend}>
+        <span><i style={{ background: colors.ebitda }}/>EBITDA</span>
+        <span><i style={{ background: colors.ebit }}/>EBIT</span>
+        <span><i style={{ background: colors.ufcf }}/>UFCF</span>
+      </div>
+    </header>
+    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Historical and forecast EBITDA, EBIT, and unlevered free cash flow margins">
+      <line x1={padding.left} x2={width - padding.right} y1={y(0)} y2={y(0)} className={styles.grid}/>
+      {points.map((point, index) => <text key={point.label} x={x(index)} y={height - 19} textAnchor="middle">{point.label}</text>)}
+      {keys.map((key) => <polyline key={key} points={line(key)} fill="none" stroke={key === "ebitdaMargin" ? colors.ebitda : key === "ebitMargin" ? colors.ebit : colors.ufcf} strokeWidth="3"/>)}
+      {points.flatMap((point, index) => keys.map((key) => point[key] === null ? null : <circle
+        key={`${key}-${point.label}`}
+        cx={x(index)}
+        cy={y(point[key] as number)}
+        r="3"
+        fill={key === "ebitdaMargin" ? colors.ebitda : key === "ebitMargin" ? colors.ebit : colors.ufcf}
+      />))}
     </svg>
   </article>;
 }
@@ -41,70 +127,149 @@ function OperatingChart({ data, result }: { data: CompanyData; result: ReturnTyp
 function RangeChart({ data, model }: { data: CompanyData; model: DcfModel }) {
   const ranges = buildValuationRanges(data, model);
   const width = 920;
-  const rowHeight = 56;
-  const height = 50 + ranges.length * rowHeight;
-  const left = 170;
+  const rowHeight = 58;
+  const height = 76 + ranges.length * rowHeight;
+  const left = 190;
   const right = 60;
-  const max = Math.max(model.marketPrice, ...ranges.map((item) => item.high), 1) * 1.08;
-  const x = (value: number) => left + Math.max(0, value) / max * (width - left - right);
-  return <article className={styles.chartBlock}>
-    <header><div><h3>Football field</h3><p>Valuation and market ranges</p></div></header>
-    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Valuation range comparison">
-      {ranges.map((item, index) => { const yy = 34 + index * rowHeight; return <g key={item.label}><text x={left - 14} y={yy + 5} textAnchor="end" className={styles.rangeLabel}>{item.label}</text><line x1={x(item.low)} x2={x(item.high)} y1={yy} y2={yy} className={item.kind === "market" ? styles.marketRange : item.kind === "comps" ? styles.compRange : styles.dcfRange}/><circle cx={x(item.low)} cy={yy} r="4"/><circle cx={x(item.high)} cy={yy} r="4"/><text x={x(item.low)} y={yy - 10} textAnchor="middle">{money.format(item.low)}</text><text x={x(item.high)} y={yy - 10} textAnchor="middle">{money.format(item.high)}</text>{item.current !== undefined && <g><line x1={x(item.current)} x2={x(item.current)} y1={yy - 15} y2={yy + 15} className={styles.currentMarker}/><text x={x(item.current)} y={yy + 29} textAnchor="middle">Current {money.format(item.current)}</text></g>}</g>; })}
+  const maximum = Math.max(model.marketPrice, ...ranges.map((item) => item.high), 1) * 1.08;
+  const x = (value: number) => left + Math.max(0, value) / maximum * (width - left - right);
+  const markerX = x(model.marketPrice);
+
+  return <article className={`${styles.chartBlock} ${styles.rangeWide}`}>
+    <header><div><h3>Valuation range</h3><p>DCF and comparable-company methods</p></div></header>
+    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Valuation methods compared with the current share price">
+      <line x1={markerX} x2={markerX} y1="18" y2={height - 32} className={styles.currentMarker}/>
+      <text x={markerX} y="12" textAnchor="middle">Current {money.format(model.marketPrice)}</text>
+      {ranges.map((item, index) => {
+        const y = 48 + index * rowHeight;
+        return <g key={item.label}>
+          <text x={left - 16} y={y + 5} textAnchor="end" className={styles.rangeLabel}>{item.label}</text>
+          <line x1={x(item.low)} x2={x(item.high)} y1={y} y2={y} className={item.kind === "comps" ? styles.compRange : styles.dcfRange}/>
+          <circle cx={x(item.low)} cy={y} r="4"/>
+          <circle cx={x(item.high)} cy={y} r="4"/>
+          <text x={x(item.low)} y={y - 11} textAnchor="middle">{money.format(item.low)}</text>
+          <text x={x(item.high)} y={y - 11} textAnchor="middle">{money.format(item.high)}</text>
+        </g>;
+      })}
     </svg>
   </article>;
 }
 
-function MarginChart({ data, result }: { data: CompanyData; result: ReturnType<typeof calculateDcf> }) {
-  const points = buildOperatingSeries(data, result);
-  const width = 920;
-  const height = 280;
-  const pad = { left: 52, right: 20, top: 20, bottom: 48 };
-  const values = points.flatMap((point) => [point.grossMargin, point.ebitMargin]).filter((value): value is number => value !== null && Number.isFinite(value));
-  const min = Math.min(0, ...values);
-  const max = Math.max(10, ...values);
-  const x = (index: number) => pad.left + index * (width - pad.left - pad.right) / Math.max(points.length - 1, 1);
-  const y = (value: number) => pad.top + (max - value) / Math.max(max - min, 1) * (height - pad.top - pad.bottom);
-  const line = (key: "grossMargin" | "ebitMargin") => points.filter((point) => point[key] !== null).map((point) => `${x(points.indexOf(point))},${y(point[key] as number)}`).join(" ");
-  return <article className={styles.chartBlock}><header><div><h3>Margins</h3><p>Historical and forecast</p></div><div className={styles.legend}><span><i style={{ background: colors.gross }}/>Gross margin</span><span><i style={{ background: colors.ebit }}/>EBIT margin</span></div></header><svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Historical and forecast gross margin and EBIT margin"><line x1={pad.left} x2={width - pad.right} y1={y(0)} y2={y(0)} className={styles.grid}/>{points.map((point, index) => <text key={point.label} x={x(index)} y={height - 18} textAnchor="middle">{point.label}</text>)}<polyline points={line("grossMargin")} fill="none" stroke={colors.gross} strokeWidth="3"/><polyline points={line("ebitMargin")} fill="none" stroke={colors.ebit} strokeWidth="3"/>{points.flatMap((point, index) => (["grossMargin", "ebitMargin"] as const).map((key) => point[key] === null ? null : <circle key={`${key}-${index}`} cx={x(index)} cy={y(point[key] as number)} r="3" fill={key === "grossMargin" ? colors.gross : colors.ebit}/>))}</svg></article>;
-}
-
-function TerminalChart({ perpetuity, multiple }: { perpetuity: ReturnType<typeof calculateDcf>; multiple: ReturnType<typeof calculateDcf> }) {
+function TerminalDependency({ perpetuity, multiple }: { perpetuity: DcfResult; multiple: DcfResult }) {
   const mixes = buildTerminalMix(perpetuity, multiple);
-  const width = 920;
-  const height = 250;
-  const left = 150;
-  const right = 55;
-  const zeroX = left + (width - left - right) * .28;
-  const negativeWidth = zeroX - left;
-  const positiveWidth = width - right - zeroX;
-  const maxNegative = Math.max(1, ...mixes.flatMap((item) => [Math.max(0, -item.forecastValue), Math.max(0, -item.terminalValue)]));
-  const maxPositive = Math.max(1, ...mixes.flatMap((item) => [Math.max(0, item.forecastValue), Math.max(0, item.terminalValue)]));
-  const bar = (value: number, y: number, className: string) => {
-    const barWidth = value < 0 ? Math.abs(value) / maxNegative * negativeWidth : value / maxPositive * positiveWidth;
-    const x = value < 0 ? zeroX - barWidth : zeroX;
-    return <g><rect x={x} y={y} width={Math.max(1, barWidth)} height="18" className={className}/><text x={value < 0 ? x - 7 : x + barWidth + 7} y={y + 14} textAnchor={value < 0 ? "end" : "start"}>{compact.format(value)}</text></g>;
-  };
-  return <article className={styles.chartBlock}><header><div><h3>Enterprise value composition</h3><p>Present value of forecast cash flow and terminal value</p></div><div className={styles.legend}><span><i style={{ background: colors.ufcf }}/>Forecast UFCF</span><span><i style={{ background: colors.gross }}/>Terminal value</span></div></header><svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Present value of forecast cash flow and terminal value by DCF method"><line x1={zeroX} x2={zeroX} y1="10" y2={height - 25} className={styles.zeroLine}/>{mixes.map((item, index) => { const y = 34 + index * 96; return <g key={item.label}><text x={left - 15} y={y + 29} textAnchor="end" className={styles.rangeLabel}>{item.label}</text>{bar(item.forecastValue, y, styles.compositionForecast)}{bar(item.terminalValue, y + 28, styles.compositionTerminal)}</g>; })}<text x={zeroX} y={height - 5} textAnchor="middle">0</text></svg></article>;
+  return <article className={styles.chartBlock}>
+    <header><div><h3>Terminal-value dependence</h3><p>Terminal value as a share of enterprise value</p></div></header>
+    <div className={styles.terminalDependency}>
+      {mixes.map((item) => {
+        const terminalPercent = item.terminalPercent;
+        const cappedWidth = terminalPercent === null ? 0 : Math.min(100, Math.max(0, terminalPercent));
+        return <div key={item.label}>
+          <div><b>{item.label}</b><strong>{terminalPercent === null ? "N/A" : `${oneDecimal.format(terminalPercent)}%`}</strong></div>
+          <i><span style={{ width: `${cappedWidth}%` }}/></i>
+          {terminalPercent !== null && terminalPercent > 100 && <small>Above 100% because the explicit forecast reduces enterprise value.</small>}
+        </div>;
+      })}
+    </div>
+  </article>;
 }
 
-function BridgeChart({ model, perpetuity, multiple }: { model: DcfModel; perpetuity: ReturnType<typeof calculateDcf>; multiple: ReturnType<typeof calculateDcf> }) {
+function EnterpriseToEquityWaterfall({ model, perpetuity, multiple }: { model: DcfModel; perpetuity: DcfResult; multiple: DcfResult }) {
   const claims = model.shortDebt + model.longDebt + model.preferredInterest;
-  const rows = [["Perpetual growth", perpetuity], ["Exit multiple", multiple]] as const;
-  return <article className={styles.chartBlock}><header><div><h3>Enterprise to equity value</h3><p>USD millions</p></div></header><div className={styles.bridgeTable}><div><span>Method</span><span>Enterprise value</span><span>Cash</span><span>Debt and other claims</span><span>Equity value</span></div>{rows.map(([label, result]) => <div key={label}><b>{label}</b><span>{result.valid ? compact.format(result.enterpriseValue) : "N/A"}</span><span>{compact.format(model.cash)}</span><span>{compact.format(claims)}</span><strong>{result.valid ? compact.format(result.equityValue) : "N/A"}</strong></div>)}</div></article>;
+  const methods = [["Perpetual growth", perpetuity], ["Exit multiple", multiple]] as const;
+  const width = 920;
+  const rowHeight = 112;
+  const left = 150;
+  const plotWidth = width - left - 40;
+  const maxValue = Math.max(1, ...methods.flatMap(([, result]) => [result.enterpriseValue, result.enterpriseValue + model.cash, result.equityValue]));
+  const barWidth = (value: number) => Math.max(1, Math.abs(value) / maxValue * plotWidth);
+
+  return <article className={styles.chartBlock}>
+    <header><div><h3>Enterprise to equity value</h3><p>Cash adds value; debt and other claims reduce it</p></div></header>
+    <svg viewBox={`0 0 ${width} ${32 + methods.length * rowHeight}`} role="img" aria-label="Enterprise-value-to-equity-value waterfall">
+      {methods.map(([label, result], index) => {
+        const y = 24 + index * rowHeight;
+        const enterprise = Math.max(0, result.enterpriseValue);
+        const afterCash = enterprise + model.cash;
+        const equity = Math.max(0, afterCash - claims);
+        const enterpriseWidth = barWidth(enterprise);
+        const cashWidth = barWidth(model.cash);
+        const claimsWidth = barWidth(claims);
+        const equityWidth = barWidth(equity);
+        return <g key={label}>
+          <text x={left - 14} y={y + 17} textAnchor="end" className={styles.rangeLabel}>{label}</text>
+          <rect x={left} y={y} width={enterpriseWidth} height="22" className={styles.waterfallEnterprise}/>
+          <rect x={left + enterpriseWidth} y={y} width={cashWidth} height="22" className={styles.waterfallCash}/>
+          <rect x={Math.max(left, left + enterpriseWidth + cashWidth - claimsWidth)} y={y} width={claimsWidth} height="22" className={styles.waterfallClaims}/>
+          <line x1={left + equityWidth} x2={left + equityWidth} y1={y - 5} y2={y + 27} className={styles.waterfallEquity}/>
+          <text x={left} y={y + 43}>EV {compact.format(enterprise)}</text>
+          <text x={left + enterpriseWidth} y={y + 43} textAnchor="middle">+ cash {compact.format(model.cash)}</text>
+          <text x={left + enterpriseWidth + cashWidth} y={y + 43} textAnchor="end">− claims {compact.format(claims)}</text>
+          <text x={left + equityWidth} y={y + 61} textAnchor="middle">Equity {compact.format(equity)}</text>
+        </g>;
+      })}
+    </svg>
+  </article>;
 }
 
-function PeerChart({ data }: { data: CompanyData }) {
+function PeerScatter({ data }: { data: CompanyData }) {
   const company = data.comparison?.company;
-  const peers = [...(company ? [company] : []), ...(data.comparison?.peers || [])].filter((peer) => (peer.evToRevenue !== null && Number.isFinite(peer.evToRevenue)) || (peer.evToEbitda !== null && Number.isFinite(peer.evToEbitda)));
-  if (!peers.length) return <article className={styles.chartBlock}><header><div><h3>Peer valuation multiples</h3><p>No comparable multiple data available</p></div></header></article>;
-  const max = Math.max(...peers.flatMap((peer) => [peer.evToRevenue || 0, peer.evToEbitda || 0]), 1);
-  return <article className={styles.chartBlock}><header><div><h3>Peer valuation multiples</h3><p>Latest available financials</p></div><div className={styles.legend}><span><i style={{ background: colors.gross }}/>EV / revenue</span><span><i style={{ background: colors.ebitda }}/>EV / EBITDA</span></div></header><div className={styles.peerMultiples}>{peers.map((peer) => <div key={peer.symbol}><b>{peer.symbol}</b><div><i><span style={{ width: `${Math.max(0, peer.evToRevenue || 0) / max * 100}%` }}/></i><strong>{peer.evToRevenue === null ? "n.a." : `${fmt.format(peer.evToRevenue)}×`}</strong><i><span style={{ width: `${Math.max(0, peer.evToEbitda || 0) / max * 100}%` }}/></i><strong>{peer.evToEbitda === null ? "n.a." : `${fmt.format(peer.evToEbitda)}×`}</strong></div></div>)}</div></article>;
+  const peers = [...(company ? [company] : []), ...(data.comparison?.peers || [])]
+    .filter((peer): peer is ComparableCompany & { revenueGrowth: number; evToRevenue: number } => (
+      peer.revenueGrowth !== null && Number.isFinite(peer.revenueGrowth)
+      && peer.evToRevenue !== null && Number.isFinite(peer.evToRevenue)
+      && peer.evToRevenue >= 0
+    ));
+
+  if (peers.length < 2) return <article className={styles.chartBlock}>
+    <header><div><h3>Peer valuation</h3><p>Insufficient comparable growth and multiple data</p></div></header>
+  </article>;
+
+  const width = 920;
+  const height = 340;
+  const padding = { left: 64, right: 32, top: 26, bottom: 56 };
+  const xDomain = scaleDomain(peers.map((peer) => peer.revenueGrowth), 10);
+  const yDomain = scaleDomain(peers.map((peer) => peer.evToRevenue), 2);
+  const x = (value: number) => padding.left + (value - xDomain.minimum) / xDomain.span * (width - padding.left - padding.right);
+  const y = (value: number) => padding.top + (yDomain.maximum - value) / yDomain.span * (height - padding.top - padding.bottom);
+
+  return <article className={styles.chartBlock}>
+    <header><div><h3>Peer valuation</h3><p>Revenue growth versus EV / revenue</p></div></header>
+    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Comparable-company revenue growth versus enterprise value to revenue">
+      <line x1={padding.left} x2={width - padding.right} y1={height - padding.bottom} y2={height - padding.bottom} className={styles.grid}/>
+      <line x1={padding.left} x2={padding.left} y1={padding.top} y2={height - padding.bottom} className={styles.grid}/>
+      <text x={width / 2} y={height - 12} textAnchor="middle">Revenue growth</text>
+      <text x="18" y={height / 2} textAnchor="middle" transform={`rotate(-90 18 ${height / 2})`}>EV / revenue</text>
+      {peers.map((peer) => {
+        const isCompany = peer.symbol === data.company.symbol;
+        return <g key={peer.symbol}>
+          <circle cx={x(peer.revenueGrowth)} cy={y(peer.evToRevenue)} r={isCompany ? 10 : 7} className={isCompany ? styles.peerCompany : styles.peerPoint}/>
+          <text x={x(peer.revenueGrowth) + 12} y={y(peer.evToRevenue) - 9}>{peer.symbol}</text>
+          <text x={x(peer.revenueGrowth) + 12} y={y(peer.evToRevenue) + 7}>{oneDecimal.format(peer.revenueGrowth)}% · {oneDecimal.format(peer.evToRevenue)}×</text>
+        </g>;
+      })}
+    </svg>
+  </article>;
 }
 
-export default function ValuationVisuals({ data, model, perpetuity, multiple }: { data: CompanyData; model: DcfModel; perpetuity: ReturnType<typeof calculateDcf>; multiple: ReturnType<typeof calculateDcf> }) {
+export default function ValuationVisuals({ data, model, perpetuity, multiple }: {
+  data: CompanyData;
+  model: DcfModel;
+  perpetuity: DcfResult;
+  multiple: DcfResult;
+}) {
   return <div className={styles.visuals}>
-    <div className={styles.primary}><OperatingChart data={data} result={perpetuity}/><RangeChart data={data} model={model}/></div>
-    <div className={styles.allCharts}><MarginChart data={data} result={perpetuity}/><TerminalChart perpetuity={perpetuity} multiple={multiple}/><BridgeChart model={model} perpetuity={perpetuity} multiple={multiple}/><PeerChart data={data}/></div>
+    <div className={styles.coreCharts}>
+      <OperatingChart data={data} result={perpetuity}/>
+      <MarginChart data={data} result={perpetuity}/>
+      <RangeChart data={data} model={model}/>
+    </div>
+    <details className={styles.additionalAnalysis}>
+      <summary><b>Additional analysis</b><span>Peers, equity bridge, and terminal value</span></summary>
+      <div className={styles.additionalCharts}>
+        <PeerScatter data={data}/>
+        <EnterpriseToEquityWaterfall model={model} perpetuity={perpetuity} multiple={multiple}/>
+        <TerminalDependency perpetuity={perpetuity} multiple={multiple}/>
+      </div>
+    </details>
   </div>;
 }
