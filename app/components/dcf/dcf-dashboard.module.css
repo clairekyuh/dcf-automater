@@ -260,48 +260,50 @@
 
 .modelDetails {
   order: 5;
-  width: min(92vw, 1380px);
+  width: 100%;
   align-self: flex-start;
   position: -webkit-sticky;
   position: sticky;
-  top: 60px;
-  z-index: 90;
-  margin: 8px auto 0;
+  top: 58px;
+  z-index: 40;
+  margin: 8px 0 0;
   padding: 0;
-  border-top: 1px solid #cbd1cc;
   border-bottom: 1px solid #cbd1cc;
-  background: rgba(247, 248, 245, .96);
-  backdrop-filter: blur(12px);
+  background: rgba(243, 244, 240, .94);
+  backdrop-filter: blur(10px);
   font-family: "Google Sans", Arial, sans-serif;
 }
 
 .detailsHeading { display: flex; justify-content: space-between; gap: 24px; align-items: end; }
 .detailsHeading h2 { margin: 0; color: #14231d; font-family: Geomini, Arial, sans-serif; font-size: 28px; }
 .detailsHeading p { margin: 5px 0 0; color: #5d6c64; font-size: 14px; }
-.workflowBar { display: flex; align-items: stretch; justify-content: space-between; }
-.detailActions { display: flex; flex-wrap: nowrap; gap: 0; }
+.workflowBar { box-sizing: border-box; display: flex; width: min(1380px, calc(100% - 64px)); margin: 0 auto; padding: 0 36px; align-items: stretch; justify-content: space-between; }
+.detailActions { display: flex; flex-wrap: nowrap; gap: 20px; }
 .detailActions button {
-  min-height: 48px;
-  padding: 0 18px;
+  position: relative;
+  min-height: 44px;
+  padding: 0;
   border: 0;
-  border-right: 1px solid #cbd1cc;
   background: transparent;
-  color: #14231d;
-  font: 650 14px "Google Sans", Arial, sans-serif;
+  color: #66756d;
+  font: 650 13px "Google Sans", Arial, sans-serif;
   cursor: pointer;
+  transition: color .18s ease;
 }
-.detailActions button:hover { background: #eef1ec; }
-.detailActions button[aria-selected="true"] { box-shadow: inset 0 -3px #41651c; color: #25463a; }
-.detailActions button:focus-visible, .exportAction:focus-visible, .workspaceSelect:focus-visible, .closeDetail:focus-visible { outline: 2px solid #41651c; outline-offset: -2px; }
+.detailActions button:hover { color: #14231d; }
+.detailActions button[aria-selected="true"] { color: #14231d; }
+.detailActions button[aria-selected="true"]::after { content: ""; position: absolute; right: 0; bottom: -1px; left: 0; height: 2px; background: #41651c; }
+.detailActions button:focus-visible { outline: 0; color: #14231d; box-shadow: inset 0 -2px #41651c; }
+.exportAction:focus-visible, .workspaceSelect:focus-visible, .closeDetail:focus-visible { outline: 2px solid #41651c; outline-offset: -2px; }
 .detailActions button:disabled { cursor: wait; opacity: .55; }
-.exportAction { min-width: 132px; border: 0; border-left: 1px solid #cbd1cc; background: #25463a; color: #fff; font: 650 14px "Google Sans", Arial, sans-serif; cursor: pointer; }
-.exportAction:hover { background: #41651c; }
+.exportAction { min-width: 112px; min-height: 44px; padding: 0; border: 0; background: transparent; color: #25463a; font: 650 13px "Google Sans", Arial, sans-serif; cursor: pointer; }
+.exportAction:hover { color: #41651c; }
 .exportAction:disabled { cursor: wait; opacity: .6; }
 .workspaceSelect { display: none; min-height: 48px; flex: 1; border: 0; background: transparent; color: #14231d; padding: 0 14px; font: 650 14px "Google Sans", Arial, sans-serif; }
 
 .detailPanel {
   order: 6;
-  scroll-margin-top: 82px;
+  scroll-margin-top: 118px;
   font-family: "Google Sans", Arial, sans-serif;
 }
 .detailDisclosure {
@@ -400,7 +402,9 @@
   .assumptions { gap: 8px 22px; }
   .companyIdentity h2, .marketPrice strong { font-size: 34px; }
   .valuationMethods strong { font-size: 30px; }
-  .modelDetails { top: 56px; width: calc(100% - 32px); padding: 0; }
+  .modelDetails { top: 56px; width: 100%; padding: 0; }
+  .workflowBar { width: calc(100% - 32px); padding: 0; }
+  .detailPanel { scroll-margin-top: 112px; }
   .detailsHeading p { max-width: 300px; }
   .detailActions { display: none; }
   .workspaceSelect { display: block; }

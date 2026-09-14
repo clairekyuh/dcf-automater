@@ -645,7 +645,8 @@ body.printing-pitch .pitch-slide{width:100vw;height:100vh;min-height:0;aspect-ra
   --actual:#eef0ed;--consensus:#e6eef4;--estimate:#f4efe3;--editable:#f3f7e7;--missing:#f1f1ef;
   --content:min(1380px,calc(100% - 64px));--radius:4px;
 }
-html,body{height:auto;min-height:100%;overflow-x:hidden;overflow-y:auto;background:var(--canvas);color:var(--ink)}
+html{height:auto;min-height:100%;overflow-x:hidden;overflow-y:auto;background:var(--canvas);color:var(--ink)}
+body{height:auto;min-height:100%;overflow:visible;background:var(--canvas);color:var(--ink)}
 body{font-size:14px;line-height:1.5;font-feature-settings:"tnum" 1,"lnum" 1}
 .sleek-app{height:auto;min-height:100vh;overflow:visible;background:var(--canvas);scroll-behavior:auto}
 .site-intro,.hero-grid,.hero-orbit,.hero-scroll,.model-marquee,.company-route-transition{display:none!important}
