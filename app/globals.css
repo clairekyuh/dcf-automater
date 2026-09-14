@@ -724,7 +724,7 @@ h1{font-family:var(--font-h1)!important}
 h2{font-family:var(--font-h2)!important}
 h3{font-family:var(--font-h3)!important}
 
-/* Editorial research layout: hierarchy comes from type, spacing and rules—not cards. */
+/* Editorial research layout: hierarchy comes from type, spacing and rules, not cards. */
 :root{--editorial-rule:#bcc4bd;--editorial-space:clamp(42px,6vw,78px)}
 body{background:#f7f6f1}
 .calculator-header{padding:52px 0 42px}.calculator-header h1{font-size:clamp(42px,5vw,62px)}

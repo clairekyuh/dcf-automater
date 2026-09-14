@@ -30,8 +30,8 @@ const nicheRules = [
   {
     match: /ai-native gpu cloud/i,
     title: "GPU-cloud peers differ most in asset ownership and contract quality",
-    revenue: "Compare contracted GPU capacity, customer concentration, usage pricing, backlog conversion, managed software, and how much revenue comes from AI cloud rather than another activity such as crypto mining.",
-    capital: "Separate companies that own data centers and power infrastructure from those that lease capacity or use financing partners. GPU refresh cycles, utilization, and financing terms drive free cash flow.",
+    revenue: "Revenue comes from GPU capacity, usage pricing, and managed software; customer concentration and backlog conversion affect its quality.",
+    capital: "Companies that own data centers need more capital than those that lease capacity. GPU refresh cycles, utilization, and financing terms drive free cash flow.",
     valuation: "Similar revenue growth can produce very different value when one company needs substantially more capex, carries more debt, or depends on fewer customers.",
   },
   {
@@ -60,7 +60,7 @@ const nicheRules = [
     title: "Real-estate capacity is not the same business as cloud computing",
     revenue: "Compare long-term leases, colocation and interconnection fees, powered-shell contracts, and any managed computing services. Contract length and tenant concentration matter.",
     capital: "Land, buildings, electrical capacity, and construction pipelines require substantial capital. Funding structure and development yields are central to value.",
-    valuation: "REIT and infrastructure economics should be judged using occupancy, development returns, leverage, and recurring rent—not a software-company multiple.",
+    valuation: "REIT and infrastructure economics should be judged using occupancy, development returns, leverage, and recurring rent instead of a software-company multiple.",
   },
   {
     match: /public-cloud platforms/i,
@@ -164,10 +164,16 @@ const applePeerModels: Record<string, string> = {
 };
 
 const applePeerRationales: Record<string, string> = {
-  GOOGL: "Alphabet is primarily advertising-funded through Search and YouTube, with Google Cloud, Android, subscriptions, and devices as additional businesses. It is similar to AAPL because both control large consumer platforms, app ecosystems, devices, and subscription services. Unlike Apple, Alphabet earns most of its revenue from advertising and has greater cloud exposure.",
-  GOOG: "Alphabet is primarily advertising-funded through Search and YouTube, with Google Cloud, Android, subscriptions, and devices as additional businesses. It is similar to AAPL because both control large consumer platforms, app ecosystems, devices, and subscription services. Unlike Apple, Alphabet earns most of its revenue from advertising and has greater cloud exposure.",
-  MSFT: "Microsoft sells enterprise software and cloud infrastructure through Microsoft 365, Azure, Windows, Dynamics, LinkedIn, and gaming. It is similar to AAPL because both control major operating systems, app distribution, devices, and subscription ecosystems. Unlike Apple, Microsoft is much more dependent on enterprise software and cloud spending than premium consumer-device sales.",
-  SONY: "Sony combines PlayStation gaming hardware and network services with entertainment content, image sensors, and consumer electronics. It is similar to AAPL because both sell consumer hardware and attach digital services and content to their devices. Unlike Apple, Sony has greater gaming, media, and component exposure and does not control a smartphone ecosystem of comparable scale.",
+  GOOGL: "Alphabet earns most of its revenue from advertising and also operates Google Cloud, Android, subscriptions, and devices. Both companies control large consumer platforms, but Apple depends more on hardware and Alphabet depends more on advertising.",
+  GOOG: "Alphabet earns most of its revenue from advertising and also operates Google Cloud, Android, subscriptions, and devices. Both companies control large consumer platforms, but Apple depends more on hardware and Alphabet depends more on advertising.",
+  MSFT: "Microsoft sells enterprise software and cloud infrastructure through Microsoft 365, Azure, and Windows. Both companies control operating systems and subscription ecosystems, but Microsoft has more enterprise and cloud exposure.",
+  SONY: "Sony combines PlayStation, entertainment, image sensors, and consumer electronics. Both companies sell hardware with attached services, but Sony has more gaming and media exposure.",
+};
+
+const coreweavePeerRationales: Record<string, string> = {
+  NBIS: "Both companies rent GPU computing capacity and provide managed AI services. Nebius has a broader mix of infrastructure and software businesses.",
+  IREN: "Both companies provide GPU cloud capacity and own data centers. IREN also has a material Bitcoin mining business, so its revenue mix is less comparable.",
+  APLD: "Both companies build infrastructure for AI workloads. Applied Digital primarily leases data-center capacity, while CoreWeave operates a full cloud platform.",
 };
 
 const similarityRules = [
@@ -202,6 +208,21 @@ function concise(value: string, limit = 300) {
   return `${shortened.slice(0, shortened.lastIndexOf(" ")).trim()}…`;
 }
 
+function firstSentence(value: string, limit = 190) {
+  return concise(value, limit).match(/^[^.!?]+[.!?]/)?.[0] || concise(value, limit);
+}
+
+function plainPoint(value: string, kind: "revenue" | "capital") {
+  const point = firstSentence(value)
+    .replace(/^Compare /i, "Key factors include ")
+    .replace(/^Distinguish /i, "Capital needs differ across ")
+    .replace(/^Do not apply /i, "Avoid using ");
+  if (kind === "revenue") return point.replace(/^Separate /i, "Revenue streams include ");
+  return point
+    .replace(/^Separate companies that /i, "Capital needs differ between companies that ")
+    .replace(/ from those that /i, " and those that ");
+}
+
 function number(value: number | null) {
   return value === null || !Number.isFinite(value) ? null : new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(value);
 }
@@ -219,32 +240,32 @@ export function buildBusinessComparison(input: BusinessComparisonInput) {
   const companyMargin = number(input.operatingMargin);
   const peerMargin = number(input.peerMedianMargin);
   const observedEconomics = companyMargin !== null && peerMargin !== null
-    ? `${input.company.symbol}’s latest operating margin is ${companyMargin}% versus a ${peerMargin}% peer median.`
-    : "A reliable company-versus-peer operating-margin comparison was unavailable.";
+    ? `${input.company.symbol} operating margin: ${companyMargin}%. Peer median: ${peerMargin}%.`
+    : "Operating margin comparison unavailable.";
   const capexContext = capex === null
-    ? "A reliable capex-to-revenue observation was unavailable."
-    : `${input.company.symbol}’s latest capex equals ${capex}% of revenue; this ratio does not capture acquisitions, supplier commitments, leases, or stock compensation.`;
+    ? "Capex ratio unavailable."
+    : `${input.company.symbol} capex: ${capex}% of revenue.`;
 
   const peerModels = input.peers.slice(0, 3).map((peer) => ({
     symbol: peer.symbol,
     name: peer.name,
-    detail: applePeerModels[peer.symbol] || concise(peer.description || peer.peerRationale || peer.businessModel || ""),
+    detail: firstSentence(applePeerModels[peer.symbol] || peer.businessModel || peer.peerRationale || peer.description || ""),
   }));
   const companyModel = apple
     ? applePeerModels.AAPL
-    : concise(input.company.description || input.company.businessModel || "");
+    : firstSentence(input.company.description || input.company.businessModel || "", 220);
   const summary = apple
-    ? "Apple is not simply another large technology platform. Its economics start with premium device sales, but control of hardware, operating systems, custom silicon, app distribution, retail channels, and attached services lets it monetize the same installed base repeatedly. Alphabet is much more advertising-funded, Microsoft is more enterprise-software and cloud driven, and Sony has greater gaming, content, and image-sensor exposure."
-    : `${companyModel} The selected peers operate in the same broad niche, but the comparison should be anchored to the specific revenue engine, customer relationship, and reinvestment model shown below—not the industry label alone.`;
+    ? "Apple sells premium devices and services through a tightly controlled hardware and software ecosystem. Alphabet relies more on advertising, Microsoft on enterprise software and cloud, and Sony on gaming, media, and sensors."
+    : companyModel;
 
   const dimensions: BusinessDimension[] = [
-    { label: "Revenue engine", detail: apple ? "Device volume and price mix create the installed base; services, app distribution, subscriptions, licensing, and accessories increase revenue per user over time. That differs from advertising-led or enterprise-seat models." : rule.revenue },
-    { label: "Capital and cost structure", detail: `${apple ? "Apple outsources most assembly but still carries inventory, tooling, supplier commitments, logistics exposure, retail assets, and data-center investment." : rule.capital} ${capexContext}` },
-    { label: "Why valuation can differ", detail: `${apple ? "Apple’s multiple depends on device replacement cycles, installed-base retention, services attach rates, pricing power, regulation of app distribution, and the durability of its integrated ecosystem." : rule.valuation} ${observedEconomics}` },
+    { label: "Business mix", detail: apple ? "Apple sells devices, software, subscriptions, licensing, and app distribution." : plainPoint(rule.revenue, "revenue") },
+    { label: "Capital needs", detail: `${apple ? "Apple uses outsourced assembly but funds inventory, tooling, retail stores, and data centers." : plainPoint(rule.capital, "capital")} ${capexContext}` },
+    { label: "Margins", detail: observedEconomics },
   ];
 
   return {
-    title: apple ? "Apple combines premium hardware with a controlled ecosystem and recurring services" : `${input.company.symbol}: ${rule.title}`,
+    title: `${input.company.symbol} business model`,
     summary,
     dimensions,
     peerModels,
@@ -261,6 +282,7 @@ export function buildPeerSimilarityRationale(input: {
   const targetSymbol = input.targetSymbol.toUpperCase();
   const peerSymbol = input.peer.symbol.toUpperCase();
   if (targetSymbol === "AAPL" && applePeerRationales[peerSymbol]) return applePeerRationales[peerSymbol];
+  if (targetSymbol === "CRWV" && coreweavePeerRationales[peerSymbol]) return coreweavePeerRationales[peerSymbol];
 
   const context = `${input.nicheLabel || ""} ${input.peer.industry} ${input.peer.sector}`;
   const rule = similarityRules.find((item) => item.match.test(context)) || {
@@ -269,7 +291,10 @@ export function buildPeerSimilarityRationale(input: {
   };
   const existing = String(input.existingDetail || "").trim();
   const peerBusiness = existing && !/^Selected from the /i.test(existing)
-    ? concise(existing)
-    : concise(input.peer.description || input.peer.businessModel || "");
-  return `${peerBusiness} Similarity to ${targetSymbol}: ${rule.shared} Key difference to verify: ${rule.difference}`;
+    ? firstSentence(existing, 180)
+    : firstSentence(input.peer.description || input.peer.businessModel || "", 180);
+  const difference = rule.difference
+    .replace(/^Compare /i, "Key differences include ")
+    .replace(/^Key difference to verify:\s*/i, "Key differences include ");
+  return `${peerBusiness} ${rule.shared} ${difference}`;
 }

@@ -12,7 +12,7 @@ import "@fontsource/anek-devanagari/700.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "DCF Calculator — Interactive Valuation Workbook",
+  title: "DCF Calculator | Interactive Valuation Workbook",
   description: "Build, inspect, and stress-test a complete discounted cash flow valuation from a public-company ticker.",
 };
 

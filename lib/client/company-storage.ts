@@ -2,7 +2,7 @@ import type { CompanyData, RiskItem } from "@/lib/company-data";
 
 export const COMPANY_STORAGE_KEY = "dcf:last-company";
 export const RESEARCH_STORAGE_KEY = "dcf:last-research";
-export const COMPANY_STORAGE_VERSION = 1;
+export const COMPANY_STORAGE_VERSION = 3;
 export const MAX_COMPANY_STORAGE_CHARS = 750_000;
 export const MAX_RESEARCH_STORAGE_CHARS = 100_000;
 

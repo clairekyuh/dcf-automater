@@ -70,9 +70,9 @@ export default function CompanyAnalysisPage() {
   const financialScreenNotApplicable = /not applicable to financial institutions/i.test(defaultRisk.methodology);
   const isSample = data.source === "Sample data";
   const secUnavailable = !isSample && analysis.secStatus === "unavailable" && !analysis.filing;
-  const ratio = (value: number | null, suffix = "×") => value === null || !Number.isFinite(value) ? "—" : `${fmt.format(value)}${suffix}`;
-  const percentageRatio = (value: number | null) => value === null || !Number.isFinite(value) ? "—" : `${fmt.format(value * 100)}%`;
-  const monetary = (value: number | null) => value === null || !Number.isFinite(value) ? "—" : `${money.format(value)}M`;
+  const ratio = (value: number | null, suffix = "×") => value === null || !Number.isFinite(value) ? "N/A" : `${fmt.format(value)}${suffix}`;
+  const percentageRatio = (value: number | null) => value === null || !Number.isFinite(value) ? "N/A" : `${fmt.format(value * 100)}%`;
+  const monetary = (value: number | null) => value === null || !Number.isFinite(value) ? "N/A" : `${money.format(value)}M`;
 
   return <main className="analysis-page">
     <CompanyNavigation symbol={data.company.symbol} name={data.company.name} active="company"/>

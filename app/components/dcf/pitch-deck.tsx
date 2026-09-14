@@ -59,7 +59,7 @@ function businessAssessment(data: CompanyData, company: ComparableCompany) {
   const rule = moatRules.find((item) => item.match.test(text));
   const medianMargin = peerMedian(data, "operatingMargin");
   const marginPremium = company.operatingMargin !== null && medianMargin !== null ? company.operatingMargin - medianMargin : null;
-  const verdict = rule ? "Potential advantage—requires evidence" : "No specific advantage identified";
+  const verdict = rule ? "Potential advantage. Evidence required." : "No specific advantage identified";
   const financialSignal = marginPremium === null
     ? "Peer margin evidence was unavailable."
     : marginPremium > 3
@@ -141,13 +141,13 @@ export default function PitchDeck({
       <footer><span>Financials through {data.asOf}</span><span>{data.source}</span></footer>
     </article>,
     <article className="pitch-slide" key="valuation">
-      <header><span>03 · INTRINSIC VALUE</span><h3>{financialUnsupported ? "A standard corporate DCF is not appropriate for this sector" : "The two terminal methods define a range—not a price target"}</h3></header>
-      {financialUnsupported ? <div className="pitch-message"><strong>Use sector-specific valuation</strong><p>Review tangible book value, return on equity, regulatory capital, asset quality, funding costs, and dividends or residual income.</p></div> : <><div className="pitch-value-range"><div><span>MARKET PRICE</span><strong>{usd.format(model.marketPrice)}</strong></div><div><span>PERPETUAL GROWTH</span><strong>{perpetuity.valid ? usd.format(perpetuity.perShare) : "—"}</strong></div><div><span>EXIT MULTIPLE</span><strong>{multiple.valid ? usd.format(multiple.perShare) : "—"}</strong></div></div><p className="pitch-takeaway">Automated scenario range: <b>{lowValue === null || highValue === null ? "Unavailable" : `${usd.format(lowValue)}–${usd.format(highValue)}`}</b>. Reconcile the methods before drawing an investment conclusion.</p></>}
+      <header><span>03 · INTRINSIC VALUE</span><h3>{financialUnsupported ? "A standard corporate DCF is not appropriate for this sector" : "The two terminal methods define a range, not a price target"}</h3></header>
+      {financialUnsupported ? <div className="pitch-message"><strong>Use sector-specific valuation</strong><p>Review tangible book value, return on equity, regulatory capital, asset quality, funding costs, and dividends or residual income.</p></div> : <><div className="pitch-value-range"><div><span>MARKET PRICE</span><strong>{usd.format(model.marketPrice)}</strong></div><div><span>PERPETUAL GROWTH</span><strong>{perpetuity.valid ? usd.format(perpetuity.perShare) : "N/A"}</strong></div><div><span>EXIT MULTIPLE</span><strong>{multiple.valid ? usd.format(multiple.perShare) : "N/A"}</strong></div></div><p className="pitch-takeaway">Automated scenario range: <b>{lowValue === null || highValue === null ? "Unavailable" : `${usd.format(lowValue)} to ${usd.format(highValue)}`}</b>. Reconcile the methods before drawing an investment conclusion.</p></>}
       <footer><span>WACC {pct2.format(calculateWacc(model).selectedWacc)}% · Terminal growth {fmt.format(model.terminalGrowth)}%</span><span>Scenario values only</span></footer>
     </article>,
     <article className="pitch-slide" key="comps">
       <header><span>04 · COMPARABLE COMPANIES</span><h3>Business-model fit matters more than the reported industry label</h3></header>
-      <div className="pitch-comps-grid"><div><span>FOCUS COMPANY</span><strong>{data.company.symbol}</strong><small>{comparison?.nicheLabel || data.company.industry}</small></div><div><span>PEER MEDIAN GROWTH</span><strong>{medianGrowth === null ? "—" : `${fmt.format(medianGrowth)}%`}</strong><small>Latest annual period</small></div><div><span>PEER MEDIAN MARGIN</span><strong>{medianMargin === null ? "—" : `${fmt.format(medianMargin)}%`}</strong><small>Operating margin</small></div><div><span>PEER MEDIAN {financialUnsupported ? "P / E" : "EV / EBITDA"}</span><strong>{medianMultiple === null ? "—" : `${fmt.format(medianMultiple)}×`}</strong><small>Current price / latest annuals</small></div></div>
+      <div className="pitch-comps-grid"><div><span>FOCUS COMPANY</span><strong>{data.company.symbol}</strong><small>{comparison?.nicheLabel || data.company.industry}</small></div><div><span>PEER MEDIAN GROWTH</span><strong>{medianGrowth === null ? "N/A" : `${fmt.format(medianGrowth)}%`}</strong><small>Latest annual period</small></div><div><span>PEER MEDIAN MARGIN</span><strong>{medianMargin === null ? "N/A" : `${fmt.format(medianMargin)}%`}</strong><small>Operating margin</small></div><div><span>PEER MEDIAN {financialUnsupported ? "P / E" : "EV / EBITDA"}</span><strong>{medianMultiple === null ? "N/A" : `${fmt.format(medianMultiple)}×`}</strong><small>Current price / latest annuals</small></div></div>
       <p className="pitch-peer-list">Selected peers · {(comparison?.selectedPeerSymbols || comparison?.peers.map((peer) => peer.symbol) || []).join(" · ") || "No validated peer set returned"}</p>
       <footer><span>Use forward, fiscal-aligned multiples for final work</span><span>Peer data may be incomplete</span></footer>
     </article>,

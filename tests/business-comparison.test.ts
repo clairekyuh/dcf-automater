@@ -19,11 +19,11 @@ test("Apple comparison explains its business model and each major peer model", (
     operatingMargin: 31,
     peerMedianMargin: 28,
   });
-  assert.match(result.title, /premium hardware/i);
-  assert.match(result.summary, /advertising-funded/i);
-  assert.match(result.summary, /enterprise-software/i);
+  assert.equal(result.title, "AAPL business model");
+  assert.match(result.summary, /advertising/i);
+  assert.match(result.summary, /enterprise software/i);
   assert.match(result.peerModels.find((peer) => peer.symbol === "SONY")?.detail || "", /gaming.*content.*image sensors/i);
-  assert.match(result.dimensions[1].detail, /supplier commitments/i);
+  assert.match(result.dimensions[1].detail, /inventory.*tooling.*data centers/i);
 });
 
 test("every company receives niche-specific comparison dimensions rather than a vague disclaimer", () => {
@@ -37,8 +37,9 @@ test("every company receives niche-specific comparison dimensions rather than a 
   });
   assert.match(result.summary, /rents GPU computing capacity/i);
   assert.match(result.dimensions[0].detail, /customer concentration/i);
-  assert.match(result.dimensions[1].detail, /GPU refresh cycles/i);
-  assert.match(result.dimensions[2].detail, /-12% versus a 4% peer median/i);
+  assert.match(result.dimensions[1].detail, /own data centers/i);
+  assert.match(result.dimensions[2].detail, /-12%.*Peer median: 4%/i);
+  assert.doesNotMatch(JSON.stringify(result), /Similarity to|Key difference to verify|—/);
 });
 
 test("Apple peer rationale says what Alphabet does and why it is similar", () => {
@@ -47,21 +48,31 @@ test("Apple peer rationale says what Alphabet does and why it is similar", () =>
     nicheLabel: "Consumer devices and digital ecosystems",
     peer: company("GOOGL", "Alphabet operates advertising and cloud platforms."),
   });
-  assert.match(result, /advertising-funded/i);
-  assert.match(result, /similar to AAPL/i);
-  assert.match(result, /both control large consumer platforms/i);
-  assert.match(result, /unlike Apple/i);
+  assert.match(result, /revenue from advertising/i);
+  assert.match(result, /Both companies control large consumer platforms/i);
+  assert.match(result, /Apple depends more on hardware/i);
   assert.doesNotMatch(result, /selected from.*peer universe/i);
 });
 
 test("generic peer rationale combines the peer business with a niche-specific similarity", () => {
   const result = buildPeerSimilarityRationale({
-    targetSymbol: "CRWV",
+    targetSymbol: "GPUC",
     nicheLabel: "AI-native GPU cloud infrastructure",
     peer: company("NBIS", "Nebius operates an AI cloud platform with GPU computing and managed services."),
   });
   assert.match(result, /Nebius operates an AI cloud platform/i);
-  assert.match(result, /Similarity to CRWV/i);
   assert.match(result, /Both serve AI computing demand/i);
-  assert.match(result, /data-center ownership/i);
+  assert.match(result, /Key differences include data-center ownership/i);
+  assert.doesNotMatch(result, /Similarity to|Key difference to verify|—/);
+});
+
+test("CoreWeave peers use short, company-specific comparisons", () => {
+  const result = buildPeerSimilarityRationale({
+    targetSymbol: "CRWV",
+    nicheLabel: "AI-native GPU cloud infrastructure",
+    peer: company("IREN", "IREN provides GPU cloud capacity and Bitcoin mining infrastructure."),
+  });
+  assert.match(result, /Both companies provide GPU cloud capacity/i);
+  assert.match(result, /Bitcoin mining business/i);
+  assert.doesNotMatch(result, /Key differences|Similarity to|—/i);
 });

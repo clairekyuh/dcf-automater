@@ -145,7 +145,7 @@ export async function POST(request: Request) {
     const checks = workbook.addWorksheet("Sources & Checks", { views: [{ state: "frozen", ySplit: 4, showGridLines: false }] });
 
     cover.columns = [{ width: 4 }, { width: 31 }, { width: 74 }];
-    setTitle(cover, "B2:C3", `${payload.company.name} — DCF Model`, "Formula-driven export from the active website assumptions.");
+    setTitle(cover, "B2:C3", `${payload.company.name} | DCF Model`, "Formula-driven export from the active website assumptions.");
     cover.getCell("B5").value = "Workbook flow";
     cover.getCell("B5").font = { bold: true, color: { argb: navy } };
     const coverRows = [
@@ -169,7 +169,7 @@ export async function POST(request: Request) {
       { width: 3 }, { width: 37 }, { width: 18 }, { width: 18 }, { width: 18 }, { width: 18 },
       { width: 18 }, { width: 18 }, { width: 18 }, { width: 18 }, { width: 20 },
     ];
-    setTitle(inputs, "B2:K2", `${payload.company.name} — Inputs`, "Editable assumptions are blue with a pale-yellow fill.");
+    setTitle(inputs, "B2:K2", `${payload.company.name} | Inputs`, "Editable assumptions are blue with a pale-yellow fill.");
     inputs.getCell("B4").value = "Company"; inputs.getCell("C4").value = payload.company.name;
     inputs.getCell("B5").value = "Ticker"; inputs.getCell("C5").value = payload.company.symbol;
     inputs.getCell("B6").value = "Financials through"; inputs.getCell("C6").value = payload.asOf;
@@ -224,7 +224,7 @@ export async function POST(request: Request) {
     applyBodyStyle(inputs, "B4:C32");
 
     build.columns = [{ width: 35 }, ...Array.from({ length: 12 }, () => ({ width: 15 }))];
-    setTitle(build, "A1:M2", `${payload.company.name} — DCF Build`, "Historical actuals are reference data; forecast columns are formulas linked to the Inputs sheet.");
+    setTitle(build, "A1:M2", `${payload.company.name} | DCF Build`, "Historical actuals are reference data; forecast columns are formulas linked to the Inputs sheet.");
     build.getCell("A4").value = "Period type";
     const historical = payload.historical.slice(-5);
     const historyOffset = 5 - historical.length;
@@ -335,7 +335,7 @@ export async function POST(request: Request) {
     }
 
     output.columns = [{ width: 3 }, { width: 34 }, { width: 17 }, { width: 14 }, { width: 14 }, { width: 14 }, { width: 14 }, { width: 34 }, { width: 17 }, ...Array.from({ length: 7 }, () => ({ width: 14 }))];
-    setTitle(output, "B2:P2", `${payload.company.name} — DCF Output`, "Both terminal methods link to the DCF Build and Inputs sheets.");
+    setTitle(output, "B2:P2", `${payload.company.name} | DCF Output`, "Both terminal methods link to the DCF Build and Inputs sheets.");
     output.getCell("B4").value = "Perpetual Growth Method"; output.getCell("H4").value = "Exit Multiple Method";
     styleSection(output.getRow(4), 2, 3); styleSection(output.getRow(4), 8, 9);
     const pgRows: Array<[number, string, string, number, string]> = [
@@ -382,9 +382,9 @@ export async function POST(request: Request) {
       }
     });
 
-    output.getCell("D22").value = "Implied Price Per Share — Perpetual Growth";
+    output.getCell("D22").value = "Implied Price Per Share: Perpetual Growth";
     output.mergeCells("D22:I22"); output.getCell("D22").alignment = { horizontal: "center" };
-    output.getCell("K22").value = "Implied Price Per Share — Exit EBITDA Multiple";
+    output.getCell("K22").value = "Implied Price Per Share: Exit EBITDA Multiple";
     output.mergeCells("K22:P22"); output.getCell("K22").alignment = { horizontal: "center" };
     ["D22", "K22"].forEach((address) => { output.getCell(address).font = { bold: true, color: { argb: navy } }; });
     const waccScenarios = [wacc.selectedWacc - 0.5, wacc.selectedWacc, wacc.selectedWacc + 0.5];
@@ -415,7 +415,7 @@ export async function POST(request: Request) {
     ["G25", "N25"].forEach((address) => { const cell = output.getCell(address); cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: teal } }; cell.font = { bold: true, color: { argb: white } }; cell.border = { top: { style: "medium", color: { argb: white } }, bottom: { style: "medium", color: { argb: white } }, left: { style: "medium", color: { argb: white } }, right: { style: "medium", color: { argb: white } } }; });
 
     comps.columns = [{ width: 3 }, { width: 12 }, { width: 30 }, { width: 15 }, { width: 17 }, { width: 17 }, { width: 15 }, { width: 15 }, { width: 64 }];
-    setTitle(comps, "B2:I2", `${payload.company.name} — Comparable Companies`, "Peer selection and ratios are source data from the website, not formulas inferred by Excel.");
+    setTitle(comps, "B2:I2", `${payload.company.name} | Comparable Companies`, "Peer selection and ratios are source data from the website, not formulas inferred by Excel.");
     comps.getRow(4).values = [null, "Ticker", "Company", "Peer fit", "Revenue growth", "Operating margin", "EV / Revenue", "EV / EBITDA", "Business similarity"];
     styleTableHeader(comps.getRow(4), 2, 9);
     const peers = payload.comparison?.peers || [];
@@ -446,7 +446,7 @@ export async function POST(request: Request) {
     for (let column = 2; column <= 9; column += 1) { comps.getCell(meanRow, column).font = { bold: true, color: { argb: navy } }; comps.getCell(meanRow, column).border = { top: { style: "thin", color: { argb: navy } } }; }
 
     checks.columns = [{ width: 3 }, { width: 34 }, { width: 24 }, { width: 24 }, { width: 18 }, { width: 44 }];
-    setTitle(checks, "B2:F2", `${payload.company.name} — Sources & Checks`, "Checks recalculate when Excel inputs are edited.");
+    setTitle(checks, "B2:F2", `${payload.company.name} | Sources & Checks`, "Checks recalculate when Excel inputs are edited.");
     checks.getRow(4).values = [null, "Check", "Actual", "Required", "Status", "Notes"];
     styleTableHeader(checks.getRow(4), 2, 6);
     const checkRows: Array<[string, string, number, string, string, string]> = [

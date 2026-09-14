@@ -75,12 +75,12 @@ export default function OutputScreen({
       <div className={styles.valuationMethods}>
         <article>
           <span>Perpetual growth</span>
-          <strong>{perpetuity.valid ? usd.format(perpetuity.perShare) : "—"}</strong>
+          <strong>{perpetuity.valid ? usd.format(perpetuity.perShare) : "N/A"}</strong>
           <small className={perpetuityMove.positive === true ? styles.positive : perpetuityMove.positive === false ? styles.negative : ""}>{perpetuity.valid ? perpetuityMove.label : perpetuity.invalidReason}</small>
         </article>
         <article>
           <span>Exit multiple</span>
-          <strong>{multiple.valid ? usd.format(multiple.perShare) : "—"}</strong>
+          <strong>{multiple.valid ? usd.format(multiple.perShare) : "N/A"}</strong>
           <small className={multipleMove.positive === true ? styles.positive : multipleMove.positive === false ? styles.negative : ""}>{multiple.valid ? multipleMove.label : multiple.invalidReason}</small>
         </article>
       </div>

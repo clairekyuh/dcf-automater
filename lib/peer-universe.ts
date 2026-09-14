@@ -99,7 +99,7 @@ export function selectPeerSet(company: PeerCompanyInput) {
   if (!selected) {
     return {
       id: "unclassified",
-      label: `${company.industry || company.sector || "Company"}—peer set not validated`,
+      label: `${company.industry || company.sector || "Company"}: peer set not validated`,
       basis: "The automatic classifier did not find a sufficiently specific business-model match, so it did not substitute an unrelated software peer group. Select comparables manually before relying on relative valuation.",
       symbols: [] as string[],
       patterns: [] as RegExp[],

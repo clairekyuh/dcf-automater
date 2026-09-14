@@ -15,16 +15,16 @@ const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD
 const percent = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
 
 function moneyCell(value: number) {
-  if (!Number.isFinite(value)) return "—";
+  if (!Number.isFinite(value)) return "N/A";
   return value < 0 ? `(${money.format(Math.abs(value))})` : money.format(value);
 }
 
 function percentCell(value: number) {
-  return Number.isFinite(value) ? `${percent.format(value)}%` : "—";
+  return Number.isFinite(value) ? `${percent.format(value)}%` : "N/A";
 }
 
 function factorCell(value: number) {
-  return Number.isFinite(value) ? value.toFixed(value < 1 ? 3 : 2) : "—";
+  return Number.isFinite(value) ? value.toFixed(value < 1 ? 3 : 2) : "N/A";
 }
 
 export default function DcfCashFlowOutput({ result }: { result: DcfResult }) {

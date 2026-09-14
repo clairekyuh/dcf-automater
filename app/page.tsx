@@ -45,22 +45,22 @@ const demo: CompanyData = {
     currency: "USD",
     country: "USA",
     sector: "Technology",
-    industry: "Software—Infrastructure",
+    industry: "Infrastructure Software",
   },
-  market: { marketCap: 12500, shares: 250, estimatedPrice: 50, priceDate: null, priceBasis: "Illustrative sample price—not a live quote", beta: 1.15, priceHistory: demoPrices },
+  market: { marketCap: 12500, shares: 250, estimatedPrice: 50, priceDate: null, priceBasis: "Illustrative sample price. Not a live quote.", beta: 1.15, priceHistory: demoPrices },
   metrics: { revenueGrowth: 12, revenue: 2400, ebitMargin: 24, capexPercentRevenue: 4, daPercentRevenue: 3, cash: 650, debt: 320, taxRate: 21 },
   comparison: {
-    company: { symbol: "DEMO", name: "Northstar Systems", description: "Sample enterprise infrastructure software company with workflow and monitoring tools.", sector: "Technology", industry: "Software—Infrastructure", marketCap: 12500, revenueGrowth: 12, operatingMargin: 24, evToRevenue: 4.8, evToEbitda: 17.6, pe: 28.4 },
+    company: { symbol: "DEMO", name: "Northstar Systems", description: "Sample enterprise infrastructure software company with workflow and monitoring tools.", sector: "Technology", industry: "Infrastructure Software", marketCap: 12500, revenueGrowth: 12, operatingMargin: 24, evToRevenue: 4.8, evToEbitda: 17.6, pe: 28.4 },
     peers: [
       { symbol: "ATLS", name: "Atlas Cloud", description: "Sample provider of cloud compute and storage infrastructure.", sector: "Technology", industry: "Cloud Infrastructure", marketCap: 18400, revenueGrowth: 15.5, operatingMargin: 21.2, evToRevenue: 5.6, evToEbitda: 20.4, pe: 31.8 },
-      { symbol: "MRDN", name: "Meridian Software", description: "Sample subscription workflow software vendor for large enterprises.", sector: "Technology", industry: "Software—Application", marketCap: 9700, revenueGrowth: 9.3, operatingMargin: 26.8, evToRevenue: 4.1, evToEbitda: 15.2, pe: 24.9 },
-      { symbol: "VCTR", name: "Vector Systems", description: "Sample cybersecurity and network monitoring software company.", sector: "Technology", industry: "Software—Infrastructure", marketCap: 15100, revenueGrowth: 11.1, operatingMargin: 22.5, evToRevenue: 4.7, evToEbitda: 18.1, pe: 27.5 },
+      { symbol: "MRDN", name: "Meridian Software", description: "Sample subscription workflow software vendor for large enterprises.", sector: "Technology", industry: "Application Software", marketCap: 9700, revenueGrowth: 9.3, operatingMargin: 26.8, evToRevenue: 4.1, evToEbitda: 15.2, pe: 24.9 },
+      { symbol: "VCTR", name: "Vector Systems", description: "Sample cybersecurity and network monitoring software company.", sector: "Technology", industry: "Infrastructure Software", marketCap: 15100, revenueGrowth: 11.1, operatingMargin: 22.5, evToRevenue: 4.7, evToEbitda: 18.1, pe: 27.5 },
     ],
     selectedPeerSymbols: ["ATLS", "MRDN", "VCTR"],
     industryGrowthRate: 11.1,
     nicheLabel: "Enterprise infrastructure software",
     selectionBasis: "Illustrative peers demonstrate how business-model matching will narrow a real company’s comparison group.",
-    industryExplanation: "Software—Infrastructure is the illustrative reported classification; the sample niche is enterprise infrastructure software.",
+    industryExplanation: "Infrastructure Software is the illustrative reported classification. The sample niche is enterprise infrastructure software.",
     operatingCompetitors: [],
   },
   businessAnalysis: {
@@ -128,7 +128,7 @@ function hasDailyPriceDensity(points: PricePoint[]) {
 }
 
 function marketPriceContext(data: CompanyData) {
-  if (data.source === "Sample data") return { label: "Sample market price", detail: "Illustrative only—not a live quote" };
+  if (data.source === "Sample data") return { label: "Sample market price", detail: "Illustrative only. Not a live quote." };
   if (data.market.priceDate) return { label: "Latest available market price", detail: `Nasdaq close from ${data.market.priceDate}` };
   return { label: "Implied market price", detail: data.market.priceBasis || "Market capitalization divided by reported shares" };
 }
@@ -174,7 +174,7 @@ function buildModel(data: CompanyData): Model {
     const grossMargin = clamp(latestGrossMargin + (Math.max(latestGrossMargin, rec.margin + 10) - latestGrossMargin) * operatingProgress, ebitMargin, 95);
     return {
       periodEnd: addYears(fiscalDate, index + 1),
-      source: index < 2 && data.forecast ? data.forecast.source : "Editable model estimate—not analyst consensus",
+      source: index < 2 && data.forecast ? data.forecast.source : "Editable model estimate. Not analyst consensus.",
       revenueGrowth: Math.round(revenueGrowth * 10) / 10,
       grossMargin: Math.round(grossMargin * 10) / 10,
       ebitMargin: Math.round(ebitMargin * 10) / 10,
@@ -229,17 +229,17 @@ function ValuationBridge({ title, result, model, method, data }: { title: string
   const impliedExitMultiple = result.terminalEbitda > 0 ? result.terminalValue / result.terminalEbitda : null;
   const terminalFcfYield = result.terminalValue > 0 ? result.terminalFcf / result.terminalValue : null;
   const impliedGrowth = terminalFcfYield === null ? null : (result.waccPercent / 100 - terminalFcfYield) / (1 + terminalFcfYield) * 100;
-  const validMoney = (value: number) => result.valid ? `${usd0.format(value)}M` : "—";
+  const validMoney = (value: number) => result.valid ? `${usd0.format(value)}M` : "N/A";
   return <section className="valuation-equation">
     <header><h3>{title}</h3><span>{method === "perpetuity" ? "Cash-flow based" : "Market-multiple based"}</span></header>
     {!result.valid && <div className="invalid-method"><b>No valid {method === "perpetuity" ? "perpetual-growth" : "exit-multiple"} value</b><p>{result.invalidReason}</p></div>}
     {method === "perpetuity" ? <>
       <div className="terminal-equation"><div><span>Normalized terminal <DefinedTerm term="ufcf">FCF</DefinedTerm></span><code>{fmt.format(result.terminalNopat)} × (1 − {fmt.format(model.terminalGrowth)}% ÷ {fmt.format(model.terminalRoic)}%)</code></div><b>{validMoney(result.terminalFcf)}</b></div>
       <div className="terminal-equation"><div><span><DefinedTerm term="terminalValue">Terminal value</DefinedTerm></span><code>{fmt.format(result.terminalFcf)} × (1 + {fmt.format(model.terminalGrowth)}%) ÷ ({fmt.format(result.waccPercent)}% − {fmt.format(model.terminalGrowth)}%)</code></div><b>{validMoney(result.terminalValue)}</b></div>
-      <div className="equation-context"><span>Growth <b>{fmt.format(model.terminalGrowth)}%</b></span><span><DefinedTerm term="terminalRoic">ROIC</DefinedTerm> <b>{fmt.format(model.terminalRoic)}%</b></span><span>Reinvestment <b>{result.terminalReinvestmentRate === null ? "—" : `${fmt.format(result.terminalReinvestmentRate * 100)}%`}</b></span><span>Peer growth <b>{industryGrowth === null ? "—" : `${fmt.format(industryGrowth)}%`}</b></span><span>Implied exit multiple <b>{impliedExitMultiple === null ? "—" : `${fmt.format(impliedExitMultiple)}×`}</b></span></div>
+      <div className="equation-context"><span>Growth <b>{fmt.format(model.terminalGrowth)}%</b></span><span><DefinedTerm term="terminalRoic">ROIC</DefinedTerm> <b>{fmt.format(model.terminalRoic)}%</b></span><span>Reinvestment <b>{result.terminalReinvestmentRate === null ? "N/A" : `${fmt.format(result.terminalReinvestmentRate * 100)}%`}</b></span><span>Peer growth <b>{industryGrowth === null ? "N/A" : `${fmt.format(industryGrowth)}%`}</b></span><span>Implied exit multiple <b>{impliedExitMultiple === null ? "N/A" : `${fmt.format(impliedExitMultiple)}×`}</b></span></div>
     </> : <>
       <div className="terminal-equation"><div><span><DefinedTerm term="terminalValue">Terminal value</DefinedTerm></span><code>{fmt.format(result.terminalEbitda)} Year-5 EBITDA × {fmt.format(model.exitMultiple)}×</code></div><b>{validMoney(result.terminalValue)}</b></div>
-      <div className="equation-context"><span>Year-5 <DefinedTerm term="ebitda">EBITDA</DefinedTerm> <b>{usd0.format(result.terminalEbitda)}M</b></span><span>Exit multiple <b>{fmt.format(model.exitMultiple)}×</b></span><span>Peer median <b>{medianMultiple === null ? "—" : `${fmt.format(medianMultiple)}×`}</b></span><span>Peer range <b>{peerMultiples.length ? `${fmt.format(Math.min(...peerMultiples))}–${fmt.format(Math.max(...peerMultiples))}×` : "—"}</b></span><span>Implied growth <b>{impliedGrowth === null ? "—" : `${fmt.format(impliedGrowth)}%`}</b></span></div>
+      <div className="equation-context"><span>Year-5 <DefinedTerm term="ebitda">EBITDA</DefinedTerm> <b>{usd0.format(result.terminalEbitda)}M</b></span><span>Exit multiple <b>{fmt.format(model.exitMultiple)}×</b></span><span>Peer median <b>{medianMultiple === null ? "N/A" : `${fmt.format(medianMultiple)}×`}</b></span><span>Peer range <b>{peerMultiples.length ? `${fmt.format(Math.min(...peerMultiples))} to ${fmt.format(Math.max(...peerMultiples))}×` : "N/A"}</b></span><span>Implied growth <b>{impliedGrowth === null ? "N/A" : `${fmt.format(impliedGrowth)}%`}</b></span></div>
     </>}
     <div className="equation-flow">
       <EquationLine operator="" label={<><DefinedTerm term="pv">PV</DefinedTerm> of forecast <DefinedTerm term="ufcf">UFCF</DefinedTerm></>} value={`${usd0.format(result.pvForecast)}M`}/>
@@ -251,7 +251,7 @@ function ValuationBridge({ title, result, model, method, data }: { title: string
       <EquationLine operator="−" label="Other non-equity claims" value={`${usd0.format(model.preferredInterest)}M`}/>
       <EquationLine operator="=" label={<DefinedTerm term="equityValue">Equity value</DefinedTerm>} value={validMoney(result.equityValue)} emphasis="total"/>
       <EquationLine operator="÷" label={<DefinedTerm term="dilutedShares">Diluted shares</DefinedTerm>} value={`${fmt.format(model.shares)}M`}/>
-      <EquationLine operator="=" label="Implied price per share" value={result.valid ? usd.format(result.perShare) : "—"} emphasis="answer"/>
+      <EquationLine operator="=" label="Implied price per share" value={result.valid ? usd.format(result.perShare) : "N/A"} emphasis="answer"/>
     </div>
   </section>;
 }
@@ -268,7 +268,7 @@ function SensitivityTable({ data, model, method }: { data: CompanyData; model: M
       {waccs.map((wacc) => <tr key={wacc}><th>{fmt.format(wacc)}%</th>{columns.map((column) => {
         const result = calculate(data, model, method, method === "perpetuity" ? { wacc, terminalGrowth: column } : { wacc, exitMultiple: column });
         const active = Math.abs(wacc - selectedWacc) < .01 && Math.abs(column - (method === "perpetuity" ? model.terminalGrowth : model.exitMultiple)) < .01;
-        return <td className={active ? "active" : ""} key={column}>{result.valid ? usd.format(result.perShare) : "—"}</td>;
+        return <td className={active ? "active" : ""} key={column}>{result.valid ? usd.format(result.perShare) : "N/A"}</td>;
       })}</tr>)}
     </tbody></table></div>
   </div>;
@@ -577,7 +577,7 @@ export default function Home() {
     { label: "EBITDA", actuals: actualValues((row) => row.ebit + row.depreciation), values: result.years.map((year) => year.ebitda), terminal: result.terminalEbitda, type: "total" },
   ];
   const formatCell = (value: number | null, type?: string) => {
-    if (value === null || !Number.isFinite(value)) return "—";
+    if (value === null || !Number.isFinite(value)) return "N/A";
     if (type === "percent") return `${fmt.format(value)}%`;
     if (type === "factor") return value < 1 ? value.toFixed(3) : fmt.format(value);
     if (type === "negative") return value < 0 ? `(${fmt.format(Math.abs(value))})` : fmt.format(value);
@@ -665,7 +665,7 @@ export default function Home() {
           {workbookTab === "dcf" && <><div className="model-table-wrap"><table className="model-table historical-model-table"><thead><tr className="period-group-row"><th>PERIOD TYPE</th><th className="actual-group" colSpan={actualPeriods.length}>HISTORICAL ACTUALS / DERIVED RATIOS · REFERENCE ONLY</th><th className="forecast-group" colSpan={result.years.length}>FORECAST ESTIMATES · INCLUDED IN DCF</th><th>TERMINAL</th></tr><tr><th>DCF line item</th>{actualPeriods.map((period) => <th className="actual" key={period.fiscalDate || period.year}>{actualFiscalLabel(period)}</th>)}{result.years.map((year, index) => <th className={index === 0 ? "forecast-start" : ""} key={year.periodEnd}>{fiscalPeriodLabel(year.periodEnd)}</th>)}<th><DefinedTerm term="yearFive">AT YEAR 5</DefinedTerm></th></tr></thead><tbody>
             {tableRows.map((row) => <tr className={`${row.type === "total" ? "total" : ""} ${row.type === "percent" ? "percent-row" : ""}`} key={row.label}><td><DcfRowLabel label={row.label}/></td>{row.actuals.map((value, index) => <td className="actual" key={`${actualPeriods[index]?.fiscalDate || actualPeriods[index]?.year}-${row.label}`}>{formatCell(value, row.type)}</td>)}{row.values.map((value, index) => <td className={index === 0 ? "forecast-start" : ""} key={index}>{formatCell(value, row.type)}</td>)}<td>{formatCell(row.terminal ?? null, row.type)}</td></tr>)}
           </tbody></table></div></>}
-          {workbookTab === "valuation" && <div className="model-table-wrap"><table className="workbook-table valuation-workbook"><thead><tr><th>Valuation bridge</th><th>Perpetual growth</th><th>Exit multiple</th></tr></thead><tbody>{valuationSheet.map(([label, perpetuityValue, multipleValue]) => <tr className={["Enterprise value", "Equity value"].includes(String(label)) ? "workbook-total" : ""} key={String(label)}><td>{label}</td><td>{perpetuity.valid ? workbookMoney(Number(perpetuityValue)) : "—"}</td><td>{multiple.valid ? workbookMoney(Number(multipleValue)) : "—"}</td></tr>)}<tr><td>Share count used</td><td>{fmt.format(model.shares)}M</td><td>{fmt.format(model.shares)}M</td></tr><tr className="workbook-answer"><td>Implied value per share</td><td>{perpetuity.valid ? usd.format(perpetuity.perShare) : "—"}</td><td>{multiple.valid ? usd.format(multiple.perShare) : "—"}</td></tr></tbody></table></div>}
+          {workbookTab === "valuation" && <div className="model-table-wrap"><table className="workbook-table valuation-workbook"><thead><tr><th>Valuation bridge</th><th>Perpetual growth</th><th>Exit multiple</th></tr></thead><tbody>{valuationSheet.map(([label, perpetuityValue, multipleValue]) => <tr className={["Enterprise value", "Equity value"].includes(String(label)) ? "workbook-total" : ""} key={String(label)}><td>{label}</td><td>{perpetuity.valid ? workbookMoney(Number(perpetuityValue)) : "N/A"}</td><td>{multiple.valid ? workbookMoney(Number(multipleValue)) : "N/A"}</td></tr>)}<tr><td>Share count used</td><td>{fmt.format(model.shares)}M</td><td>{fmt.format(model.shares)}M</td></tr><tr className="workbook-answer"><td>Implied value per share</td><td>{perpetuity.valid ? usd.format(perpetuity.perShare) : "N/A"}</td><td>{multiple.valid ? usd.format(multiple.perShare) : "N/A"}</td></tr></tbody></table></div>}
           {workbookTab === "sensitivity" && <div className="sensitivity-grid workbook-sensitivity"><SensitivityTable data={data} model={model} method="perpetuity"/><SensitivityTable data={data} model={model} method="multiple"/></div>}
         </div>
       </div>

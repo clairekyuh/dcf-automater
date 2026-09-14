@@ -68,7 +68,7 @@ export function geopoliticalExposure(data: CompanyData): RiskItem {
   const level: RiskLevel = countryRisk ? "high" : !domicileKnown || filingSignal || sensitiveIndustry ? "medium" : "low";
   const evidenceLimit = data.businessAnalysis?.supplyChain.filingReviewed
     ? "This screen reviewed the latest annual filing, but it does not calculate revenue or supplier percentages by country."
-    : "A parseable annual filing was not available, so this screen uses only the reported domicile and business type—not revenue or supplier percentages by country.";
+    : "A parseable annual filing was not available, so this screen uses only the reported domicile and business type, not revenue or supplier percentages by country.";
   return {
     level,
     title: "Geopolitical and cross-border exposure",
@@ -92,7 +92,7 @@ export function riskAnalysis(data: CompanyData, model: DcfModel, perpetuity: Ris
       risks.push({
         level: Math.abs(normalizationChange) > 75 ? "high" : "medium",
         title: "Terminal cash-flow normalization",
-        detail: `The explicit Year-5 forecast produces ${usd0.format(perpetuity.terminalForecastFcf)}M of UFCF, while the perpetual formula uses ${usd0.format(perpetuity.terminalFcf)}M after linking mature growth to required reinvestment at terminal ROIC—a ${fmt.format(Math.abs(normalizationChange))}% ${normalizationChange >= 0 ? "increase" : "decrease"}. A large step means explicit capex, D&A, working capital, or margins have not fully converged to the terminal economics. Extend or revise the fade rather than accepting the jump without evidence.`,
+        detail: `The explicit Year-5 forecast produces ${usd0.format(perpetuity.terminalForecastFcf)}M of UFCF, while the perpetual formula uses ${usd0.format(perpetuity.terminalFcf)}M after linking mature growth to required reinvestment at terminal ROIC. This creates a ${fmt.format(Math.abs(normalizationChange))}% ${normalizationChange >= 0 ? "increase" : "decrease"}. A large step means explicit capex, D&A, working capital, or margins have not fully converged to the terminal economics. Extend or revise the fade rather than accepting the jump without evidence.`,
       });
     }
   }
@@ -103,7 +103,7 @@ export function riskAnalysis(data: CompanyData, model: DcfModel, perpetuity: Ris
   const spread = lowMarginRow && highMarginRow ? highMarginRow.ebitMargin - lowMarginRow.ebitMargin : 0;
   const modeledMargin = model.forecastDrivers[5]?.ebitMargin ?? data.metrics.ebitMargin;
   const marginDetail = lowMarginRow && highMarginRow
-    ? `EBIT margin ranged from ${fmt.format(lowMarginRow.ebitMargin)}% in ${lowMarginRow.year} to ${fmt.format(highMarginRow.ebitMargin)}% in ${highMarginRow.year}, a ${fmt.format(spread)} percentage-point swing. The final explicit forecast assumes ${fmt.format(modeledMargin)}%. A wide historical range means operating profit—and therefore free cash flow—may be harder to forecast reliably.`
+    ? `EBIT margin ranged from ${fmt.format(lowMarginRow.ebitMargin)}% in ${lowMarginRow.year} to ${fmt.format(highMarginRow.ebitMargin)}% in ${highMarginRow.year}, a ${fmt.format(spread)} percentage-point swing. The final explicit forecast assumes ${fmt.format(modeledMargin)}%. A wide historical range means operating profit, and therefore free cash flow, may be harder to forecast reliably.`
     : `There was not enough historical EBIT-margin data to judge stability. The final explicit forecast assumes ${fmt.format(modeledMargin)}%, so verify that assumption against company guidance and a full business cycle.`;
   risks.push({ level: spread > 15 ? "high" : spread > 7 ? "medium" : "low", title: "Operating-margin consistency", detail: marginDetail });
   const marginExpansion = modeledMargin - data.metrics.ebitMargin;
@@ -111,7 +111,7 @@ export function riskAnalysis(data: CompanyData, model: DcfModel, perpetuity: Ris
     risks.push({
       level: "high",
       title: "Turnaround assumption",
-      detail: `The automatic scenario moves EBIT margin from ${fmt.format(data.metrics.ebitMargin)}% in the latest reported period to ${fmt.format(modeledMargin)}% in the final explicit year, a ${fmt.format(marginExpansion)} percentage-point change. This is a website-generated scenario—not analyst consensus. Validate the timing, capacity utilization, pricing, cost structure, and funding needed to achieve it before relying on either valuation method.`,
+      detail: `The automatic scenario moves EBIT margin from ${fmt.format(data.metrics.ebitMargin)}% in the latest reported period to ${fmt.format(modeledMargin)}% in the final explicit year, a ${fmt.format(marginExpansion)} percentage-point change. This is a website-generated scenario. It is not analyst consensus. Validate the timing, capacity utilization, pricing, cost structure, and funding needed to achieve it before relying on either valuation method.`,
     });
   }
   if (perpetuity.valid && multiple.valid) {

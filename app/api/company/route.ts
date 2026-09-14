@@ -47,7 +47,7 @@ async function secFetch(url: string, revalidate: number) {
 }
 
 async function currentMarketInputs() {
-  const fallback = { riskFreeRate: 4.5, riskFreeAsOf: null as string | null, equityRiskPremium: 4.2, erpAsOf: null as string | null, source: "Editable fallbacks—live market inputs unavailable" };
+  const fallback = { riskFreeRate: 4.5, riskFreeAsOf: null as string | null, equityRiskPremium: 4.2, erpAsOf: null as string | null, source: "Editable fallbacks. Live market inputs unavailable." };
   try {
     const end = todayPacific();
     const startDate = new Date(`${end}T00:00:00Z`);
@@ -383,8 +383,8 @@ function supplyChainSignals(text: string) {
 
 function filingBusinessDescription(text: string) {
   const markers = [
-    { start: /\bitem\s+1[.\s:–—-]*business\b/gi, end: /\bitem\s+1a[.\s:–—-]*risk factors\b/i },
-    { start: /\bitem\s+4[.\s:–—-]*information on the company\b/gi, end: /\bitem\s+4a\b/i },
+    { start: /\bitem\s+1[.\s:–\u2014-]*business\b/gi, end: /\bitem\s+1a[.\s:–\u2014-]*risk factors\b/i },
+    { start: /\bitem\s+4[.\s:–\u2014-]*information on the company\b/gi, end: /\bitem\s+4a\b/i },
   ];
   const sections: string[] = [];
   for (const marker of markers) {
@@ -738,7 +738,7 @@ export async function GET(request: NextRequest) {
     if (revenueForecast) qualityNotes.push(`Years 1 and 2 revenue use current S&P Global analyst consensus surfaced by Stock Analysis; Years 3 through 6 are explicitly labeled model estimates. Perpetual growth does not change those operating forecasts.`);
     else qualityNotes.push("A validated two-year analyst revenue forecast was unavailable, so all six revenue forecast rows are clearly labeled editable model estimates.");
     if (secCash === null) qualityNotes.push("SEC cash was unavailable; the DCF cash assumption uses Nasdaq's displayed cash and short-term investments and stays editable.");
-    if (!/^(?:united states(?: of america)?|u\.?s\.?a?\.?)$/i.test(publicMetadata.country || "")) qualityNotes.push("The automatic WACC does not add a country-risk premium. For a foreign issuer, reflect material country risk either in cash-flow scenarios or in the visible company-specific premium—not in both.");
+    if (!/^(?:united states(?: of america)?|u\.?s\.?a?\.?)$/i.test(publicMetadata.country || "")) qualityNotes.push("The automatic WACC does not add a country-risk premium. For a foreign issuer, reflect material country risk either in cash-flow scenarios or in the visible company-specific premium, not in both.");
     qualityNotes.push("Operating-lease liabilities are not automatically added to debt because consistent lease capitalization also requires lease-adjusted EBIT, D&A, capex, and cash flow. Preferred stock and non-controlling interests are included when SEC facts identify them.");
     qualityNotes.push(`WACC uses ${marketInputs.source}. Beta uses ${betaSource.toLowerCase()} and remains editable.`);
     const latestTaxRate = normalizedHistoricalTaxRate(historical);
