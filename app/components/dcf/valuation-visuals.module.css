@@ -17,24 +17,20 @@
 .compRange { stroke: #bb7041; }
 .currentMarker { stroke: #14231d; stroke-width: 2; }
 .rangeLabel { font-weight: 650 !important; }
-.more { border-top: 1px solid #aeb7b0; }
-.more > summary { width: fit-content; padding: 18px 0; color: #14231d; font-size: 14px; font-weight: 700; cursor: pointer; }
-.more > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 36px; }
-.mixList { display: grid; gap: 20px; }
-.mixList > div > div:first-child { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px; font-size: 13px; }
-.mixList span { color: #66756d; }
-.mixBar { display: flex; height: 18px; background: #eef0ed; }
-.mixBar i { background: #41651c; }
-.mixBar em { background: #b8c4b7; }
-.unavailable { padding: 12px; background: #f1f3ef; color: #66756d; font-size: 12px; }
+.allCharts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 36px; }
+.zeroLine { stroke: #89958e; stroke-width: 1; }
+.compositionForecast { fill: #b66a3c; }
+.compositionTerminal { fill: #41651c; }
 .bridgeTable { border-top: 1px solid #cbd1cc; }
 .bridgeTable > div { display: grid; grid-template-columns: 1.2fr repeat(4, 1fr); gap: 12px; padding: 10px 0; border-bottom: 1px solid #d8ddd9; font-size: 12px; }
 .bridgeTable > div:first-child { color: #66756d; }
 .bridgeTable span:not(:first-child), .bridgeTable strong { text-align: right; font-variant-numeric: tabular-nums; }
-.peerBars { display: grid; gap: 12px; }
-.peerBars > div { display: grid; grid-template-columns: 58px 1fr 58px; align-items: center; gap: 12px; font-size: 12px; }
-.peerBars i { height: 9px; background: #e4e8e3; }
-.peerBars i span { display: block; height: 100%; background: #41651c; }
-.peerBars strong { text-align: right; }
-@media (max-width: 900px) { .primary, .more > div { grid-template-columns: 1fr; gap: 0; } }
+.peerMultiples { display: grid; gap: 15px; }
+.peerMultiples > div { display: grid; grid-template-columns: 58px 1fr; align-items: start; gap: 12px; font-size: 12px; }
+.peerMultiples > div > div { display: grid; grid-template-columns: 1fr 54px; align-items: center; gap: 5px 10px; }
+.peerMultiples i { height: 8px; background: #e4e8e3; }
+.peerMultiples i span { display: block; height: 100%; background: #41651c; }
+.peerMultiples i:nth-of-type(2) span { background: #25463a; }
+.peerMultiples strong { text-align: right; font-variant-numeric: tabular-nums; }
+@media (max-width: 900px) { .primary, .allCharts { grid-template-columns: 1fr; gap: 0; } }
 @media (max-width: 600px) { .chartBlock { overflow-x: auto; } .chartBlock svg { min-width: 640px; } .legend { justify-content: start; } .chartBlock header { display: block; } .bridgeTable { overflow-x: auto; } .bridgeTable > div { min-width: 620px; } }

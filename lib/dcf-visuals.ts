@@ -67,21 +67,21 @@ export function buildValuationRanges(data: CompanyData, model: DcfModel): Valuat
       : { wacc, exitMultiple: assumption });
     return result.valid ? result.perShare : Number.NaN;
   }));
-  const peerMultiples = (data.comparison?.peers || [])
-    .filter((peer) => peer.peerFit !== "adjacent")
-    .map((peer) => peer.evToEbitda)
-    .filter((value): value is number => value !== null && Number.isFinite(value) && value > 0);
-  const peerValues = peerMultiples.map((exitMultiple) => calculateDcf(data, model, "multiple", { exitMultiple }))
-    .filter((result) => result.valid)
-    .map((result) => result.perShare);
   const prices = data.market.priceHistory || [];
   const latestTime = prices.reduce((latest, point) => Math.max(latest, Date.parse(point.date) || 0), 0);
-  const oneYearPrices = prices.filter((point) => latestTime - (Date.parse(point.date) || 0) <= 366 * 86_400_000).map((point) => point.close);
+  const priceWindow = (label: string, days: number) => range(label, prices
+    .filter((point) => {
+      const age = latestTime - (Date.parse(point.date) || 0);
+      return age >= 0 && age <= days * 86_400_000;
+    })
+    .map((point) => point.close), "market");
   return [
     range("Perpetual growth", sensitivityValues("perpetuity", growthRates), "dcf"),
     range("Exit multiple", sensitivityValues("multiple", exitMultiples), "dcf"),
-    peerValues.length >= 2 ? range("Peer multiples", peerValues, "comps") : null,
-    range("52-week price", oneYearPrices, "market", model.marketPrice),
+    priceWindow("3-month price", 92),
+    priceWindow("6-month price", 183),
+    priceWindow("52-week price", 366),
+    range("Current price", [model.marketPrice], "market", model.marketPrice),
   ].filter((item): item is ValuationRange => item !== null);
 }
 

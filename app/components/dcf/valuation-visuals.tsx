@@ -48,7 +48,7 @@ function RangeChart({ data, model }: { data: CompanyData; model: DcfModel }) {
   const max = Math.max(model.marketPrice, ...ranges.map((item) => item.high), 1) * 1.08;
   const x = (value: number) => left + Math.max(0, value) / max * (width - left - right);
   return <article className={styles.chartBlock}>
-    <header><div><h3>Valuation ranges</h3><p>DCF sensitivities and market reference</p></div></header>
+    <header><div><h3>Football field</h3><p>Valuation and market ranges</p></div></header>
     <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Valuation range comparison">
       {ranges.map((item, index) => { const yy = 34 + index * rowHeight; return <g key={item.label}><text x={left - 14} y={yy + 5} textAnchor="end" className={styles.rangeLabel}>{item.label}</text><line x1={x(item.low)} x2={x(item.high)} y1={yy} y2={yy} className={item.kind === "market" ? styles.marketRange : item.kind === "comps" ? styles.compRange : styles.dcfRange}/><circle cx={x(item.low)} cy={yy} r="4"/><circle cx={x(item.high)} cy={yy} r="4"/><text x={x(item.low)} y={yy - 10} textAnchor="middle">{money.format(item.low)}</text><text x={x(item.high)} y={yy - 10} textAnchor="middle">{money.format(item.high)}</text>{item.current !== undefined && <g><line x1={x(item.current)} x2={x(item.current)} y1={yy - 15} y2={yy + 15} className={styles.currentMarker}/><text x={x(item.current)} y={yy + 29} textAnchor="middle">Current {money.format(item.current)}</text></g>}</g>; })}
     </svg>
@@ -71,7 +71,21 @@ function MarginChart({ data, result }: { data: CompanyData; result: ReturnType<t
 
 function TerminalChart({ perpetuity, multiple }: { perpetuity: ReturnType<typeof calculateDcf>; multiple: ReturnType<typeof calculateDcf> }) {
   const mixes = buildTerminalMix(perpetuity, multiple);
-  return <article className={styles.chartBlock}><header><div><h3>Enterprise value composition</h3><p>Present value of forecast cash flow and terminal value</p></div></header><div className={styles.mixList}>{mixes.map((item) => <div key={item.label}><div><b>{item.label}</b><span>{item.terminalPercent === null ? "Signed values" : `${fmt.format(item.terminalPercent)}% from terminal value`}</span></div>{item.terminalPercent === null ? <div className={styles.unavailable}>Forecast {compact.format(item.forecastValue)} + terminal {compact.format(item.terminalValue)}</div> : <div className={styles.mixBar}><i style={{ width: `${item.forecastPercent}%` }}/><em style={{ width: `${item.terminalPercent}%` }}/></div>}</div>)}</div></article>;
+  const width = 920;
+  const height = 250;
+  const left = 150;
+  const right = 55;
+  const zeroX = left + (width - left - right) * .28;
+  const negativeWidth = zeroX - left;
+  const positiveWidth = width - right - zeroX;
+  const maxNegative = Math.max(1, ...mixes.flatMap((item) => [Math.max(0, -item.forecastValue), Math.max(0, -item.terminalValue)]));
+  const maxPositive = Math.max(1, ...mixes.flatMap((item) => [Math.max(0, item.forecastValue), Math.max(0, item.terminalValue)]));
+  const bar = (value: number, y: number, className: string) => {
+    const barWidth = value < 0 ? Math.abs(value) / maxNegative * negativeWidth : value / maxPositive * positiveWidth;
+    const x = value < 0 ? zeroX - barWidth : zeroX;
+    return <g><rect x={x} y={y} width={Math.max(1, barWidth)} height="18" className={className}/><text x={value < 0 ? x - 7 : x + barWidth + 7} y={y + 14} textAnchor={value < 0 ? "end" : "start"}>{compact.format(value)}</text></g>;
+  };
+  return <article className={styles.chartBlock}><header><div><h3>Enterprise value composition</h3><p>Present value of forecast cash flow and terminal value</p></div><div className={styles.legend}><span><i style={{ background: colors.ufcf }}/>Forecast UFCF</span><span><i style={{ background: colors.gross }}/>Terminal value</span></div></header><svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Present value of forecast cash flow and terminal value by DCF method"><line x1={zeroX} x2={zeroX} y1="10" y2={height - 25} className={styles.zeroLine}/>{mixes.map((item, index) => { const y = 34 + index * 96; return <g key={item.label}><text x={left - 15} y={y + 29} textAnchor="end" className={styles.rangeLabel}>{item.label}</text>{bar(item.forecastValue, y, styles.compositionForecast)}{bar(item.terminalValue, y + 28, styles.compositionTerminal)}</g>; })}<text x={zeroX} y={height - 5} textAnchor="middle">0</text></svg></article>;
 }
 
 function BridgeChart({ model, perpetuity, multiple }: { model: DcfModel; perpetuity: ReturnType<typeof calculateDcf>; multiple: ReturnType<typeof calculateDcf> }) {
@@ -81,15 +95,16 @@ function BridgeChart({ model, perpetuity, multiple }: { model: DcfModel; perpetu
 }
 
 function PeerChart({ data }: { data: CompanyData }) {
-  const peers = (data.comparison?.peers || []).filter((peer) => peer.evToEbitda !== null && Number.isFinite(peer.evToEbitda));
-  if (!peers.length) return <article className={styles.chartBlock}><header><div><h3>Peer EV / EBITDA</h3><p>No comparable multiple data available</p></div></header></article>;
-  const max = Math.max(...peers.map((peer) => peer.evToEbitda || 0), 1);
-  return <article className={styles.chartBlock}><header><div><h3>Peer EV / EBITDA</h3><p>Latest available financials</p></div></header><div className={styles.peerBars}>{peers.map((peer) => <div key={peer.symbol}><b>{peer.symbol}</b><i><span style={{ width: `${Math.max(0, peer.evToEbitda || 0) / max * 100}%` }}/></i><strong>{fmt.format(peer.evToEbitda || 0)}×</strong></div>)}</div></article>;
+  const company = data.comparison?.company;
+  const peers = [...(company ? [company] : []), ...(data.comparison?.peers || [])].filter((peer) => (peer.evToRevenue !== null && Number.isFinite(peer.evToRevenue)) || (peer.evToEbitda !== null && Number.isFinite(peer.evToEbitda)));
+  if (!peers.length) return <article className={styles.chartBlock}><header><div><h3>Peer valuation multiples</h3><p>No comparable multiple data available</p></div></header></article>;
+  const max = Math.max(...peers.flatMap((peer) => [peer.evToRevenue || 0, peer.evToEbitda || 0]), 1);
+  return <article className={styles.chartBlock}><header><div><h3>Peer valuation multiples</h3><p>Latest available financials</p></div><div className={styles.legend}><span><i style={{ background: colors.gross }}/>EV / revenue</span><span><i style={{ background: colors.ebitda }}/>EV / EBITDA</span></div></header><div className={styles.peerMultiples}>{peers.map((peer) => <div key={peer.symbol}><b>{peer.symbol}</b><div><i><span style={{ width: `${Math.max(0, peer.evToRevenue || 0) / max * 100}%` }}/></i><strong>{peer.evToRevenue === null ? "n.a." : `${fmt.format(peer.evToRevenue)}×`}</strong><i><span style={{ width: `${Math.max(0, peer.evToEbitda || 0) / max * 100}%` }}/></i><strong>{peer.evToEbitda === null ? "n.a." : `${fmt.format(peer.evToEbitda)}×`}</strong></div></div>)}</div></article>;
 }
 
 export default function ValuationVisuals({ data, model, perpetuity, multiple }: { data: CompanyData; model: DcfModel; perpetuity: ReturnType<typeof calculateDcf>; multiple: ReturnType<typeof calculateDcf> }) {
   return <div className={styles.visuals}>
     <div className={styles.primary}><OperatingChart data={data} result={perpetuity}/><RangeChart data={data} model={model}/></div>
-    <details className={styles.more}><summary>More charts</summary><div><MarginChart data={data} result={perpetuity}/><TerminalChart perpetuity={perpetuity} multiple={multiple}/><BridgeChart model={model} perpetuity={perpetuity} multiple={multiple}/><PeerChart data={data}/></div></details>
+    <div className={styles.allCharts}><MarginChart data={data} result={perpetuity}/><TerminalChart perpetuity={perpetuity} multiple={multiple}/><BridgeChart model={model} perpetuity={perpetuity} multiple={multiple}/><PeerChart data={data}/></div>
   </div>;
 }

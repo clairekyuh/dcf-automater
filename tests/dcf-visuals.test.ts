@@ -15,8 +15,8 @@ const data = {
   historical: [{ year: "2025", revenue: 1000, ebit: 180, ebitMargin: 18, depreciation: 40, freeCashFlow: 120, cogs: 500 }],
   market: { priceHistory: [{ date: "2025-06-01", close: 16 }, { date: "2026-01-01", close: 22 }] },
   comparison: { peers: [
-    { peerFit: "direct", evToEbitda: 10 },
-    { peerFit: "close", evToEbitda: 14 },
+    { peerFit: "direct", evToEbitda: 10, evToRevenue: 4 },
+    { peerFit: "close", evToEbitda: 14, evToRevenue: 6 },
   ] },
 } as unknown as CompanyData;
 
@@ -29,9 +29,9 @@ test("operating visuals keep actual and forecast periods distinct", () => {
   assert.equal(series.length, 7);
 });
 
-test("valuation ranges use model sensitivities, peer multiples, and recent prices", () => {
+test("valuation ranges use model sensitivities and standard recent-price windows", () => {
   const ranges = buildValuationRanges(data, model);
-  assert.deepEqual(ranges.map((item) => item.label), ["Perpetual growth", "Exit multiple", "Peer multiples", "52-week price"]);
+  assert.deepEqual(ranges.map((item) => item.label), ["Perpetual growth", "Exit multiple", "3-month price", "6-month price", "52-week price", "Current price"]);
   assert.ok(ranges.every((item) => item.high >= item.low));
   assert.equal(ranges.at(-1)?.current, 20);
 });

@@ -858,6 +858,8 @@ body{background:#f7f6f1}
 .calculator-header{padding:34px 0 30px}
 .calculator-header .ticker-search:focus-within{border-color:var(--navy-dark);box-shadow:none;transform:none}
 .calculator-header .ticker-search input:focus,.calculator-header .ticker-search input:focus-visible{outline:none}
+.assumption-grid input:focus,.assumption-grid input:focus-visible,.forecast-editor input:focus,.forecast-editor input:focus-visible{outline:none;box-shadow:none}.assumption-grid .input-cell:focus-within{border-color:#8c9b91}.assumption-grid .number-field:hover{border-color:var(--editorial-rule)}
+.sleek-app{padding-top:58px}@media(max-width:760px){.sleek-app{padding-top:56px}}
 .model-pages>.company-summary{padding:34px 0 38px;border-top:0}
 .model-pages>.company-summary>div{max-width:900px;padding:0;border-right:0}
 .model-pages>#output{padding-top:44px}
