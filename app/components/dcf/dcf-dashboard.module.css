@@ -361,6 +361,7 @@
 .cashFlowTable { margin-top: 18px; }
 .cashFlowTable table { min-width: 980px; }
 .cashFlowTable th, .cashFlowTable td { white-space: nowrap; }
+.cashFlowTable :global(table thead th:first-child) { background: #25463a; color: #fff; }
 
 .sensitivityTitle {
   display: flex;
