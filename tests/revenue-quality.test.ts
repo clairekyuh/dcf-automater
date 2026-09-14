@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { HistoricalRow, RevenueInterimResult } from "../lib/company-data";
-import { calculatedRevenueGrowth, reconcileRevenueHistory, withInterimRevenue, type AnnualRevenueSource } from "../lib/revenue-quality";
+import { calculatedRevenueGrowth, reconcileRevenueHistory, revenueGrowth, withInterimRevenue, type AnnualRevenueSource } from "../lib/revenue-quality";
 
 function row(fiscalDate: string, revenue: number): HistoricalRow {
   return {
@@ -41,6 +41,11 @@ test("CoreWeave extreme growth remains valid when SEC and Nasdaq agree", () => {
   assert.equal(result.revenueData.quality, "complete");
   assert.equal(calculatedRevenueGrowth(result.historical, 1)?.toFixed(1), "736.2");
   assert.equal(calculatedRevenueGrowth(result.historical, 2)?.toFixed(1), "167.9");
+});
+
+test("forecast growth is calculated from revenue values instead of provider percentages", () => {
+  assert.equal(revenueGrowth(12_899.11569, 5_131)?.toFixed(1), "151.4");
+  assert.equal(revenueGrowth(26_398.9526, 12_899.11569)?.toFixed(1), "104.7");
 });
 
 test("a recent IPO with one annual period is partial and has no fabricated growth", () => {

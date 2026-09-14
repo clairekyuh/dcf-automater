@@ -10,7 +10,7 @@ import { createRequestDiagnostics, logDiagnostic, measureDiagnostic, safeErrorTy
 import { fetchWithTimeout } from "@/lib/server/fetch-with-timeout";
 import { selectPeerSet } from "@/lib/peer-universe";
 import { defaultRiskScreen } from "@/lib/credit-screen";
-import { reconcileRevenueHistory, withInterimRevenue } from "@/lib/revenue-quality";
+import { reconcileRevenueHistory, revenueGrowth, withInterimRevenue } from "@/lib/revenue-quality";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -278,17 +278,22 @@ async function analystRevenueForecast(symbol: string, latestRevenue: number, lat
     if (!year2 || Math.abs(year2.last / year1.value - 1) > .15) return null;
     const source = "S&P Global consensus via Stock Analysis";
     const asOf = todayPacific();
+    const year1Revenue = year1.value / 1_000_000;
+    const year2Revenue = year2.value / 1_000_000;
+    const year1Growth = revenueGrowth(year1Revenue, latestRevenue);
+    const year2Growth = revenueGrowth(year2Revenue, year1Revenue);
+    if (year1Growth === null || year2Growth === null) return null;
     return {
-      year1Revenue: year1.value / 1_000_000,
-      year2Revenue: year2.value / 1_000_000,
-      year1Growth: year1.growth,
-      year2Growth: year2.growth,
+      year1Revenue,
+      year2Revenue,
+      year1Growth,
+      year2Growth,
       source,
       sourceUrl,
       asOf,
       periods: [
-        { periodEnd: addYears(latestFiscalDate, 1), revenue: year1.value / 1_000_000, growth: year1.growth, status: "consensus", source, sourceUrl, asOf },
-        { periodEnd: addYears(latestFiscalDate, 2), revenue: year2.value / 1_000_000, growth: year2.growth, status: "consensus", source, sourceUrl, asOf },
+        { periodEnd: addYears(latestFiscalDate, 1), revenue: year1Revenue, growth: year1Growth, status: "consensus", source, sourceUrl, asOf },
+        { periodEnd: addYears(latestFiscalDate, 2), revenue: year2Revenue, growth: year2Growth, status: "consensus", source, sourceUrl, asOf },
       ],
     };
   } catch {

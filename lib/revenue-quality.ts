@@ -16,7 +16,7 @@ function validAnnualSource(row: AnnualRevenueSource) {
   return ISO_DATE.test(row.fiscalDate) && Number.isFinite(row.revenue) && row.revenue > 0;
 }
 
-function annualGrowth(current: number, previous: number) {
+export function revenueGrowth(current: number, previous: number) {
   return previous > 0 ? (current / previous - 1) * 100 : null;
 }
 
@@ -129,5 +129,5 @@ export function withInterimRevenue(data: RevenueDataQuality, latestInterim: Reve
 
 export function calculatedRevenueGrowth(rows: Array<Pick<HistoricalRow, "revenue">>, index: number) {
   if (index <= 0 || index >= rows.length) return null;
-  return annualGrowth(rows[index].revenue, rows[index - 1].revenue);
+  return revenueGrowth(rows[index].revenue, rows[index - 1].revenue);
 }
