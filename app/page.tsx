@@ -29,7 +29,7 @@ import { financialSectorRiskAnalysis, riskAnalysis } from "@/lib/risk-analysis";
 
 type Model = DcfModel;
 type Method = DcfMethod;
-type WorkbookTab = "dcf" | "valuation" | "sensitivity";
+type Workspace = "overview" | "forecast" | "valuation" | "assumptions";
 
 const demoPrices = Array.from({ length: 67 }, (_, index) => {
   const date = new Date(Date.UTC(2021 + Math.floor(index / 12), index % 12, 1));
@@ -297,8 +297,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [companyReady, setCompanyReady] = useState(false);
   const [startingExample, setStartingExample] = useState(LARGE_COMPANY_EXAMPLES[0]);
-  const [workbookTab, setWorkbookTab] = useState<WorkbookTab>("dcf");
-  const [activeWorkspace, setActiveWorkspace] = useState<"calculations" | "assumptions" | "workbook" | "verification" | "output" | "charts" | null>(null);
+  const [activeWorkspace, setActiveWorkspace] = useState<Workspace>("overview");
   const [exportingExcel, setExportingExcel] = useState(false);
   const [excelExportError, setExcelExportError] = useState("");
   const [error, setError] = useState("");
@@ -467,12 +466,6 @@ export default function Home() {
     await loadCompany(symbol);
   }
 
-  function openWorkbook(tab: WorkbookTab) {
-    setWorkbookTab(tab);
-    setActiveWorkspace("workbook");
-    window.setTimeout(() => document.getElementById("detail-workbook")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
-  }
-
   function openAssumption(target: AssumptionTarget) {
     setActiveWorkspace("assumptions");
     const targetId = target === "wacc" ? "assumption-risk-free-rate" : `assumption-${target}`;
@@ -483,9 +476,9 @@ export default function Home() {
     }, 0);
   }
 
-  function openWorkspace(workspace: Exclude<typeof activeWorkspace, null>) {
+  function openWorkspace(workspace: Workspace) {
     setActiveWorkspace(workspace);
-    window.setTimeout(() => document.getElementById(`detail-${workspace}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+    window.setTimeout(() => document.getElementById("detail-workspace")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   }
 
   async function exportExcel() {
@@ -596,7 +589,7 @@ export default function Home() {
   const beta = model.beta;
   const equityRiskPremium = model.equityRiskPremium;
   const preTaxDebt = model.preTaxCostDebt;
-  const workbookFormula: Record<WorkbookTab, string> = {
+  const workbookFormula = {
     dcf: "UFCF = EBIT × (1 − Tax Rate) + D&A − Capex − ΔNWC + Δ Deferred Tax + Other Non-Cash Adjustments",
     valuation: "Equity Value = Enterprise Value + Cash − Debt − Other Non-Equity Claims",
     sensitivity: "Implied Share Price = Equity Value ÷ Fully Diluted Shares",
@@ -633,58 +626,49 @@ export default function Home() {
       <OutputScreen data={data} model={model} perpetuity={perpetuity} multiple={multiple} financialUnsupported={financialUnsupported} onOpenAssumption={openAssumption}/>
     </section>}
 
-    {!financialUnsupported && <section className={dashboardStyles.modelDetails} aria-labelledby="model-details-title">
-      <div className={dashboardStyles.detailsHeading}><div><h2 id="model-details-title">Model details</h2></div></div>
-      <nav className={dashboardStyles.detailActions} aria-label="DCF model details">
-        <button type="button" aria-expanded={activeWorkspace === "charts"} aria-controls="detail-charts" onClick={() => openWorkspace("charts")}>Charts</button>
-        <button type="button" aria-expanded={activeWorkspace === "workbook" && workbookTab === "sensitivity"} aria-controls="detail-workbook" onClick={() => openWorkbook("sensitivity")}>Sensitivity</button>
-        <button type="button" aria-expanded={activeWorkspace === "output"} aria-controls="detail-output" onClick={() => openWorkspace("output")}>DCF output</button>
-        <button type="button" aria-expanded={activeWorkspace === "workbook" && workbookTab === "dcf"} aria-controls="detail-workbook" onClick={() => openWorkbook("dcf")}>Full DCF model</button>
-        <button type="button" aria-expanded={activeWorkspace === "workbook" && workbookTab === "valuation"} aria-controls="detail-workbook" onClick={() => openWorkbook("valuation")}>Valuation bridge</button>
-        <button type="button" aria-expanded={activeWorkspace === "verification"} aria-controls="detail-verification" onClick={() => openWorkspace("verification")}>Forecast confidence</button>
-        <button type="button" aria-expanded={activeWorkspace === "assumptions"} aria-controls="detail-assumptions" onClick={() => openWorkspace("assumptions")}>Edit assumptions</button>
-        <button type="button" aria-expanded={activeWorkspace === "calculations"} aria-controls="detail-calculations" onClick={() => openWorkspace("calculations")}>Formulas</button>
-        <button type="button" onClick={exportExcel} disabled={exportingExcel}>{exportingExcel ? "Building Excel…" : "Export Excel"}</button>
-      </nav>
+    {!financialUnsupported && <section className={dashboardStyles.modelDetails}>
+      <div className={dashboardStyles.workflowBar}>
+        <nav className={dashboardStyles.detailActions} aria-label="DCF workspace" role="tablist">
+          {(["overview", "forecast", "valuation", "assumptions"] as Workspace[]).map((workspace) => <button key={workspace} type="button" role="tab" aria-selected={activeWorkspace === workspace} aria-controls="detail-workspace" onClick={() => openWorkspace(workspace)}>{workspace[0].toUpperCase() + workspace.slice(1)}</button>)}
+        </nav>
+        <select className={dashboardStyles.workspaceSelect} aria-label="DCF workspace" value={activeWorkspace} onChange={(event) => openWorkspace(event.target.value as Workspace)}>{(["overview", "forecast", "valuation", "assumptions"] as Workspace[]).map((workspace) => <option key={workspace} value={workspace}>{workspace[0].toUpperCase() + workspace.slice(1)}</option>)}</select>
+        <button className={dashboardStyles.exportAction} type="button" onClick={exportExcel} disabled={exportingExcel}>{exportingExcel ? "Building Excel…" : "Export Excel"}</button>
+      </div>
       {excelExportError && <small className="excel-export-error" role="alert">{excelExportError}</small>}
     </section>}
 
-    {activeWorkspace === "calculations" && <section className={`${dashboardStyles.detailPanel} sheet-section`} id="detail-calculations"><div className="section-heading"><div><h2>Formulas</h2></div><button className={dashboardStyles.closeDetail} type="button" onClick={() => setActiveWorkspace(null)} aria-label="Close formulas">Close</button></div><MethodAudit/><div className="bridge-grid"><ValuationBridge title="Perpetual Growth Method" result={perpetuity} model={model} method="perpetuity" data={data}/><ValuationBridge title="Exit Multiple Method" result={multiple} model={model} method="multiple" data={data}/></div></section>}
-
-    {!financialUnsupported && activeWorkspace === "charts" && <section className={`${dashboardStyles.detailPanel} sheet-section`} id="detail-charts" aria-labelledby="charts-title">
-      <div className="section-heading"><div><h2 id="charts-title">Charts</h2></div><button className={dashboardStyles.closeDetail} type="button" onClick={() => setActiveWorkspace(null)} aria-label="Close charts">Close</button></div>
+    {!financialUnsupported && activeWorkspace === "overview" && <section className={`${dashboardStyles.detailPanel} sheet-section`} id="detail-workspace" role="tabpanel" aria-labelledby="charts-title">
+      <div className="section-heading"><div><h2 id="charts-title">Overview</h2></div></div>
       <ValuationVisuals data={data} model={model} perpetuity={perpetuity} multiple={multiple}/>
     </section>}
 
-    {!financialUnsupported && activeWorkspace === "output" && <section className={`${dashboardStyles.detailPanel} sheet-section`} id="detail-output" aria-labelledby="dcf-output-title">
-      <div className="section-heading"><div><h2 id="dcf-output-title">DCF output</h2><p>USD millions, except per share</p></div><button className={dashboardStyles.closeDetail} type="button" onClick={() => setActiveWorkspace(null)} aria-label="Close DCF output">Close</button></div>
-      <DcfCashFlowOutput result={perpetuity}/>
-    </section>}
+    {!financialUnsupported && activeWorkspace === "overview" && <details className={dashboardStyles.detailDisclosure}><summary>DCF output</summary><div><p>USD millions, except per share</p><DcfCashFlowOutput result={perpetuity}/></div></details>}
 
-    {!financialUnsupported && activeWorkspace === "verification" && <section className={`${dashboardStyles.detailPanel} sheet-section`} id="detail-verification" aria-labelledby="forecast-review-title">
-      <div className="section-heading"><div><h2 id="forecast-review-title">Forecast confidence and items to verify</h2></div><button className={dashboardStyles.closeDetail} type="button" onClick={() => setActiveWorkspace(null)} aria-label="Close forecast confidence">Close</button></div>
+    {!financialUnsupported && activeWorkspace === "forecast" && <details className={dashboardStyles.detailDisclosure}><summary>Forecast confidence</summary><div className={dashboardStyles.disclosureBody}>
       <div className={dashboardStyles.forecastReview}>
         <article><span>Forecast confidence</span><h3>{forecastConfidence}</h3><p>{forecastConfidenceDetail}</p></article>
         <article><span>Top items to verify</span><ol>{risks.slice(0, 3).map((risk) => <li key={risk.title}><b>{risk.title}</b><p>{risk.detail}</p></li>)}</ol></article>
       </div>
-    </section>}
+    </div></details>}
 
-    {!financialUnsupported && activeWorkspace === "workbook" && <section className={`${dashboardStyles.detailPanel} sheet-section`} id="detail-workbook">
-      <div className="section-heading"><div><h2>{workbookTab === "sensitivity" ? "Sensitivity" : workbookTab === "valuation" ? "Valuation bridge" : "DCF workbook"}</h2>{workbookTab === "dcf" && <p>USD millions, except per share</p>}</div><button className={dashboardStyles.closeDetail} type="button" onClick={() => setActiveWorkspace(null)} aria-label="Close model detail">Close</button></div>
-      <div className={workbookTab === "sensitivity" ? dashboardStyles.sensitivityPanel : "workbook-shell"}>
-        {workbookTab !== "sensitivity" && <div className="formula-bar"><b>fx</b><code>{workbookFormula[workbookTab]}</code></div>}
-        <div className="workbook-panel" role="tabpanel" aria-label={`${workbookTab} worksheet`}>
-          {workbookTab === "dcf" && <><div className="model-table-wrap"><table className="model-table historical-model-table"><thead><tr className="period-group-row"><th>PERIOD TYPE</th><th className="actual-group" colSpan={actualPeriods.length}>HISTORICAL ACTUALS / DERIVED RATIOS · REFERENCE ONLY</th><th className="forecast-group" colSpan={result.years.length}>FORECAST ESTIMATES · INCLUDED IN DCF</th><th>TERMINAL</th></tr><tr><th>DCF line item</th>{actualPeriods.map((period) => <th className="actual" key={period.fiscalDate || period.year}>{actualFiscalLabel(period)}</th>)}{result.years.map((year, index) => <th className={index === 0 ? "forecast-start" : ""} key={year.periodEnd}>{fiscalPeriodLabel(year.periodEnd)}</th>)}<th><DefinedTerm term="yearFive">AT YEAR 5</DefinedTerm></th></tr></thead><tbody>
-            {tableRows.map((row) => <tr className={`${row.type === "total" ? "total" : ""} ${row.type === "percent" ? "percent-row" : ""}`} key={row.label}><td><DcfRowLabel label={row.label}/></td>{row.actuals.map((value, index) => <td className="actual" key={`${actualPeriods[index]?.fiscalDate || actualPeriods[index]?.year}-${row.label}`}>{formatCell(value, row.type)}</td>)}{row.values.map((value, index) => <td className={index === 0 ? "forecast-start" : ""} key={index}>{formatCell(value, row.type)}</td>)}<td>{formatCell(row.terminal ?? null, row.type)}</td></tr>)}
-          </tbody></table></div></>}
-          {workbookTab === "valuation" && <div className="model-table-wrap"><table className="workbook-table valuation-workbook"><thead><tr><th>Valuation bridge</th><th>Perpetual growth</th><th>Exit multiple</th></tr></thead><tbody>{valuationSheet.map(([label, perpetuityValue, multipleValue]) => <tr className={["Enterprise value", "Equity value"].includes(String(label)) ? "workbook-total" : ""} key={String(label)}><td>{label}</td><td>{perpetuity.valid ? workbookMoney(Number(perpetuityValue)) : "N/A"}</td><td>{multiple.valid ? workbookMoney(Number(multipleValue)) : "N/A"}</td></tr>)}<tr><td>Share count used</td><td>{fmt.format(model.shares)}M</td><td>{fmt.format(model.shares)}M</td></tr><tr className="workbook-answer"><td>Implied value per share</td><td>{perpetuity.valid ? usd.format(perpetuity.perShare) : "N/A"}</td><td>{multiple.valid ? usd.format(multiple.perShare) : "N/A"}</td></tr></tbody></table></div>}
-          {workbookTab === "sensitivity" && <div className="sensitivity-grid workbook-sensitivity"><SensitivityTable data={data} model={model} method="perpetuity"/><SensitivityTable data={data} model={model} method="multiple"/></div>}
-        </div>
+    {!financialUnsupported && activeWorkspace === "forecast" && <section className={`${dashboardStyles.detailPanel} sheet-section`} id="detail-workspace" role="tabpanel" aria-labelledby="forecast-title">
+      <div className="section-heading"><div><h2 id="forecast-title">Forecast</h2><p>USD millions, except per share</p></div></div>
+      <div className="workbook-shell">
+        <div className="formula-bar"><b>fx</b><code>{workbookFormula.dcf}</code></div>
+        <div className="workbook-panel" aria-label="DCF worksheet"><div className="model-table-wrap"><table className="model-table historical-model-table"><thead><tr className="period-group-row"><th>PERIOD TYPE</th><th className="actual-group" colSpan={actualPeriods.length}>HISTORICAL ACTUALS / DERIVED RATIOS · REFERENCE ONLY</th><th className="forecast-group" colSpan={result.years.length}>FORECAST ESTIMATES · INCLUDED IN DCF</th><th>TERMINAL</th></tr><tr><th>DCF line item</th>{actualPeriods.map((period) => <th className="actual" key={period.fiscalDate || period.year}>{actualFiscalLabel(period)}</th>)}{result.years.map((year, index) => <th className={index === 0 ? "forecast-start" : ""} key={year.periodEnd}>{fiscalPeriodLabel(year.periodEnd)}</th>)}<th><DefinedTerm term="yearFive">AT YEAR 5</DefinedTerm></th></tr></thead><tbody>
+          {tableRows.map((row) => <tr className={`${row.type === "total" ? "total" : ""} ${row.type === "percent" ? "percent-row" : ""}`} key={row.label}><td><DcfRowLabel label={row.label}/></td>{row.actuals.map((value, index) => <td className="actual" key={`${actualPeriods[index]?.fiscalDate || actualPeriods[index]?.year}-${row.label}`}>{formatCell(value, row.type)}</td>)}{row.values.map((value, index) => <td className={index === 0 ? "forecast-start" : ""} key={index}>{formatCell(value, row.type)}</td>)}<td>{formatCell(row.terminal ?? null, row.type)}</td></tr>)}
+        </tbody></table></div></div>
       </div>
     </section>}
 
-    {!financialUnsupported && activeWorkspace === "assumptions" && <section className={`${dashboardStyles.detailPanel} sheet-section`} id="detail-assumptions">
-      <div className="section-heading"><div><h2>Forecast assumptions</h2></div><button className={dashboardStyles.closeDetail} type="button" onClick={() => setActiveWorkspace(null)} aria-label="Close assumptions">Close</button></div>
+    {!financialUnsupported && activeWorkspace === "valuation" && <section className={`${dashboardStyles.detailPanel} sheet-section`} id="detail-workspace" role="tabpanel" aria-labelledby="valuation-title">
+      <div className="section-heading"><div><h2 id="valuation-title">Valuation</h2></div></div>
+      <div className={dashboardStyles.sensitivityPanel}><div className="sensitivity-grid workbook-sensitivity"><SensitivityTable data={data} model={model} method="perpetuity"/><SensitivityTable data={data} model={model} method="multiple"/></div></div>
+      <details className={dashboardStyles.inlineDisclosure}><summary>Enterprise-to-equity bridge</summary><div className="workbook-shell"><div className="formula-bar"><b>fx</b><code>{workbookFormula.valuation}</code></div><div className="workbook-panel"><div className="model-table-wrap"><table className="workbook-table valuation-workbook"><thead><tr><th>Valuation bridge</th><th>Perpetual growth</th><th>Exit multiple</th></tr></thead><tbody>{valuationSheet.map(([label, perpetuityValue, multipleValue]) => <tr className={["Enterprise value", "Equity value"].includes(String(label)) ? "workbook-total" : ""} key={String(label)}><td>{label}</td><td>{perpetuity.valid ? workbookMoney(Number(perpetuityValue)) : "N/A"}</td><td>{multiple.valid ? workbookMoney(Number(multipleValue)) : "N/A"}</td></tr>)}<tr><td>Share count used</td><td>{fmt.format(model.shares)}M</td><td>{fmt.format(model.shares)}M</td></tr><tr className="workbook-answer"><td>Implied value per share</td><td>{perpetuity.valid ? usd.format(perpetuity.perShare) : "N/A"}</td><td>{multiple.valid ? usd.format(multiple.perShare) : "N/A"}</td></tr></tbody></table></div></div></div></details>
+    </section>}
+
+    {!financialUnsupported && activeWorkspace === "assumptions" && <section className={`${dashboardStyles.detailPanel} sheet-section`} id="detail-workspace" role="tabpanel" aria-labelledby="assumptions-title">
+      <div className="section-heading"><div><h2 id="assumptions-title">Assumptions</h2></div></div>
       <div className="recommendation"><b>{data.comparison?.nicheLabel || data.company.industry} starting point</b><p>{rec.note}</p><span>{data.forecast ? `Revenue years 1–2: ${data.forecast.source}${data.forecast.asOf ? ` (${data.forecast.asOf})` : ""}. Years 3–6: editable estimates.` : "No analyst forecast found; all six years are editable estimates."}</span><span> ΔNWC defaults to 2% of incremental revenue. Deferred tax and other non-cash adjustments default to 0%.</span></div>
       <div className="forecast-editor"><div className="sheet-bar">Fiscal forecast drivers · each green cell is editable</div><div className="table-scroll"><table><thead><tr><th>Driver</th>{model.forecastDrivers.map((driver) => <th key={driver.periodEnd}>{fiscalPeriodLabel(driver.periodEnd)}</th>)}</tr></thead><tbody>{([
         ["Revenue growth", "revenueGrowth"], ["Gross margin", "grossMargin"], ["EBIT margin", "ebitMargin"], ["Tax rate", "taxRate"], ["D&A / revenue", "daPercent"], ["Capex / revenue", "capexPercent"], ["ΔNWC / revenue", "changeNwcPercent"], ["Deferred tax / revenue", "deferredTaxPercent"], ["Other non-cash / revenue", "otherNonCashPercent"],
@@ -711,6 +695,8 @@ export default function Home() {
         <div className="data-check"><div className="sheet-bar">Checking the data</div><ul>{(data.qualityNotes?.length ? data.qualityNotes : ["Sample data is active. Enter a ticker to load current public-company data."]).map((note) => <li key={note}>{note}</li>)}</ul></div>
       </div>
     </section>}
+
+    {!financialUnsupported && activeWorkspace === "assumptions" && <details className={dashboardStyles.detailDisclosure}><summary>Formulas</summary><div className={dashboardStyles.disclosureBody}><MethodAudit/><div className="bridge-grid"><ValuationBridge title="Perpetual Growth Method" result={perpetuity} model={model} method="perpetuity" data={data}/><ValuationBridge title="Exit Multiple Method" result={multiple} model={model} method="multiple" data={data}/></div></div></details>}
 
     <footer><span>THIS IS NOT FINANCIAL ADVICE</span></footer>
     </div>}
