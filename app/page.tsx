@@ -29,7 +29,7 @@ import { financialSectorRiskAnalysis, riskAnalysis } from "@/lib/risk-analysis";
 
 type Model = DcfModel;
 type Method = DcfMethod;
-type Workspace = "overview" | "forecast" | "valuation" | "assumptions";
+type Workspace = "valuation" | "charts" | "forecast" | "assumptions";
 
 const demoPrices = Array.from({ length: 67 }, (_, index) => {
   const date = new Date(Date.UTC(2021 + Math.floor(index / 12), index % 12, 1));
@@ -297,7 +297,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [companyReady, setCompanyReady] = useState(false);
   const [startingExample, setStartingExample] = useState(LARGE_COMPANY_EXAMPLES[0]);
-  const [activeWorkspace, setActiveWorkspace] = useState<Workspace>("overview");
+  const [activeWorkspace, setActiveWorkspace] = useState<Workspace>("valuation");
   const [exportingExcel, setExportingExcel] = useState(false);
   const [excelExportError, setExcelExportError] = useState("");
   const [error, setError] = useState("");
@@ -629,20 +629,18 @@ export default function Home() {
     {!financialUnsupported && <section className={dashboardStyles.modelDetails}>
       <div className={dashboardStyles.workflowBar}>
         <nav className={dashboardStyles.detailActions} aria-label="DCF workspace" role="tablist">
-          {(["overview", "forecast", "valuation", "assumptions"] as Workspace[]).map((workspace) => <button key={workspace} type="button" role="tab" aria-selected={activeWorkspace === workspace} aria-controls="detail-workspace" onClick={() => openWorkspace(workspace)}>{workspace[0].toUpperCase() + workspace.slice(1)}</button>)}
+          {(["valuation", "charts", "forecast", "assumptions"] as Workspace[]).map((workspace) => <button key={workspace} type="button" role="tab" aria-selected={activeWorkspace === workspace} aria-controls="detail-workspace" onClick={() => openWorkspace(workspace)}>{workspace[0].toUpperCase() + workspace.slice(1)}</button>)}
         </nav>
-        <select className={dashboardStyles.workspaceSelect} aria-label="DCF workspace" value={activeWorkspace} onChange={(event) => openWorkspace(event.target.value as Workspace)}>{(["overview", "forecast", "valuation", "assumptions"] as Workspace[]).map((workspace) => <option key={workspace} value={workspace}>{workspace[0].toUpperCase() + workspace.slice(1)}</option>)}</select>
+        <select className={dashboardStyles.workspaceSelect} aria-label="DCF workspace" value={activeWorkspace} onChange={(event) => openWorkspace(event.target.value as Workspace)}>{(["valuation", "charts", "forecast", "assumptions"] as Workspace[]).map((workspace) => <option key={workspace} value={workspace}>{workspace[0].toUpperCase() + workspace.slice(1)}</option>)}</select>
         <button className={dashboardStyles.exportAction} type="button" onClick={exportExcel} disabled={exportingExcel}>{exportingExcel ? "Building Excel…" : "Export Excel"}</button>
       </div>
       {excelExportError && <small className="excel-export-error" role="alert">{excelExportError}</small>}
     </section>}
 
-    {!financialUnsupported && activeWorkspace === "overview" && <section className={`${dashboardStyles.detailPanel} sheet-section`} id="detail-workspace" role="tabpanel" aria-labelledby="charts-title">
-      <div className="section-heading"><div><h2 id="charts-title">Overview</h2></div></div>
+    {!financialUnsupported && activeWorkspace === "charts" && <section className={`${dashboardStyles.detailPanel} sheet-section`} id="detail-workspace" role="tabpanel" aria-labelledby="charts-title">
+      <div className="section-heading"><div><h2 id="charts-title">Charts</h2></div></div>
       <ValuationVisuals data={data} model={model} perpetuity={perpetuity} multiple={multiple}/>
     </section>}
-
-    {!financialUnsupported && activeWorkspace === "overview" && <details className={dashboardStyles.detailDisclosure}><summary>DCF output</summary><div><p>USD millions, except per share</p><DcfCashFlowOutput result={perpetuity}/></div></details>}
 
     {!financialUnsupported && activeWorkspace === "forecast" && <details className={dashboardStyles.detailDisclosure}><summary>Forecast confidence</summary><div className={dashboardStyles.disclosureBody}>
       <div className={dashboardStyles.forecastReview}>
@@ -664,6 +662,7 @@ export default function Home() {
     {!financialUnsupported && activeWorkspace === "valuation" && <section className={`${dashboardStyles.detailPanel} sheet-section`} id="detail-workspace" role="tabpanel" aria-labelledby="valuation-title">
       <div className="section-heading"><div><h2 id="valuation-title">Valuation</h2></div></div>
       <div className={dashboardStyles.sensitivityPanel}><div className="sensitivity-grid workbook-sensitivity"><SensitivityTable data={data} model={model} method="perpetuity"/><SensitivityTable data={data} model={model} method="multiple"/></div></div>
+      <details className={dashboardStyles.inlineDisclosure}><summary>DCF output</summary><div><p>USD millions, except per share</p><DcfCashFlowOutput result={perpetuity}/></div></details>
       <details className={dashboardStyles.inlineDisclosure}><summary>Enterprise-to-equity bridge</summary><div className="workbook-shell"><div className="formula-bar"><b>fx</b><code>{workbookFormula.valuation}</code></div><div className="workbook-panel"><div className="model-table-wrap"><table className="workbook-table valuation-workbook"><thead><tr><th>Valuation bridge</th><th>Perpetual growth</th><th>Exit multiple</th></tr></thead><tbody>{valuationSheet.map(([label, perpetuityValue, multipleValue]) => <tr className={["Enterprise value", "Equity value"].includes(String(label)) ? "workbook-total" : ""} key={String(label)}><td>{label}</td><td>{perpetuity.valid ? workbookMoney(Number(perpetuityValue)) : "N/A"}</td><td>{multiple.valid ? workbookMoney(Number(multipleValue)) : "N/A"}</td></tr>)}<tr><td>Share count used</td><td>{fmt.format(model.shares)}M</td><td>{fmt.format(model.shares)}M</td></tr><tr className="workbook-answer"><td>Implied value per share</td><td>{perpetuity.valid ? usd.format(perpetuity.perShare) : "N/A"}</td><td>{multiple.valid ? usd.format(multiple.perShare) : "N/A"}</td></tr></tbody></table></div></div></div></details>
     </section>}
 
