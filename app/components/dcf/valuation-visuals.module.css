@@ -17,11 +17,8 @@
 }
 
 .chartBlock header {
-  display: flex;
+  display: block;
   min-height: 48px;
-  align-items: start;
-  justify-content: space-between;
-  gap: 18px;
   margin-bottom: 12px;
 }
 
@@ -67,8 +64,9 @@
 .legend {
   display: flex;
   flex-wrap: wrap;
-  justify-content: end;
+  justify-content: start;
   gap: 10px 14px;
+  margin-top: 8px;
   color: #59675f;
   font-size: 11px;
 }
@@ -83,6 +81,17 @@
   width: 16px;
   height: 3px;
 }
+
+.legend .consensusLegend { background: #7f9b76; }
+.legend .modelLegend { background: #d7ddd8; border: 1px solid #9ca8a0; }
+.reportedBar { fill: #b8c4b7; }
+.consensusBar { fill: #7f9b76; }
+.modelBar { fill: #d7ddd8; stroke: #98a49d; stroke-width: 1; stroke-dasharray: 3 2; }
+.chartUnavailable { min-height: 180px; display: grid; place-items: center; padding: 24px; background: #f2f3ef; color: #59675f; font-size: 13px; text-align: center; }
+.dataNotice { margin: 10px 0 0 !important; color: #8a4b32 !important; font-size: 11px !important; }
+.interimResult { display: flex; gap: 12px; margin: 12px 0 0 !important; padding-top: 11px; border-top: 1px solid #d7ddd8; font-size: 11px !important; }
+.interimResult b { color: #25463a; }
+.interimResult span { color: #59675f; }
 
 .dcfRange,
 .compRange {
@@ -240,6 +249,4 @@
 @media (max-width: 600px) {
   .chartBlock { overflow-x: auto; }
   .chartBlock svg { min-width: 640px; }
-  .legend { justify-content: start; }
-  .chartBlock header { display: block; }
 }

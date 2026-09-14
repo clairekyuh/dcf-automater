@@ -151,8 +151,12 @@ function buildModel(data: CompanyData): Model {
   const rec = recommendations(data);
   const latest = data.historical[data.historical.length - 1];
   const fiscalDate = latest?.fiscalDate || data.asOf;
-  const yearOneGrowth = data.forecast?.year1Growth ?? rec.growth;
-  const yearTwoGrowth = data.forecast?.year2Growth ?? Math.max(rec.terminal + 1, yearOneGrowth * .75);
+  const yearOneGrowth = data.forecast?.year1Revenue && data.metrics.revenue
+    ? (data.forecast.year1Revenue / data.metrics.revenue - 1) * 100
+    : rec.growth;
+  const yearTwoGrowth = data.forecast?.year2Revenue && data.forecast.year1Revenue
+    ? (data.forecast.year2Revenue / data.forecast.year1Revenue - 1) * 100
+    : Math.max(rec.terminal + 1, yearOneGrowth * .75);
   const matureExplicitGrowth = clamp(Math.min(Math.max(yearTwoGrowth * .45, rec.terminal + 1), 10), rec.terminal + .5, 12);
   const latestGrossMargin = latest?.grossMargin ?? (latest?.cogs !== undefined && latest.revenue ? (latest.revenue - latest.cogs) / latest.revenue * 100 : Math.max(rec.margin + 12, 30));
   const startingDa = clamp(data.metrics.daPercentRevenue || rec.da, 0, 100);
@@ -383,7 +387,7 @@ export default function Home() {
     }
   }, [companyReady, data.company.symbol, data.market.priceHistory, data.source]); // eslint-disable-line react-hooks/exhaustive-deps -- The guarded retry is keyed by the loaded company data.
 
-  async function loadCompany(symbol: string) {
+  async function loadCompany(symbol: string, forceRefresh = false) {
     companyRequestController.current?.abort();
     supplementalRequestController.current?.abort();
     if (supplementalTimer.current !== null) window.clearTimeout(supplementalTimer.current);
@@ -398,7 +402,10 @@ export default function Home() {
     setLoading(true);
     setError("");
     try {
-      const response = await fetch(`/api/company?symbol=${encodeURIComponent(symbol)}&view=valuation`, { signal: controller.signal });
+      const response = await fetch(`/api/company?symbol=${encodeURIComponent(symbol)}&view=valuation`, {
+        signal: controller.signal,
+        cache: forceRefresh ? "reload" : "default",
+      });
       const json = await response.json();
       if (!response.ok) throw new Error(apiErrorMessage(json, "Unable to load company."));
       if (requestVersion !== companyRequestVersion.current) return;
@@ -463,7 +470,7 @@ export default function Home() {
       setError("Type a ticker symbol to build a DCF.");
       return;
     }
-    await loadCompany(symbol);
+    await loadCompany(symbol, true);
   }
 
   function openAssumption(target: AssumptionTarget) {

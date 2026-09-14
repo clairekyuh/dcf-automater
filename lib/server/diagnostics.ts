@@ -19,6 +19,14 @@ type DiagnosticFields = {
   secStatus?: "available" | "unavailable";
   peerCount?: number;
   expectedPeerCount?: number;
+  fiscalPeriod?: string;
+  fiscalPeriods?: string[];
+  originalUnit?: string;
+  normalizedUnit?: string;
+  sourceClassification?: "reported" | "consensus" | "model";
+  reconciliationStatus?: "matched" | "conflicting" | "not-compared";
+  revenueQuality?: "complete" | "partial" | "conflicting" | "unavailable";
+  rejectionReason?: string;
   outcome?: "success" | "degraded" | "rejected" | "error";
   errorType?: string;
 };

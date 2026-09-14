@@ -4,6 +4,7 @@ import { historicalUfcf } from "@/lib/historical-dcf";
 
 export type VisualSeriesPoint = {
   label: string;
+  fiscalPeriodEnd: string | null;
   revenue: number;
   revenueGrowth: number | null;
   ebitda: number;
@@ -13,6 +14,10 @@ export type VisualSeriesPoint = {
   grossMargin: number | null;
   ebitMargin: number;
   period: "actual" | "forecast";
+  revenueStatus: "reported" | "consensus" | "model";
+  revenueSource: string;
+  revenueSourceAsOf: string | null;
+  revenuePeriodType: "full-year";
 };
 
 export type ValuationRange = {
@@ -43,6 +48,7 @@ export function buildOperatingSeries(data: CompanyData, result: ReturnType<typeo
     const previousRevenue = historical[index - 1]?.revenue;
     return {
       label: row.year,
+      fiscalPeriodEnd: row.fiscalDate || null,
       revenue: row.revenue,
       revenueGrowth: previousRevenue && row.revenue ? (row.revenue / previousRevenue - 1) * 100 : null,
       ebitda: row.ebit + row.depreciation,
@@ -52,20 +58,32 @@ export function buildOperatingSeries(data: CompanyData, result: ReturnType<typeo
       grossMargin: row.grossMargin ?? (row.cogs === undefined || !row.revenue ? null : (row.revenue - row.cogs) / row.revenue * 100),
       ebitMargin: row.ebitMargin,
       period: "actual" as const,
+      revenueStatus: "reported" as const,
+      revenueSource: row.revenueSource || "Nasdaq annual financial statements",
+      revenueSourceAsOf: row.revenueSourceAsOf || row.fiscalDate || null,
+      revenuePeriodType: "full-year" as const,
     };
   }).slice(-5);
-  const forecasts = result.years.map((year) => ({
-    label: fiscalPeriodLabel(year.periodEnd).replace(" E", ""),
-    revenue: year.revenue,
-    revenueGrowth: year.growth,
-    ebitda: year.ebitda,
-    ebitdaMargin: year.revenue ? year.ebitda / year.revenue * 100 : null,
-    ufcf: year.fcf,
-    ufcfMargin: year.revenue ? year.fcf / year.revenue * 100 : null,
-    grossMargin: year.grossMargin,
-    ebitMargin: year.margin,
-    period: "forecast" as const,
-  }));
+  const forecasts = result.years.map((year) => {
+    const consensus = data.forecast?.periods?.find((period) => period.periodEnd === year.periodEnd);
+    return {
+      label: fiscalPeriodLabel(year.periodEnd).replace(" E", ""),
+      fiscalPeriodEnd: year.periodEnd,
+      revenue: year.revenue,
+      revenueGrowth: year.growth,
+      ebitda: year.ebitda,
+      ebitdaMargin: year.revenue ? year.ebitda / year.revenue * 100 : null,
+      ufcf: year.fcf,
+      ufcfMargin: year.revenue ? year.fcf / year.revenue * 100 : null,
+      grossMargin: year.grossMargin,
+      ebitMargin: year.margin,
+      period: "forecast" as const,
+      revenueStatus: consensus ? "consensus" as const : "model" as const,
+      revenueSource: consensus?.source || year.source || "Editable model estimate",
+      revenueSourceAsOf: consensus?.asOf || null,
+      revenuePeriodType: "full-year" as const,
+    };
+  });
   return [...actuals, ...forecasts];
 }
 

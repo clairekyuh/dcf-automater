@@ -25,6 +25,11 @@ function scaleDomain(values: number[], minimumSpan = 1) {
 
 function OperatingChart({ data, result }: { data: CompanyData; result: DcfResult }) {
   const points = buildOperatingSeries(data, result);
+  const revenueQuality = data.revenueData?.quality;
+  if (revenueQuality === "conflicting" || revenueQuality === "unavailable") return <article className={styles.chartBlock}>
+    <header><div><h3>Revenue and growth</h3><p>Historical and forecast</p></div></header>
+    <div className={styles.chartUnavailable}>Revenue history is {revenueQuality}. Review the source data before using this chart.</div>
+  </article>;
   const width = 920;
   const height = 320;
   const padding = { left: 62, right: 54, top: 24, bottom: 52 };
@@ -38,18 +43,31 @@ function OperatingChart({ data, result }: { data: CompanyData; result: DcfResult
   const growthY = (value: number) => padding.top + (growth.maximum - value) / growth.span * plotHeight;
   const baseline = revenueY(0);
   const barWidth = Math.min(42, plotWidth / Math.max(points.length, 1) * 0.48);
+  const periodWidth = plotWidth / Math.max(points.length, 1);
+  const tooltipWidth = 244;
+  const tooltipHeight = 120;
   const growthLine = points
     .map((point, index) => point.revenueGrowth === null ? null : `${x(index)},${growthY(point.revenueGrowth)}`)
     .filter(Boolean)
     .join(" ");
   const forecastStart = points.findIndex((point) => point.period === "forecast");
   const dividerX = forecastStart > 0 ? (x(forecastStart - 1) + x(forecastStart)) / 2 : null;
+  const statusLabel = (status: typeof points[number]["revenueStatus"]) => status === "reported" ? "Reported" : status === "consensus" ? "Consensus estimate" : "Model estimate";
+  const growthLabel = (growthValue: number | null) => growthValue === null ? "N/A" : `${oneDecimal.format(growthValue)}%`;
+  const revenueLabel = (value: number) => `$${oneDecimal.format(value)}M`;
+  const sourceLabel = (source: string) => source
+    .replace("S&P Global consensus via Stock Analysis", "S&P Global consensus")
+    .replace("Nasdaq annual financial statements", "Nasdaq annual financials")
+    .replace("Editable model estimate. Not analyst consensus.", "Editable model estimate");
+  const interim = data.revenueData?.latestInterim;
 
   return <article className={styles.chartBlock}>
     <header>
       <div><h3>Revenue and growth</h3><p>Historical and forecast</p></div>
       <div className={styles.legend}>
-        <span><i style={{ background: colors.revenue }}/>Revenue</span>
+        <span><i style={{ background: colors.revenue }}/>Reported</span>
+        <span><i className={styles.consensusLegend}/>Consensus</span>
+        <span><i className={styles.modelLegend}/>Model</span>
         <span><i style={{ background: colors.growth }}/>Growth</span>
       </div>
     </header>
@@ -68,7 +86,7 @@ function OperatingChart({ data, result }: { data: CompanyData; result: DcfResult
           y={Math.min(revenueY(point.revenue), baseline)}
           width={barWidth}
           height={Math.max(1, Math.abs(baseline - revenueY(point.revenue)))}
-          fill={colors.revenue}
+          className={point.revenueStatus === "reported" ? styles.reportedBar : point.revenueStatus === "consensus" ? styles.consensusBar : styles.modelBar}
         />
         <text x={x(index)} y={height - 19} textAnchor="middle">{point.label}</text>
       </g>)}
@@ -79,9 +97,32 @@ function OperatingChart({ data, result }: { data: CompanyData; result: DcfResult
       <polyline points={growthLine} fill="none" stroke={colors.growth} strokeWidth="3"/>
       {points.map((point, index) => point.revenueGrowth === null ? null : <g key={`growth-${point.label}`}>
         <circle cx={x(index)} cy={growthY(point.revenueGrowth)} r="3" fill={colors.growth}/>
-        <text x={x(index)} y={growthY(point.revenueGrowth) - 9} textAnchor="middle">{oneDecimal.format(point.revenueGrowth)}%</text>
       </g>)}
+      {points.map((point, index) => {
+        const pointX = x(index);
+        const targetLeft = index === 0 ? padding.left : pointX - periodWidth / 2;
+        const targetRight = index === points.length - 1 ? width - padding.right : pointX + periodWidth / 2;
+        const tooltipX = Math.min(width - padding.right - tooltipWidth, Math.max(padding.left, pointX - tooltipWidth / 2));
+        const status = statusLabel(point.revenueStatus);
+        const source = sourceLabel(point.revenueSource);
+        const accessibleLabel = `${point.label}. Full fiscal year ending ${point.fiscalPeriodEnd || "date unavailable"}. Revenue ${revenueLabel(point.revenue)}. Growth ${growthLabel(point.revenueGrowth)}. ${status}. ${source}${point.revenueSourceAsOf ? `. Source updated ${point.revenueSourceAsOf}` : ""}.`;
+        return <g key={`revenue-hover-${point.label}`} className={styles.hoverPeriod} tabIndex={0} role="group" aria-label={accessibleLabel}>
+          <rect x={targetLeft} y={padding.top} width={Math.max(1, targetRight - targetLeft)} height={height - padding.top - padding.bottom} className={styles.hoverTarget}/>
+          <line x1={pointX} x2={pointX} y1={padding.top} y2={height - padding.bottom} className={styles.hoverGuide}/>
+          <g className={styles.pointTooltip} transform={`translate(${tooltipX} 12)`}>
+            <rect width={tooltipWidth} height={tooltipHeight} rx="3"/>
+            <text x="12" y="19" className={styles.tooltipTitle}>{point.label} · {status}</text>
+            <text x="12" y="40">Revenue</text><text x={tooltipWidth - 12} y="40" textAnchor="end">{revenueLabel(point.revenue)}</text>
+            <text x="12" y="59">Growth</text><text x={tooltipWidth - 12} y="59" textAnchor="end">{growthLabel(point.revenueGrowth)}</text>
+            <text x="12" y="78">Source</text><text x={tooltipWidth - 12} y="78" textAnchor="end">{source}</text>
+            <text x="12" y="96">Period</text><text x={tooltipWidth - 12} y="96" textAnchor="end">Full year · {point.fiscalPeriodEnd || "N/A"}</text>
+            <text x="12" y="114">Updated</text><text x={tooltipWidth - 12} y="114" textAnchor="end">{point.revenueSourceAsOf || "N/A"}</text>
+          </g>
+        </g>;
+      })}
     </svg>
+    {revenueQuality === "partial" && <p className={styles.dataNotice}>{data.revenueData?.issues[0] || "Annual revenue history is incomplete."}</p>}
+    {interim && <p className={styles.interimResult}><b>Latest interim</b><span>{interim.periodType === "quarter" ? "Quarter" : "Year to date"} ended {interim.periodEnd}: {revenueLabel(interim.revenue)}{interim.comparableRevenue === null ? "" : ` · prior year ${revenueLabel(interim.comparableRevenue)}`}{interim.growth === null ? "" : ` · ${growthLabel(interim.growth)} growth`} · not a full fiscal year</span></p>}
   </article>;
 }
 

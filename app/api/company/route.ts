@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { conciseBusinessDescription } from "@/lib/company-description";
 import { buildPeerSimilarityRationale } from "@/lib/business-comparison";
-import { isStandardDcfUnsupported } from "@/lib/dcf-engine";
+import { addYears, isStandardDcfUnsupported } from "@/lib/dcf-engine";
 import { normalizedHistoricalTaxRate } from "@/lib/historical-dcf";
 import { estimateMarketBeta } from "@/lib/market-beta";
 import { selectShareCount } from "@/lib/valuation-inputs";
@@ -10,6 +10,7 @@ import { createRequestDiagnostics, logDiagnostic, measureDiagnostic, safeErrorTy
 import { fetchWithTimeout } from "@/lib/server/fetch-with-timeout";
 import { selectPeerSet } from "@/lib/peer-universe";
 import { defaultRiskScreen } from "@/lib/credit-screen";
+import { reconcileRevenueHistory, withInterimRevenue } from "@/lib/revenue-quality";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -242,9 +243,18 @@ type RevenueForecast = {
   source: string;
   sourceUrl: string;
   asOf: string;
+  periods: Array<{
+    periodEnd: string;
+    revenue: number;
+    growth: number;
+    status: "consensus";
+    source: string;
+    sourceUrl: string;
+    asOf: string;
+  }>;
 };
 
-async function analystRevenueForecast(symbol: string, latestRevenue: number): Promise<RevenueForecast | null> {
+async function analystRevenueForecast(symbol: string, latestRevenue: number, latestFiscalDate: string): Promise<RevenueForecast | null> {
   try {
     const sourceUrl = `https://stockanalysis.com/stocks/${encodeURIComponent(symbol.toLowerCase())}/forecast/`;
     const response = await fetchWithTimeout(sourceUrl, {
@@ -266,14 +276,20 @@ async function analystRevenueForecast(symbol: string, latestRevenue: number): Pr
       .filter((item) => item.last > 0 && item.value > 0 && Number.isFinite(item.growth))
       .sort((a, b) => Math.abs(a.last - year1.value) - Math.abs(b.last - year1.value))[0];
     if (!year2 || Math.abs(year2.last / year1.value - 1) > .15) return null;
+    const source = "S&P Global consensus via Stock Analysis";
+    const asOf = todayPacific();
     return {
       year1Revenue: year1.value / 1_000_000,
       year2Revenue: year2.value / 1_000_000,
       year1Growth: year1.growth,
       year2Growth: year2.growth,
-      source: "S&P Global consensus via Stock Analysis",
+      source,
       sourceUrl,
-      asOf: todayPacific(),
+      asOf,
+      periods: [
+        { periodEnd: addYears(latestFiscalDate, 1), revenue: year1.value / 1_000_000, growth: year1.growth, status: "consensus", source, sourceUrl, asOf },
+        { periodEnd: addYears(latestFiscalDate, 2), revenue: year2.value / 1_000_000, growth: year2.growth, status: "consensus", source, sourceUrl, asOf },
+      ],
     };
   } catch {
     return null;
@@ -470,7 +486,39 @@ async function secDatasetRaw(symbol: string, includeNarrative = true) {
     if (filingIndex < 0) return null;
     const reportDate = String(recent.reportDate[filingIndex]);
 
-    type SecFact = { start?: string; end: string; val: number; form: string; filed: string; fp?: string };
+    type SecFact = { start?: string; end: string; val: number; form: string; filed: string; fp?: string; accn?: string };
+    const revenueConcepts = ["RevenueFromContractWithCustomerExcludingAssessedTax", "SalesRevenueNet", "Revenues"];
+    type SecRevenueFact = SecFact & { conceptPriority: number };
+    const revenueEntries: SecRevenueFact[] = revenueConcepts.flatMap((concept, conceptPriority) => {
+      const entries = facts.facts?.["us-gaap"]?.[concept]?.units?.USD as SecFact[] | undefined;
+      return (entries || []).map((entry) => ({ ...entry, conceptPriority }));
+    });
+    const durationDays = (entry: SecFact) => entry.start ? (Date.parse(entry.end) - Date.parse(entry.start)) / 86_400_000 : Number.NaN;
+    const annualRevenueEntries = revenueEntries.filter((entry) => ["10-K", "20-F"].includes(entry.form) && entry.start && durationDays(entry) >= 250 && durationDays(entry) <= 400 && entry.val > 0);
+    const annualRevenueByDate = new Map<string, SecRevenueFact>();
+    annualRevenueEntries.forEach((entry) => {
+      const existing = annualRevenueByDate.get(entry.end);
+      if (!existing || entry.conceptPriority < existing.conceptPriority || entry.conceptPriority === existing.conceptPriority && entry.filed > existing.filed) {
+        annualRevenueByDate.set(entry.end, entry);
+      }
+    });
+    const interimEntries = revenueEntries
+      .filter((entry) => entry.form === "10-Q" && entry.start && entry.end > reportDate && durationDays(entry) >= 60 && durationDays(entry) <= 300 && entry.val > 0)
+      .sort((first, second) => second.end.localeCompare(first.end) || durationDays(first) - durationDays(second) || first.conceptPriority - second.conceptPriority || second.filed.localeCompare(first.filed));
+    const latestInterimEntry = interimEntries[0];
+    const comparableInterimEntry = latestInterimEntry
+      ? revenueEntries
+          .filter((entry) => {
+            if (entry.form !== "10-Q" || !entry.start || entry.val <= 0 || entry.end >= latestInterimEntry.end) return false;
+            const daysApart = (Date.parse(latestInterimEntry.end) - Date.parse(entry.end)) / 86_400_000;
+            return daysApart >= 330 && daysApart <= 400 && Math.abs(durationDays(entry) - durationDays(latestInterimEntry)) <= 15;
+          })
+          .sort((first, second) => {
+            const firstDistance = Math.abs((Date.parse(latestInterimEntry.end) - Date.parse(first.end)) / 86_400_000 - 365);
+            const secondDistance = Math.abs((Date.parse(latestInterimEntry.end) - Date.parse(second.end)) / 86_400_000 - 365);
+            return firstDistance - secondDistance || first.conceptPriority - second.conceptPriority || second.filed.localeCompare(first.filed);
+          })[0]
+      : undefined;
     const fact = (concepts: string[], unit = "USD", duration = false) => {
       for (const concept of concepts) {
         const entries = facts.facts?.["us-gaap"]?.[concept]?.units?.[unit] as SecFact[] | undefined;
@@ -496,7 +544,7 @@ async function secDatasetRaw(symbol: string, includeNarrative = true) {
     const noncurrentDebt = fact(["LongTermDebtAndFinanceLeaseObligationsNoncurrent", "LongTermDebtNoncurrent"]);
     const totalDebt = fact(["LongTermDebtAndFinanceLeaseObligations", "LongTermDebt"]);
     const debt = currentDebt !== undefined || noncurrentDebt !== undefined ? (currentDebt || 0) + (noncurrentDebt || 0) : totalDebt;
-    const revenue = fact(["RevenueFromContractWithCustomerExcludingAssessedTax", "SalesRevenueNet", "Revenues"], "USD", true);
+    const revenue = fact(revenueConcepts, "USD", true);
     const operatingIncome = fact(["OperatingIncomeLoss"], "USD", true);
     const depreciation = fact(["DepreciationDepletionAndAmortization", "DepreciationDepletionAndAmortizationPropertyPlantAndEquipment", "Depreciation"], "USD", true);
     const operatingCashFlow = fact(["NetCashProvidedByUsedInOperatingActivities"], "USD", true);
@@ -551,6 +599,26 @@ async function secDatasetRaw(symbol: string, includeNarrative = true) {
         description: businessDescription,
       },
       reportDate,
+      annualRevenue: [...annualRevenueByDate.values()].map((entry) => ({
+        fiscalDate: entry.end,
+        revenue: entry.val / 1_000_000,
+        source: "SEC Company Facts",
+        sourceUrl: primaryUrl,
+        sourceAsOf: entry.filed,
+        originalUnit: "USD",
+        normalizedUnit: "USD millions" as const,
+      })),
+      latestInterim: latestInterimEntry ? {
+        periodEnd: latestInterimEntry.end,
+        periodStart: latestInterimEntry.start!,
+        periodType: durationDays(latestInterimEntry) <= 120 ? "quarter" as const : "year-to-date" as const,
+        revenue: latestInterimEntry.val / 1_000_000,
+        comparableRevenue: comparableInterimEntry ? comparableInterimEntry.val / 1_000_000 : null,
+        growth: comparableInterimEntry?.val ? (latestInterimEntry.val / comparableInterimEntry.val - 1) * 100 : null,
+        source: "SEC Company Facts",
+        sourceUrl: `https://data.sec.gov/api/xbrl/companyfacts/CIK${cik}.json`,
+        asOf: latestInterimEntry.filed,
+      } : null,
       metrics: Object.fromEntries(Object.entries(secMetrics).map(([key, value]) => [key, value === undefined ? undefined : value / 1_000_000])),
       filing: {
         form: String(recent.form[filingIndex]),
@@ -588,7 +656,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const primaryPromise = measureDiagnostic(diagnostics, { event: "provider_company_fundamentals", provider: "nasdaq", symbol }, () => nasdaqFundamentals(symbol));
-    const revenueForecastPromise = primaryPromise.then((company) => measureDiagnostic(diagnostics, { event: "provider_revenue_forecast", provider: "stock-analysis", symbol }, () => analystRevenueForecast(symbol, company.historical[0].revenue)));
+    const revenueForecastPromise = primaryPromise.then((company) => measureDiagnostic(diagnostics, { event: "provider_revenue_forecast", provider: "stock-analysis", symbol }, () => analystRevenueForecast(symbol, company.historical[0].revenue, company.historical[0].fiscalDate)));
     const [primary, priceHistory, marketHistory, secResult, publicMetadata, revenueForecast, marketInputs] = await Promise.all([
       primaryPromise,
       measureDiagnostic(diagnostics, { event: "provider_price_history", provider: "nasdaq", symbol }, () => nasdaqPriceHistory(symbol)).catch(() => []),
@@ -607,7 +675,9 @@ export async function GET(request: NextRequest) {
       sector: primary.sector,
       industry: primary.industry,
     });
-    const historical = primary.historical;
+    const revenueHistory = reconcileRevenueHistory(primary.historical, sec?.annualRevenue || []);
+    const revenueData = withInterimRevenue(revenueHistory.revenueData, sec?.latestInterim || null);
+    const historical = [...revenueHistory.historical].reverse();
     const latest = historical[0];
     const peerSet = selectPeerSet({
       symbol,
@@ -737,6 +807,7 @@ export async function GET(request: NextRequest) {
     if (industryGrowthRate !== null) qualityNotes.push(`Niche growth is represented by median latest annual revenue growth for the returned ${peerSet.label.toLowerCase()} peer group; it is a near-term benchmark, not a perpetual-growth forecast.`);
     if (revenueForecast) qualityNotes.push(`Years 1 and 2 revenue use current S&P Global analyst consensus surfaced by Stock Analysis; Years 3 through 6 are explicitly labeled model estimates. Perpetual growth does not change those operating forecasts.`);
     else qualityNotes.push("A validated two-year analyst revenue forecast was unavailable, so all six revenue forecast rows are clearly labeled editable model estimates.");
+    if (revenueData.quality !== "complete") qualityNotes.push(`Annual revenue coverage is ${revenueData.quality}. ${revenueData.issues[0] || "Review the period-level sources before relying on the growth series."}`);
     if (secCash === null) qualityNotes.push("SEC cash was unavailable; the DCF cash assumption uses Nasdaq's displayed cash and short-term investments and stays editable.");
     if (!/^(?:united states(?: of america)?|u\.?s\.?a?\.?)$/i.test(publicMetadata.country || "")) qualityNotes.push("The automatic WACC does not add a country-risk premium. For a foreign issuer, reflect material country risk either in cash-flow scenarios or in the visible company-specific premium, not in both.");
     qualityNotes.push("Operating-lease liabilities are not automatically added to debt because consistent lease capitalization also requires lease-adjusted EBIT, D&A, capex, and cash flow. Preferred stock and non-controlling interests are included when SEC facts identify them.");
@@ -746,6 +817,29 @@ export async function GET(request: NextRequest) {
     const secCompanyDescription = sec?.company.description
       ? conciseBusinessDescription({ symbol, name: companyName, description: sec.company.description, sector: primary.sector, industry: primary.industry })
       : "A factual business description could not be extracted from the latest SEC annual filing.";
+
+    historical.forEach((row) => logDiagnostic("info", diagnostics, {
+      event: "revenue_period_selected",
+      status: 200,
+      symbol,
+      provider: row.revenueSource === "SEC Company Facts" ? "sec" : "nasdaq",
+      fiscalPeriod: row.fiscalDate,
+      originalUnit: row.revenueOriginalUnit || "USD thousands",
+      normalizedUnit: row.revenueNormalizedUnit || "USD millions",
+      sourceClassification: "reported",
+      reconciliationStatus: row.revenueReconciliation || "not-compared",
+      outcome: "success",
+    }));
+    logDiagnostic(revenueData.quality === "complete" ? "info" : "warn", diagnostics, {
+      event: "revenue_quality_evaluated",
+      status: 200,
+      symbol,
+      provider: "internal",
+      fiscalPeriods: [...historical].reverse().map((row) => row.fiscalDate || row.year),
+      revenueQuality: revenueData.quality,
+      rejectionReason: revenueData.issues[0],
+      outcome: revenueData.quality === "complete" ? "success" : "degraded",
+    });
 
     const normalizedResponse = NextResponse.json({
       coverage: valuationOnly ? "valuation" : "full",
@@ -794,6 +888,7 @@ export async function GET(request: NextRequest) {
         taxRate: latestTaxRate,
       },
       forecast: revenueForecast,
+      revenueData,
       comparison: {
         company: { ...comparableFromNasdaq(primary), description: companyDescription, peerFit: "focus", businessModel: peerSet.rationales?.[symbol]?.businessModel || peerSet.label, peerRationale: `Focus company classified as ${peerSet.label.toLowerCase()}.` },
         peers,
@@ -853,7 +948,7 @@ export async function GET(request: NextRequest) {
       },
       historical: [...historical].reverse(),
     });
-    normalizedResponse.headers.set("Cache-Control", "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400");
+    normalizedResponse.headers.set("Cache-Control", "public, max-age=60, s-maxage=900, stale-while-revalidate=3600");
     const degraded = secResult.status !== "available" || !valuationOnly && peers.length < selectedPeerSymbols.length;
     logDiagnostic(degraded ? "warn" : "info", diagnostics, {
       event: "company_request_completed",

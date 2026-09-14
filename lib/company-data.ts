@@ -22,6 +22,7 @@ export type HistoricalRow = {
   capexPercentRevenue: number;
   depreciation: number;
   freeCashFlow: number;
+  cash?: number;
   debt?: number;
   interestExpense?: number;
   incomeTax?: number;
@@ -31,6 +32,42 @@ export type HistoricalRow = {
   grossMargin?: number;
   shortDebt?: number;
   longDebt?: number;
+  revenueStatus?: "reported";
+  revenueSource?: string;
+  revenueSourceUrl?: string;
+  revenueSourceAsOf?: string;
+  revenueOriginalUnit?: string;
+  revenueNormalizedUnit?: "USD millions";
+  revenuePeriodType?: "full-year";
+  revenueReconciliation?: "matched" | "conflicting";
+};
+
+export type RevenueReconciliation = {
+  fiscalDate: string;
+  secRevenue: number;
+  nasdaqRevenue: number;
+  differencePercent: number;
+  status: "matched" | "conflicting";
+};
+
+export type RevenueInterimResult = {
+  periodEnd: string;
+  periodStart: string;
+  periodType: "quarter" | "year-to-date";
+  revenue: number;
+  comparableRevenue: number | null;
+  growth: number | null;
+  source: string;
+  sourceUrl: string;
+  asOf: string;
+};
+
+export type RevenueDataQuality = {
+  quality: "complete" | "partial" | "conflicting" | "unavailable";
+  issues: string[];
+  reconciliation: RevenueReconciliation[];
+  historicalSourcePriority: string;
+  latestInterim: RevenueInterimResult | null;
 };
 
 export type ComparableCompany = {
@@ -166,7 +203,17 @@ export type CompanyData = {
     source: string;
     sourceUrl: string;
     asOf?: string;
+    periods?: Array<{
+      periodEnd: string;
+      revenue: number;
+      growth: number;
+      status: "consensus";
+      source: string;
+      sourceUrl: string;
+      asOf: string;
+    }>;
   } | null;
+  revenueData?: RevenueDataQuality;
   comparison?: {
     company: ComparableCompany;
     peers: ComparableCompany[];

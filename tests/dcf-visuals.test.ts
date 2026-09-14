@@ -25,11 +25,42 @@ test("operating visuals keep actual and forecast periods distinct", () => {
   const series = buildOperatingSeries(data, result);
   assert.equal(series[0].period, "actual");
   assert.equal(series[1].period, "forecast");
+  assert.equal(series[0].revenueStatus, "reported");
+  assert.equal(series[1].revenueStatus, "model");
   assert.equal(series[0].grossMargin, 50);
   assert.equal(series[1].revenueGrowth, 5);
   assert.ok(series[1].ebitdaMargin !== null);
   assert.ok(series[1].ufcfMargin !== null);
   assert.equal(series.length, 7);
+});
+
+test("operating visuals distinguish consensus periods from later model estimates", () => {
+  const forecastData = {
+    ...data,
+    forecast: {
+      year1Revenue: 1_050, year2Revenue: 1_100, year1Growth: 5, year2Growth: 5,
+      source: "S&P Global consensus via Stock Analysis", sourceUrl: "https://example.test", asOf: "2026-01-01",
+      periods: model.forecastDrivers.slice(0, 2).map((driver) => ({
+        periodEnd: driver.periodEnd, revenue: 1_050, growth: 5, status: "consensus" as const,
+        source: "S&P Global consensus via Stock Analysis", sourceUrl: "https://example.test", asOf: "2026-01-01",
+      })),
+    },
+  } as CompanyData;
+  const result = calculateDcf(forecastData, model, "perpetuity");
+  const series = buildOperatingSeries(forecastData, result);
+  assert.deepEqual(series.slice(1).map((point) => point.revenueStatus), ["consensus", "consensus", "model", "model", "model", "model"]);
+});
+
+test("forecast periods without period-level consensus provenance remain model estimates", () => {
+  const unverifiedForecastData = {
+    ...data,
+    forecast: {
+      year1Revenue: 1_050, year2Revenue: 1_100, year1Growth: 5, year2Growth: 5,
+      source: "Provider summary without period provenance", sourceUrl: "https://example.test", asOf: "2026-01-01",
+    },
+  } as CompanyData;
+  const result = calculateDcf(unverifiedForecastData, model, "perpetuity");
+  assert.ok(buildOperatingSeries(unverifiedForecastData, result).slice(1).every((point) => point.revenueStatus === "model"));
 });
 
 test("valuation ranges contain valuation methods rather than stock-trading windows", () => {
