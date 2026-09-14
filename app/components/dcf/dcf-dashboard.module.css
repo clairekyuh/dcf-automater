@@ -30,10 +30,11 @@
   background: #fff;
 }
 
-.tickerSearch:focus-within { border-color: #14231d; outline: 2px solid #a9b39c; outline-offset: 2px; }
+.tickerSearch:focus-within { border-color: #41651c; outline: 0; }
 .tickerSearch label { display: flex; min-width: 0; align-items: center; gap: 20px; padding: 0 20px; }
 .tickerSearch label span { color: #405047; font-size: 13px; font-weight: 650; }
 .tickerSearch input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: #14231d; font: 600 17px "Google Sans", Arial, sans-serif; text-transform: uppercase; }
+.tickerSearch input:focus, .tickerSearch input:focus-visible { outline: 0; }
 .tickerSearch input::placeholder { color: #7a847e; text-transform: none; }
 .tickerSearch button { min-width: 142px; border: 0; border-left: 1px solid #79867f; background: #14231d; color: #fff; font: 650 14px "Google Sans", Arial, sans-serif; cursor: pointer; }
 .tickerSearch button:hover:not(:disabled) { background: #294237; }
