@@ -12,20 +12,22 @@ function finiteNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value);
 }
 
-function walkJson(value: unknown, depth = 0): string | null {
+function walkJson(value: unknown, depth = 0, path: string[] = []): string | null {
   if (depth > 12) return "The export payload is nested too deeply.";
   if (typeof value === "number" && !Number.isFinite(value)) return "The export payload contains a non-finite number.";
   if (typeof value === "string" && value.length > MAX_STRING_LENGTH) return "The export payload contains an oversized text field.";
   if (Array.isArray(value)) {
-    if (value.length > 100) return "The export payload contains too many rows.";
+    const isPriceHistory = path.length === 2 && path[0] === "market" && path[1] === "priceHistory";
+    const maximumRows = isPriceHistory ? 400 : 100;
+    if (value.length > maximumRows) return "The export payload contains too many rows.";
     for (const item of value) {
-      const issue = walkJson(item, depth + 1);
+      const issue = walkJson(item, depth + 1, path);
       if (issue) return issue;
     }
   } else if (isObject(value)) {
     for (const [key, item] of Object.entries(value)) {
       if (FORBIDDEN_KEYS.has(key)) return "The export payload contains a forbidden property.";
-      const issue = walkJson(item, depth + 1);
+      const issue = walkJson(item, depth + 1, [...path, key]);
       if (issue) return issue;
     }
   }

@@ -31,6 +31,17 @@ test("accepts bounded price history and rejects invalid chart inputs", () => {
   assert.match(validateExportPayload(invalid) || "", /invalid price/i);
 });
 
+test("accepts a full year of daily prices without weakening the 400-row export limit", () => {
+  const dailyPrices = Array.from({ length: 366 }, (_, index) => ({
+    date: new Date(Date.UTC(2025, 0, index + 1)).toISOString().slice(0, 10),
+    close: 100 + index,
+  }));
+  assert.equal(validateExportPayload({ ...validPayload(), market: { priceHistory: dailyPrices } }), null);
+
+  const oversizedPrices = [...dailyPrices, ...dailyPrices.slice(0, 35)];
+  assert.match(validateExportPayload({ ...validPayload(), market: { priceHistory: oversizedPrices } }) || "", /too many rows|400 prices/i);
+});
+
 test("rejects non-finite model inputs", () => {
   const payload = validPayload();
   payload.model.marketPrice = Number.POSITIVE_INFINITY;
