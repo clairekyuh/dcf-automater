@@ -770,6 +770,11 @@ body{background:#f7f6f1}
 .analysis-hero-compact h1{margin-bottom:15px!important}.analysis-hero-compact>div{margin-bottom:18px}.analysis-hero-compact>p:last-child{max-width:780px;font-size:14px;line-height:1.55}
 .comps-analysis .analysis-heading{align-items:end;margin-bottom:18px}.comps-analysis .analysis-heading>p{font-size:13px;font-weight:650;color:var(--green)}
 .comps-analysis .peer-summary{grid-template-columns:1fr 1fr;margin-bottom:18px}.comps-analysis .peer-summary>div{padding:16px 0}.comps-analysis .peer-summary>div+div{padding-left:24px}.comps-analysis .peer-summary span{font-family:var(--font-body);font-size:11px}.comps-analysis .peer-summary strong{margin-bottom:0}
+.comps-analysis .peer-table{font-family:var(--font-body);font-size:12px;font-variant-numeric:tabular-nums}
+.comps-analysis .peer-table th,.comps-analysis .peer-table td{font-family:var(--font-body);font-size:12px}
+.comps-analysis .peer-table td:first-child b{font-size:12px}
+.comps-analysis .peer-table td:first-child span{font-size:11px}
+.comps-analysis .peer-table em,.comps-analysis .peer-fit-indicator{font-family:var(--font-body)}
 .peer-rationale{margin-top:7px}.peer-rationale summary,.peer-details>summary,.peer-methodology>summary,.analysis-secondary>summary{cursor:pointer;list-style:none}.peer-rationale summary::-webkit-details-marker,.peer-details>summary::-webkit-details-marker,.peer-methodology>summary::-webkit-details-marker,.analysis-secondary>summary::-webkit-details-marker{display:none}
 .peer-rationale summary{display:inline-block;color:var(--green);font:650 11px var(--font-body)}.peer-rationale[open] summary{margin-bottom:5px}.peer-rationale small{max-width:300px}
 .peer-details,.peer-methodology{border-bottom:1px solid var(--editorial-rule)}.peer-details>summary,.peer-methodology>summary{padding:17px 0;color:var(--navy-dark);font:700 13px var(--font-body)}.peer-details>summary:after,.peer-methodology>summary:after,.analysis-secondary>summary:after{content:"+";float:right}.peer-details[open]>summary:after,.peer-methodology[open]>summary:after,.analysis-secondary[open]>summary:after{content:"−"}.peer-details .business-review{margin:0}.peer-methodology p{max-width:760px;margin:0 0 14px;color:var(--muted);font-size:12px;line-height:1.55}
