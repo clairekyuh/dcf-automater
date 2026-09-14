@@ -7,6 +7,7 @@ import { DcfRowLabel, DefinedTerm } from "@/app/components/dcf/defined-term";
 import OutputScreen, { type AssumptionTarget } from "@/app/components/dcf/output-screen";
 import DcfCashFlowOutput from "@/app/components/dcf/dcf-cash-flow-output";
 import DcfSummarySkeleton from "@/app/components/dcf/dcf-summary-skeleton";
+import ValuationVisuals from "@/app/components/dcf/valuation-visuals";
 import dashboardStyles from "@/app/components/dcf/dcf-dashboard.module.css";
 import { readCompanyData, storeCompanyData, storeResearchData } from "@/lib/client/company-storage";
 import { apiErrorMessage } from "@/lib/client/api-error";
@@ -297,7 +298,7 @@ export default function Home() {
   const [companyReady, setCompanyReady] = useState(false);
   const [startingExample, setStartingExample] = useState(LARGE_COMPANY_EXAMPLES[0]);
   const [workbookTab, setWorkbookTab] = useState<WorkbookTab>("dcf");
-  const [activeWorkspace, setActiveWorkspace] = useState<"calculations" | "assumptions" | "workbook" | "verification" | "output" | null>(null);
+  const [activeWorkspace, setActiveWorkspace] = useState<"calculations" | "assumptions" | "workbook" | "verification" | "output" | "charts" | null>(null);
   const [exportingExcel, setExportingExcel] = useState(false);
   const [excelExportError, setExcelExportError] = useState("");
   const [error, setError] = useState("");
@@ -505,6 +506,11 @@ export default function Home() {
           asOf: data.asOf,
           sharesSource: data.market.sharesSource,
           metrics: { revenue: data.metrics.revenue },
+          market: {
+            priceHistory: [...(data.market.priceHistory || [])]
+              .sort((a, b) => b.date.localeCompare(a.date))
+              .slice(0, 400),
+          },
           historical: data.historical,
           model,
           comparison: data.comparison ? {
@@ -630,6 +636,7 @@ export default function Home() {
     {!financialUnsupported && <section className={dashboardStyles.modelDetails} aria-labelledby="model-details-title">
       <div className={dashboardStyles.detailsHeading}><div><h2 id="model-details-title">Model details</h2></div></div>
       <nav className={dashboardStyles.detailActions} aria-label="DCF model details">
+        <button type="button" aria-expanded={activeWorkspace === "charts"} aria-controls="detail-charts" onClick={() => openWorkspace("charts")}>Charts</button>
         <button type="button" aria-expanded={activeWorkspace === "workbook" && workbookTab === "sensitivity"} aria-controls="detail-workbook" onClick={() => openWorkbook("sensitivity")}>Sensitivity</button>
         <button type="button" aria-expanded={activeWorkspace === "output"} aria-controls="detail-output" onClick={() => openWorkspace("output")}>DCF output</button>
         <button type="button" aria-expanded={activeWorkspace === "workbook" && workbookTab === "dcf"} aria-controls="detail-workbook" onClick={() => openWorkbook("dcf")}>Full DCF model</button>
@@ -643,6 +650,11 @@ export default function Home() {
     </section>}
 
     {activeWorkspace === "calculations" && <section className={`${dashboardStyles.detailPanel} sheet-section`} id="detail-calculations"><div className="section-heading"><div><h2>Formulas</h2></div><button className={dashboardStyles.closeDetail} type="button" onClick={() => setActiveWorkspace(null)} aria-label="Close formulas">Close</button></div><MethodAudit/><div className="bridge-grid"><ValuationBridge title="Perpetual Growth Method" result={perpetuity} model={model} method="perpetuity" data={data}/><ValuationBridge title="Exit Multiple Method" result={multiple} model={model} method="multiple" data={data}/></div></section>}
+
+    {!financialUnsupported && activeWorkspace === "charts" && <section className={`${dashboardStyles.detailPanel} sheet-section`} id="detail-charts" aria-labelledby="charts-title">
+      <div className="section-heading"><div><h2 id="charts-title">Charts</h2></div><button className={dashboardStyles.closeDetail} type="button" onClick={() => setActiveWorkspace(null)} aria-label="Close charts">Close</button></div>
+      <ValuationVisuals data={data} model={model} perpetuity={perpetuity} multiple={multiple}/>
+    </section>}
 
     {!financialUnsupported && activeWorkspace === "output" && <section className={`${dashboardStyles.detailPanel} sheet-section`} id="detail-output" aria-labelledby="dcf-output-title">
       <div className="section-heading"><div><h2 id="dcf-output-title">DCF output</h2><p>USD millions, except per share</p></div><button className={dashboardStyles.closeDetail} type="button" onClick={() => setActiveWorkspace(null)} aria-label="Close DCF output">Close</button></div>

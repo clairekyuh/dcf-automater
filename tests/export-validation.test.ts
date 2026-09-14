@@ -24,6 +24,13 @@ test("accepts a bounded finite export payload", () => {
   assert.equal(validateExportPayload(validPayload()), null);
 });
 
+test("accepts bounded price history and rejects invalid chart inputs", () => {
+  const valid = { ...validPayload(), market: { priceHistory: [{ date: "2026-09-11", close: 200 }] } };
+  assert.equal(validateExportPayload(valid), null);
+  const invalid = { ...validPayload(), market: { priceHistory: [{ date: "September 11", close: 0 }] } };
+  assert.match(validateExportPayload(invalid) || "", /invalid price/i);
+});
+
 test("rejects non-finite model inputs", () => {
   const payload = validPayload();
   payload.model.marketPrice = Number.POSITIVE_INFINITY;

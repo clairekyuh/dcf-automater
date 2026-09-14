@@ -56,6 +56,7 @@ type ExportPayload = {
   asOf: string;
   sharesSource?: string;
   metrics: { revenue: number };
+  market?: { priceHistory?: Array<{ date: string; close: number }> };
   historical: ExportHistorical[];
   model: DcfModel;
   comparison?: { nicheLabel?: string; peers?: ExportPeer[] };
@@ -74,6 +75,10 @@ function formulaCell(formula: string, result: number | string) {
 
 function safeResult(value: number) {
   return Number.isFinite(value) ? value : 0;
+}
+
+function dataBarRule(priority: number, color: string, cfvo: ExcelJS.Cvfo[] = [{ type: "min" }, { type: "max" }]) {
+  return { type: "dataBar", priority, color: { argb: color }, cfvo, showValue: true, gradient: false } as ExcelJS.ConditionalFormattingRule;
 }
 
 export async function POST(request: Request) {
@@ -138,6 +143,7 @@ export async function POST(request: Request) {
     workbook.calcProperties.fullCalcOnLoad = true;
 
     const cover = workbook.addWorksheet("Cover", { views: [{ showGridLines: false }] });
+    const visuals = workbook.addWorksheet("Visual Summary", { views: [{ state: "frozen", ySplit: 4, showGridLines: false }] });
     const inputs = workbook.addWorksheet("Inputs", { views: [{ state: "frozen", ySplit: 4, showGridLines: false }] });
     const build = workbook.addWorksheet("DCF Build", { views: [{ state: "frozen", xSplit: 1, ySplit: 5, showGridLines: false }] });
     const output = workbook.addWorksheet("DCF Output", { views: [{ state: "frozen", ySplit: 3, showGridLines: false }] });
@@ -150,6 +156,7 @@ export async function POST(request: Request) {
     cover.getCell("B5").font = { bold: true, color: { argb: navy } };
     const coverRows = [
       ["Inputs", "Blue cells are editable assumptions and forecast drivers."],
+      ["Visual Summary", "Formula-linked valuation ranges, forecasts, margins, and valuation bridge."],
       ["DCF Build", "Historical reference data followed by six formula-driven forecast periods and UFCF."],
       ["DCF Output", "Perpetual-growth and exit-multiple valuations with live sensitivities."],
       ["Comps", "Operating peers and current valuation ratios returned by the website."],
@@ -444,6 +451,144 @@ export async function POST(request: Request) {
       });
     }
     for (let column = 2; column <= 9; column += 1) { comps.getCell(meanRow, column).font = { bold: true, color: { argb: navy } }; comps.getCell(meanRow, column).border = { top: { style: "thin", color: { argb: navy } } }; }
+
+    visuals.columns = [
+      { width: 3 },
+      { width: 29 },
+      ...Array.from({ length: 7 }, () => ({ width: 15 })),
+      { width: 3.2 },
+      ...Array.from({ length: 24 }, () => ({ width: 3.2 })),
+    ];
+    setTitle(visuals, "B2:AH2", `${payload.company.name} | Visual Summary`, "Valuation ranges and operating trends linked to the model.");
+    visuals.getCell("B4").value = "Valuation ranges"; styleSection(visuals.getRow(4), 2, 34);
+    visuals.getRow(5).values = [null, "Method", "Low", "High"];
+    styleTableHeader(visuals.getRow(5), 2, 4);
+    const visualWaccs = [wacc.selectedWacc - 0.5, wacc.selectedWacc, wacc.selectedWacc + 0.5];
+    const pgVisualValues = visualWaccs.flatMap((scenarioWacc) => growthScenarios.map((growth) => calculateDcf(payload, payload.model, "perpetuity", { wacc: scenarioWacc, terminalGrowth: growth }))).filter((result) => result.valid).map((result) => result.perShare);
+    const exitVisualValues = visualWaccs.flatMap((scenarioWacc) => multipleScenarios.map((exitMultiple) => calculateDcf(payload, payload.model, "multiple", { wacc: scenarioWacc, exitMultiple }))).filter((result) => result.valid).map((result) => result.perShare);
+    const peerExitValues = peers.map((peer) => peer.evToEbitda).filter((value): value is number => value !== null && Number.isFinite(value) && value > 0).map((exitMultiple) => calculateDcf(payload, payload.model, "multiple", { exitMultiple })).filter((result) => result.valid).map((result) => result.perShare);
+    const priceHistory = payload.market?.priceHistory || [];
+    const latestPriceTime = priceHistory.reduce((latest, point) => Math.max(latest, Date.parse(point.date) || 0), 0);
+    const oneYearPrices = priceHistory.filter((point) => latestPriceTime - (Date.parse(point.date) || 0) <= 366 * 86_400_000).map((point) => point.close);
+    const visualRangeRows: Array<{ row: number; label: string; low: number | null; high: number | null; lowFormula?: string; highFormula?: string }> = [
+      { row: 6, label: "Perpetual growth", low: pgVisualValues.length ? Math.min(...pgVisualValues) : null, high: pgVisualValues.length ? Math.max(...pgVisualValues) : null, lowFormula: "MIN('DCF Output'!E24:I26)", highFormula: "MAX('DCF Output'!E24:I26)" },
+      { row: 7, label: "Exit multiple", low: exitVisualValues.length ? Math.min(...exitVisualValues) : null, high: exitVisualValues.length ? Math.max(...exitVisualValues) : null, lowFormula: "MIN('DCF Output'!L24:P26)", highFormula: "MAX('DCF Output'!L24:P26)" },
+      { row: 8, label: "Peer multiples", low: peerExitValues.length >= 2 ? Math.min(...peerExitValues) : null, high: peerExitValues.length >= 2 ? Math.max(...peerExitValues) : null },
+      { row: 9, label: "52-week price", low: oneYearPrices.length ? Math.min(...oneYearPrices) : null, high: oneYearPrices.length ? Math.max(...oneYearPrices) : null },
+      { row: 10, label: "Current price", low: payload.model.marketPrice, high: payload.model.marketPrice, lowFormula: "'Inputs'!C11", highFormula: "'Inputs'!C11" },
+    ];
+    visualRangeRows.forEach(({ row, label, low, high, lowFormula, highFormula }) => {
+      visuals.getCell(row, 2).value = label;
+      if (low !== null) visuals.getCell(row, 3).value = lowFormula ? formulaCell(lowFormula, low) : low;
+      else visuals.getCell(row, 3).value = "n.a.";
+      if (high !== null) visuals.getCell(row, 4).value = highFormula ? formulaCell(highFormula, high) : high;
+      else visuals.getCell(row, 4).value = "n.a.";
+      visuals.getCell(row, 3).numFmt = perShareFormat;
+      visuals.getCell(row, 4).numFmt = perShareFormat;
+    });
+    const rangeMax = Math.max(payload.model.marketPrice, ...visualRangeRows.flatMap(({ low, high }) => [low || 0, high || 0]), 1) * 1.05;
+    visuals.getCell("D12").value = formulaCell("MAX(D6:D10)*1.05", rangeMax);
+    visuals.getCell("D12").numFmt = perShareFormat;
+    visuals.getCell("B12").value = "Chart maximum";
+    visuals.getRow(12).hidden = true;
+    for (let column = 11; column <= 34; column += 1) {
+      const header = visuals.getCell(5, column);
+      header.value = formulaCell(`$D$12*(COLUMN()-COLUMN($K$5)+0.5)/24`, rangeMax * (column - 10.5) / 24);
+      header.numFmt = "$0";
+      for (let row = 6; row <= 10; row += 1) {
+        const cell = visuals.getCell(row, column);
+        const isPoint = row === 10;
+        const formula = isPoint
+          ? `IF(ABS(${header.address}-$C${row})<=$D$12/48,1,0)`
+          : `IF(AND(ISNUMBER($C${row}),${header.address}>=$C${row},${header.address}<=$D${row}),1,0)`;
+        const source = visualRangeRows[row - 6];
+        const bucket = rangeMax * (column - 10.5) / 24;
+        const result = source.low === null || source.high === null ? 0 : isPoint ? Number(Math.abs(bucket - source.low) <= rangeMax / 48) : Number(bucket >= source.low && bucket <= source.high);
+        cell.value = formulaCell(formula, result);
+        cell.numFmt = ";;;";
+      }
+    }
+    visuals.addConditionalFormatting({ ref: "K6:AH9", rules: [{ type: "cellIs", priority: 1, operator: "equal", formulae: [1], style: { fill: { type: "pattern", pattern: "solid", bgColor: { argb: teal }, fgColor: { argb: teal } } } }] });
+    visuals.addConditionalFormatting({ ref: "K10:AH10", rules: [{ type: "cellIs", priority: 2, operator: "equal", formulae: [1], style: { fill: { type: "pattern", pattern: "solid", bgColor: { argb: navy }, fgColor: { argb: navy } } } }] });
+    applyBodyStyle(visuals, "B6:AH10");
+
+    visuals.getCell("B14").value = "Operating forecast"; styleSection(visuals.getRow(14), 2, 9);
+    visuals.getRow(15).values = [null, "USD millions", ...payload.model.forecastDrivers.map((driver) => asDate(driver.periodEnd))];
+    styleTableHeader(visuals.getRow(15), 2, 8);
+    for (let column = 3; column <= 8; column += 1) visuals.getCell(15, column).numFmt = "mmm-yy";
+    const visualOperatingRows: Array<[number, string, number, number[]]> = [
+      [16, "Revenue", 6, perpetuity.years.map((year) => year.revenue)],
+      [17, "EBITDA", 24, perpetuity.years.map((year) => year.ebitda)],
+      [18, "UFCF", 19, perpetuity.years.map((year) => year.fcf)],
+    ];
+    visualOperatingRows.forEach(([row, label, buildRow, results]) => {
+      visuals.getCell(row, 2).value = label;
+      for (let column = 3; column <= 8; column += 1) {
+        visuals.getCell(row, column).value = formulaCell(`'DCF Build'!${build.getColumn(column + 4).letter}${buildRow}`, results[column - 3]);
+        visuals.getCell(row, column).numFmt = moneyFormat;
+      }
+      visuals.addConditionalFormatting({ ref: `C${row}:H${row}`, rules: [dataBarRule(10 + row, row === 16 ? "FFB8C4B7" : row === 17 ? navy : "FFB66A3C")] });
+    });
+    applyBodyStyle(visuals, "B16:H18");
+
+    visuals.getCell("B21").value = "Forecast margins"; styleSection(visuals.getRow(21), 2, 9);
+    visuals.getRow(22).values = [null, "Margin", ...payload.model.forecastDrivers.map((driver) => asDate(driver.periodEnd))];
+    styleTableHeader(visuals.getRow(22), 2, 8);
+    for (let column = 3; column <= 8; column += 1) visuals.getCell(22, column).numFmt = "mmm-yy";
+    [[23, "Gross margin", 9], [24, "EBIT margin", 11]].forEach(([row, label, buildRow]) => {
+      visuals.getCell(Number(row), 2).value = String(label);
+      for (let column = 3; column <= 8; column += 1) {
+        const result = Number(row) === 23 ? perpetuity.years[column - 3].grossMargin / 100 : perpetuity.years[column - 3].margin / 100;
+        visuals.getCell(Number(row), column).value = formulaCell(`'DCF Build'!${build.getColumn(column + 4).letter}${buildRow}`, result);
+        visuals.getCell(Number(row), column).numFmt = percentFormat;
+      }
+      visuals.addConditionalFormatting({ ref: `C${row}:H${row}`, rules: [dataBarRule(40 + Number(row), Number(row) === 23 ? "FF41651C" : "FFB66A3C")] });
+    });
+    applyBodyStyle(visuals, "B23:H24");
+
+    visuals.getCell("B27").value = "Enterprise value composition"; styleSection(visuals.getRow(27), 2, 8);
+    visuals.getRow(28).values = [null, "Method", "PV of forecast UFCF", "PV of terminal value", "Terminal value share"];
+    styleTableHeader(visuals.getRow(28), 2, 5);
+    [[29, "Perpetual growth", "'DCF Output'!C9", perpetuity.pvForecast, "'DCF Output'!C10", perpetuity.pvTerminal], [30, "Exit multiple", "'DCF Output'!I9", multiple.pvForecast, "'DCF Output'!I10", multiple.pvTerminal]].forEach(([row, label, forecastFormula, forecastResult, terminalFormula, terminalResult]) => {
+      const rowNumber = Number(row);
+      visuals.getCell(rowNumber, 2).value = String(label);
+      visuals.getCell(rowNumber, 3).value = formulaCell(String(forecastFormula), Number(forecastResult)); visuals.getCell(rowNumber, 3).numFmt = moneyFormat;
+      visuals.getCell(rowNumber, 4).value = formulaCell(String(terminalFormula), Number(terminalResult)); visuals.getCell(rowNumber, 4).numFmt = moneyFormat;
+      const share = Number(forecastResult) + Number(terminalResult) > 0 ? Number(terminalResult) / (Number(forecastResult) + Number(terminalResult)) : 0;
+      visuals.getCell(rowNumber, 5).value = formulaCell(`D${rowNumber}/SUM(C${rowNumber}:D${rowNumber})`, share); visuals.getCell(rowNumber, 5).numFmt = percentFormat;
+    });
+    visuals.addConditionalFormatting({ ref: "E29:E30", rules: [dataBarRule(70, "FFB8C4B7", [{ type: "num", value: 0 }, { type: "num", value: 1 }])] });
+    applyBodyStyle(visuals, "B29:E30");
+
+    visuals.getCell("B33").value = "Enterprise to equity value"; styleSection(visuals.getRow(33), 2, 8);
+    visuals.getRow(34).values = [null, "Method", "Enterprise value", "Cash", "Debt and other claims", "Equity value"];
+    styleTableHeader(visuals.getRow(34), 2, 6);
+    [[35, "Perpetual growth", "C11", perpetuity], [36, "Exit multiple", "I11", multiple]].forEach(([row, label, enterpriseCell, rawResult]) => {
+      const rowNumber = Number(row);
+      const result = rawResult as typeof perpetuity;
+      visuals.getCell(rowNumber, 2).value = String(label);
+      visuals.getCell(rowNumber, 3).value = formulaCell(`'DCF Output'!${enterpriseCell}`, result.enterpriseValue);
+      visuals.getCell(rowNumber, 4).value = formulaCell("'Inputs'!C13", payload.model.cash);
+      visuals.getCell(rowNumber, 5).value = formulaCell("SUM('Inputs'!C14:C16)", payload.model.shortDebt + payload.model.longDebt + payload.model.preferredInterest);
+      visuals.getCell(rowNumber, 6).value = formulaCell(`MAX(0,C${rowNumber}+D${rowNumber}-E${rowNumber})`, result.equityValue);
+      for (let column = 3; column <= 6; column += 1) visuals.getCell(rowNumber, column).numFmt = moneyFormat;
+    });
+    applyBodyStyle(visuals, "B35:F36");
+
+    if (peers.length) {
+      visuals.getCell("B39").value = "Peer EV / EBITDA"; styleSection(visuals.getRow(39), 2, 8);
+      visuals.getRow(40).values = [null, "Ticker", "Company", "EV / EBITDA"];
+      styleTableHeader(visuals.getRow(40), 2, 4);
+      peers.forEach((peer, index) => {
+        const row = 41 + index;
+        visuals.getCell(row, 2).value = peer.symbol;
+        visuals.getCell(row, 3).value = peer.name;
+        visuals.getCell(row, 4).value = peer.evToEbitda;
+        visuals.getCell(row, 4).numFmt = multipleFormat;
+      });
+      visuals.addConditionalFormatting({ ref: `D41:D${40 + peers.length}`, rules: [dataBarRule(80, "FF41651C")] });
+      applyBodyStyle(visuals, `B41:D${40 + peers.length}`);
+    }
 
     checks.columns = [{ width: 3 }, { width: 34 }, { width: 24 }, { width: 24 }, { width: 18 }, { width: 44 }];
     setTitle(checks, "B2:F2", `${payload.company.name} | Sources & Checks`, "Checks recalculate when Excel inputs are edited.");

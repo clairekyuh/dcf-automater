@@ -54,6 +54,17 @@ export function validateExportPayload(payload: unknown): string | null {
   if (typeof symbol !== "string" || !/^[A-Z0-9.-]{1,12}$/.test(symbol)) return "The company ticker is invalid.";
   if (typeof payload.company.name !== "string" || !payload.company.name.trim() || payload.company.name.length > 160) return "The company name is invalid.";
   if (!finiteNumber(payload.metrics.revenue)) return "The company revenue input is invalid.";
+  if (payload.market !== undefined) {
+    if (!isObject(payload.market)) return "Market-history data is invalid.";
+    if (payload.market.priceHistory !== undefined) {
+      if (!Array.isArray(payload.market.priceHistory) || payload.market.priceHistory.length > 400) return "Market history must contain no more than 400 prices.";
+      for (const point of payload.market.priceHistory) {
+        if (!isObject(point)) return "Market history contains an invalid price.";
+        const close = point.close;
+        if (typeof point.date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(point.date) || !finiteNumber(close) || Number(close) <= 0) return "Market history contains an invalid price.";
+      }
+    }
+  }
 
   const model = payload.model;
   const requiredModelNumbers = [
