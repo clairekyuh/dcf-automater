@@ -74,9 +74,9 @@ export default function CompanyAnalysisPage() {
   const percentageRatio = (value: number | null) => value === null || !Number.isFinite(value) ? "N/A" : `${fmt.format(value * 100)}%`;
   const monetary = (value: number | null) => value === null || !Number.isFinite(value) ? "N/A" : `${money.format(value)}M`;
 
-  return <main className="analysis-page">
+  return <main className="analysis-page company-view-page">
     <CompanyNavigation symbol={data.company.symbol} name={data.company.name} active="company"/>
-    <header className="analysis-hero analysis-hero-compact" id="analysis-top"><p>COMPANY ANALYSIS</p><h1>{data.company.name}</h1><div><span>{data.company.symbol}</span><span>{data.company.sector}</span><span>{data.company.country}</span></div><p>{shortDescription(analysis.filing ? analysis.companyDescription : data.company.description)}</p></header>
+    <header className="company-view-header" id="analysis-top"><div><span>Company profile</span><h1>Company analysis</h1><p>{shortDescription(analysis.filing ? analysis.companyDescription : data.company.description)}</p></div><aside><strong>{data.company.name}</strong><small>{data.company.symbol} · {data.company.exchange} · {data.company.industry}</small></aside></header>
 
     <ComparableCompanyAnalysis data={data}/>
 
