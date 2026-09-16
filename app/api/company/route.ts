@@ -97,9 +97,19 @@ type NasdaqRow = Record<string, string | null>;
 type NasdaqTable = { headers?: Record<string, string>; rows?: NasdaqRow[] };
 
 async function nasdaq(endpoint: string, revalidate = 86400) {
-  const response = await fetchWithTimeout(`${NASDAQ_API}${endpoint}`, { headers: NASDAQ_HEADERS, next: { revalidate } });
-  if (!response.ok) throw new Error(`Nasdaq data request failed (${response.status}).`);
-  const payload = await response.json();
+  const url = `${NASDAQ_API}${endpoint}`;
+  const load = async (fresh = false) => {
+    const response = await fetchWithTimeout(url, fresh
+      ? { headers: NASDAQ_HEADERS, cache: "no-store" }
+      : { headers: NASDAQ_HEADERS, next: { revalidate } });
+    if (!response.ok) throw new Error(`Nasdaq data request failed (${response.status}).`);
+    return response.json();
+  };
+  let payload = await load();
+  // A successful HTTP response can still contain a transient empty/error payload.
+  // Retry it without Next's data cache so one malformed cached response does not
+  // take a ticker offline until the revalidation window expires.
+  if (!payload?.data || payload?.status?.rCode && payload.status.rCode !== 200) payload = await load(true);
   if (payload?.status?.rCode && payload.status.rCode !== 200) {
     throw new Error(payload.status.bCodeMessage?.[0]?.errorMessage || "Nasdaq did not return data for this ticker.");
   }
@@ -147,8 +157,9 @@ function growthRate(values: number[]) {
 
 async function nasdaqFundamentals(symbol: string) {
   const encoded = encodeURIComponent(symbol);
+  const profilePromise = nasdaq(`/company/${encoded}/company-profile`).catch(() => ({}));
   const [profilePayload, summaryPayload, financialPayload] = await Promise.all([
-    nasdaq(`/company/${encoded}/company-profile`),
+    profilePromise,
     nasdaq(`/quote/${encoded}/summary?assetclass=stocks`, 3600),
     nasdaq(`/company/${encoded}/financials?frequency=1`),
   ]);
