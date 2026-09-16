@@ -158,9 +158,10 @@ function growthRate(values: number[]) {
 async function nasdaqFundamentals(symbol: string) {
   const encoded = encodeURIComponent(symbol);
   const profilePromise = nasdaq(`/company/${encoded}/company-profile`).catch(() => ({}));
+  const summaryPromise = nasdaq(`/quote/${encoded}/summary?assetclass=stocks`, 3600).catch(() => ({}));
   const [profilePayload, summaryPayload, financialPayload] = await Promise.all([
     profilePromise,
-    nasdaq(`/quote/${encoded}/summary?assetclass=stocks`, 3600),
+    summaryPromise,
     nasdaq(`/company/${encoded}/financials?frequency=1`),
   ]);
   const profile = fieldValues(profilePayload) as Record<string, unknown>;
@@ -755,15 +756,20 @@ export async function GET(request: NextRequest) {
       latest.debt = latest.shortDebt + latest.longDebt;
     }
     const revenueGrowth = growthRate(historical.map((row) => row.revenue));
-    const marketCap = primary.marketCap;
     const estimatedPrice = priceHistory.at(-1)?.close || primary.previousClose;
     const betaEstimate = estimateMarketBeta(priceHistory, marketHistory);
     const beta = betaEstimate?.beta ?? 1;
     const betaSource = betaEstimate
       ? `Adjusted beta ${betaEstimate.beta.toFixed(2)} = ⅔ × raw five-year monthly price-return regression beta ${betaEstimate.rawBeta.toFixed(2)} + ⅓ × 1.0 (${betaEstimate.observations} observations versus SPY, ${betaEstimate.startMonth} to ${betaEstimate.endMonth}); price-only series and split outliers above 60% excluded`
       : "Neutral 1.0 fallback because at least 24 matched monthly stock and SPY returns were unavailable";
-    const marketCapShares = marketCap > 0 && estimatedPrice > 0 ? marketCap / estimatedPrice : 1;
     const secDilutedShares = secMetric("dilutedShares");
+    const marketCap = primary.marketCap > 0
+      ? primary.marketCap
+      : secDilutedShares !== null && secDilutedShares > 0 && estimatedPrice > 0
+        ? secDilutedShares * estimatedPrice
+        : 0;
+    primary.marketCap = marketCap;
+    const marketCapShares = marketCap > 0 && estimatedPrice > 0 ? marketCap / estimatedPrice : 1;
     const shareSelection = selectShareCount({
       country: publicMetadata.country,
       secDilutedShares,
