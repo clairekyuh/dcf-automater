@@ -99,7 +99,10 @@ type NasdaqTable = { headers?: Record<string, string>; rows?: NasdaqRow[] };
 async function nasdaq(endpoint: string, revalidate = 86400) {
   const url = `${NASDAQ_API}${endpoint}`;
   const load = async (fresh = false) => {
-    const response = await fetchWithTimeout(url, fresh
+    const requestUrl = fresh
+      ? `${url}${url.includes("?") ? "&" : "?"}_refresh=${todayPacific()}`
+      : url;
+    const response = await fetchWithTimeout(requestUrl, fresh
       ? { headers: NASDAQ_HEADERS, cache: "no-store" }
       : { headers: NASDAQ_HEADERS, next: { revalidate } });
     if (!response.ok) throw new Error(`Nasdaq data request failed (${response.status}).`);
