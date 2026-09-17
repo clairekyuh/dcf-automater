@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import ExcelJS from "exceljs";
+import { addNativeVisualSummaryCharts } from "@/lib/export/native-charts";
 import { calculateDcf, calculateWacc, type DcfModel } from "@/lib/dcf-engine";
 import { historicalEffectiveTaxRate, historicalRevenueGrowth, historicalUfcf } from "@/lib/historical-dcf";
 import { normalizeTicker } from "@/lib/ticker";
@@ -75,10 +76,6 @@ function formulaCell(formula: string, result: number | string) {
 
 function safeResult(value: number) {
   return Number.isFinite(value) ? value : 0;
-}
-
-function dataBarRule(priority: number, color: string, cfvo: ExcelJS.Cvfo[] = [{ type: "min" }, { type: "max" }]) {
-  return { type: "dataBar", priority, color: { argb: color }, cfvo, showValue: true, gradient: false } as ExcelJS.ConditionalFormattingRule;
 }
 
 export async function POST(request: Request) {
@@ -486,31 +483,7 @@ export async function POST(request: Request) {
       visuals.getCell(row, 3).numFmt = perShareFormat;
       visuals.getCell(row, 4).numFmt = perShareFormat;
     });
-    const rangeMax = Math.max(payload.model.marketPrice, ...visualRangeRows.flatMap(({ low, high }) => [low || 0, high || 0]), 1) * 1.05;
-    visuals.getCell("D12").value = formulaCell("MAX(D6:D10)*1.05", rangeMax);
-    visuals.getCell("D12").numFmt = perShareFormat;
-    visuals.getCell("B12").value = "Chart maximum";
-    visuals.getRow(12).hidden = true;
-    for (let column = 11; column <= 34; column += 1) {
-      const header = visuals.getCell(5, column);
-      header.value = formulaCell(`$D$12*(COLUMN()-COLUMN($K$5)+0.5)/24`, rangeMax * (column - 10.5) / 24);
-      header.numFmt = "$0";
-      for (let row = 6; row <= 10; row += 1) {
-        const cell = visuals.getCell(row, column);
-        const isPoint = row === 10;
-        const formula = isPoint
-          ? `IF(ABS(${header.address}-$C${row})<=$D$12/48,1,0)`
-          : `IF(AND(ISNUMBER($C${row}),${header.address}>=$C${row},${header.address}<=$D${row}),1,0)`;
-        const source = visualRangeRows[row - 6];
-        const bucket = rangeMax * (column - 10.5) / 24;
-        const result = source.low === null || source.high === null ? 0 : isPoint ? Number(Math.abs(bucket - source.low) <= rangeMax / 48) : Number(bucket >= source.low && bucket <= source.high);
-        cell.value = formulaCell(formula, result);
-        cell.numFmt = ";;;";
-      }
-    }
-    visuals.addConditionalFormatting({ ref: "K6:AH9", rules: [{ type: "cellIs", priority: 1, operator: "equal", formulae: [1], style: { fill: { type: "pattern", pattern: "solid", bgColor: { argb: teal }, fgColor: { argb: teal } } } }] });
-    visuals.addConditionalFormatting({ ref: "K10:AH10", rules: [{ type: "cellIs", priority: 2, operator: "equal", formulae: [1], style: { fill: { type: "pattern", pattern: "solid", bgColor: { argb: navy }, fgColor: { argb: navy } } } }] });
-    applyBodyStyle(visuals, "B6:AH10");
+    applyBodyStyle(visuals, "B6:D10");
 
     visuals.getCell("B14").value = "Operating forecast"; styleSection(visuals.getRow(14), 2, 9);
     visuals.getRow(15).values = [null, "USD millions", ...payload.model.forecastDrivers.map((driver) => asDate(driver.periodEnd))];
@@ -527,7 +500,6 @@ export async function POST(request: Request) {
         visuals.getCell(row, column).value = formulaCell(`'DCF Build'!${build.getColumn(column + 4).letter}${buildRow}`, results[column - 3]);
         visuals.getCell(row, column).numFmt = moneyFormat;
       }
-      visuals.addConditionalFormatting({ ref: `C${row}:H${row}`, rules: [dataBarRule(10 + row, row === 16 ? "FFB8C4B7" : row === 17 ? navy : "FFB66A3C")] });
     });
     applyBodyStyle(visuals, "B16:H18");
 
@@ -542,7 +514,6 @@ export async function POST(request: Request) {
         visuals.getCell(Number(row), column).value = formulaCell(`'DCF Build'!${build.getColumn(column + 4).letter}${buildRow}`, result);
         visuals.getCell(Number(row), column).numFmt = percentFormat;
       }
-      visuals.addConditionalFormatting({ ref: `C${row}:H${row}`, rules: [dataBarRule(40 + Number(row), Number(row) === 23 ? "FF41651C" : "FFB66A3C")] });
     });
     applyBodyStyle(visuals, "B23:H24");
 
@@ -557,7 +528,6 @@ export async function POST(request: Request) {
       const share = Number(forecastResult) + Number(terminalResult) > 0 ? Number(terminalResult) / (Number(forecastResult) + Number(terminalResult)) : 0;
       visuals.getCell(rowNumber, 5).value = formulaCell(`D${rowNumber}/SUM(C${rowNumber}:D${rowNumber})`, share); visuals.getCell(rowNumber, 5).numFmt = percentFormat;
     });
-    visuals.addConditionalFormatting({ ref: "E29:E30", rules: [dataBarRule(70, "FFB8C4B7", [{ type: "num", value: 0 }, { type: "num", value: 1 }])] });
     applyBodyStyle(visuals, "B29:E30");
 
     visuals.getCell("B33").value = "Enterprise to equity value"; styleSection(visuals.getRow(33), 2, 8);
@@ -586,9 +556,15 @@ export async function POST(request: Request) {
         visuals.getCell(row, 4).value = peer.evToEbitda;
         visuals.getCell(row, 4).numFmt = multipleFormat;
       });
-      visuals.addConditionalFormatting({ ref: `D41:D${40 + peers.length}`, rules: [dataBarRule(80, "FF41651C")] });
       applyBodyStyle(visuals, `B41:D${40 + peers.length}`);
     }
+
+    payload.model.forecastDrivers.forEach((driver, index) => {
+      const helperColumn = 35 + index;
+      const label = new Intl.DateTimeFormat("en-US", { month: "short", year: "2-digit", timeZone: "UTC" }).format(asDate(driver.periodEnd));
+      visuals.getCell(15, helperColumn).value = label;
+      visuals.getColumn(helperColumn).hidden = true;
+    });
 
     checks.columns = [{ width: 3 }, { width: 34 }, { width: 24 }, { width: 24 }, { width: 18 }, { width: 44 }];
     setTitle(checks, "B2:F2", `${payload.company.name} | Sources & Checks`, "Checks recalculate when Excel inputs are edited.");
@@ -639,7 +615,8 @@ export async function POST(request: Request) {
     cover.getCell("C16").value = "THIS IS NOT FINANCIAL ADVICE";
     cover.getCell("C16").font = { italic: true, color: { argb: gray } };
 
-    const buffer = await workbook.xlsx.writeBuffer();
+    const excelBuffer = await workbook.xlsx.writeBuffer();
+    const buffer = await addNativeVisualSummaryCharts(Buffer.from(excelBuffer), peers.length);
     const filename = `${payload.company.symbol.replace(/[^A-Z0-9.-]/gi, "-")}-DCF-Model.xlsx`;
     const response = new NextResponse(Buffer.from(buffer), {
       headers: {
