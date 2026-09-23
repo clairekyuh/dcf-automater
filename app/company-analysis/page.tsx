@@ -44,7 +44,7 @@ export default function CompanyAnalysisPage() {
       const requested = new URLSearchParams(window.location.search).get("symbol")?.trim().toUpperCase();
       const cached = readCompanyData(requested);
       const hasCurrentComps = Boolean(cached?.comparison?.company.enterpriseValue !== undefined
-        && cached.comparison.peers.every((peer) => peer.enterpriseValue !== undefined && peer.evToRevenueLtm !== undefined && peer.ltmBasis !== undefined));
+        && cached.comparison.peers.every((peer) => peer.enterpriseValue !== undefined && peer.evToRevenueLtm !== undefined && peer.ltmBasis !== undefined && peer.evToEbitdaLtmQuality !== undefined));
       if (cached && hasCurrentComps) setData(cached);
       const symbol = requested || cached?.company.symbol;
       const needsRefresh = !cached || !hasCurrentComps || cached.coverage !== "full" || cached.businessAnalysis?.secStatus !== "available" || !cached.businessAnalysis.filing;

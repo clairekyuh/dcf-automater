@@ -381,6 +381,17 @@ function comparableFromNasdaq(company: Awaited<ReturnType<typeof nasdaqFundament
   const ntmRevenue = forecast?.year1Revenue || null;
   const ntmEbit = ntmRevenue && ltmRevenue && ltmEbit !== null ? ntmRevenue * ltmEbit / ltmRevenue : null;
   const ntmEbitda = ntmRevenue && ltmRevenue && ltmEbitda !== null ? ntmRevenue * ltmEbitda / ltmRevenue : null;
+  const profitMultiple = (profit: number | null, revenue: number | null) => {
+    if (profit === null || revenue === null || revenue <= 0) return { value: null, quality: "unavailable" as const };
+    if (profit <= 0) return { value: null, quality: "not-meaningful" as const };
+    const value = priceIndependentEv / profit;
+    const quality = profit / revenue < .02 || value > 100 ? "extreme" as const : "normal" as const;
+    return { value, quality };
+  };
+  const ebitdaLtm = profitMultiple(ltmEbitda, ltmRevenue);
+  const ebitdaNtm = profitMultiple(ntmEbitda, ntmRevenue);
+  const ebitLtm = profitMultiple(ltmEbit, ltmRevenue);
+  const ebitNtm = profitMultiple(ntmEbit, ntmRevenue);
   return {
     symbol: company.symbol,
     name: company.name,
@@ -395,10 +406,14 @@ function comparableFromNasdaq(company: Awaited<ReturnType<typeof nasdaqFundament
     evToEbitda: ebitda > 0 ? priceIndependentEv / ebitda : null,
     evToRevenueLtm: ltmRevenue ? priceIndependentEv / ltmRevenue : null,
     evToRevenueNtm: ntmRevenue ? priceIndependentEv / ntmRevenue : null,
-    evToEbitdaLtm: ltmEbitda && ltmEbitda > 0 ? priceIndependentEv / ltmEbitda : null,
-    evToEbitdaNtm: ntmEbitda && ntmEbitda > 0 ? priceIndependentEv / ntmEbitda : null,
-    evToEbitLtm: ltmEbit && ltmEbit > 0 ? priceIndependentEv / ltmEbit : null,
-    evToEbitNtm: ntmEbit && ntmEbit > 0 ? priceIndependentEv / ntmEbit : null,
+    evToEbitdaLtm: ebitdaLtm.value,
+    evToEbitdaNtm: ebitdaNtm.value,
+    evToEbitLtm: ebitLtm.value,
+    evToEbitNtm: ebitNtm.value,
+    evToEbitdaLtmQuality: ebitdaLtm.quality,
+    evToEbitdaNtmQuality: ebitdaNtm.quality,
+    evToEbitLtmQuality: ebitLtm.quality,
+    evToEbitNtmQuality: ebitNtm.quality,
     ltmBasis: company.ltm ? "Latest four reported quarters" : `Latest reported fiscal year ended ${latest.fiscalDate}; quarterly provider data unavailable`,
     ntmBasis: forecast ? "Consensus NTM revenue; LTM EBIT and EBITDA margins held constant" : null,
     pe: latest.netIncome > 0 ? company.marketCap / latest.netIncome : null,

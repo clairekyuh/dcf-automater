@@ -2,7 +2,7 @@ import type { CompanyData, RiskItem } from "@/lib/company-data";
 
 export const COMPANY_STORAGE_KEY = "dcf:last-company";
 export const RESEARCH_STORAGE_KEY = "dcf:last-research";
-export const COMPANY_STORAGE_VERSION = 5;
+export const COMPANY_STORAGE_VERSION = 6;
 export const MAX_COMPANY_STORAGE_CHARS = 750_000;
 export const MAX_RESEARCH_STORAGE_CHARS = 100_000;
 
@@ -53,9 +53,12 @@ function isHistoricalRow(value: unknown) {
 function isComparable(value: unknown) {
   if (!isRecord(value)) return false;
   const optionalMetrics = ["enterpriseValue", "evToRevenueLtm", "evToRevenueNtm", "evToEbitdaLtm", "evToEbitdaNtm", "evToEbitLtm", "evToEbitNtm"];
+  const qualityKeys = ["evToEbitdaLtmQuality", "evToEbitdaNtmQuality", "evToEbitLtmQuality", "evToEbitNtmQuality"];
+  const qualities = ["normal", "extreme", "not-meaningful", "unavailable"];
   return ["symbol", "name", "description", "sector", "industry"].every((key) => isString(value[key], 10_000))
     && ["marketCap", "revenueGrowth", "operatingMargin", "evToRevenue", "evToEbitda", "pe"].every((key) => isNullableNumber(value[key]))
     && optionalMetrics.every((key) => value[key] === undefined || isNullableNumber(value[key]))
+    && qualityKeys.every((key) => value[key] === undefined || qualities.includes(String(value[key])))
     && ["ltmBasis", "ntmBasis"].every((key) => value[key] === undefined || value[key] === null || isString(value[key], 500));
 }
 

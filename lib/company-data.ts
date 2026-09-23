@@ -88,6 +88,10 @@ export type ComparableCompany = {
   evToEbitdaNtm?: number | null;
   evToEbitLtm?: number | null;
   evToEbitNtm?: number | null;
+  evToEbitdaLtmQuality?: "normal" | "extreme" | "not-meaningful" | "unavailable";
+  evToEbitdaNtmQuality?: "normal" | "extreme" | "not-meaningful" | "unavailable";
+  evToEbitLtmQuality?: "normal" | "extreme" | "not-meaningful" | "unavailable";
+  evToEbitNtmQuality?: "normal" | "extreme" | "not-meaningful" | "unavailable";
   ltmBasis?: string | null;
   ntmBasis?: string | null;
   pe: number | null;
