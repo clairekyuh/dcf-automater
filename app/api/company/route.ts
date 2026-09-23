@@ -304,11 +304,18 @@ async function analystRevenueForecast(symbol: string, latestRevenue: number, lat
     const thisMatches = Array.from(html.matchAll(/revenueThis:\{last:([\d.]+),this:([\d.]+),growth:([-\d.]+)\}/g));
     const nextMatches = Array.from(html.matchAll(/revenueNext:\{last:([\d.]+),this:([\d.]+),growth:([-\d.]+)\}/g));
     const latestDollars = latestRevenue * 1_000_000;
-    const year1 = thisMatches
+    const year1Candidates = thisMatches
       .map((match) => ({ last: Number(match[1]), value: Number(match[2]), growth: Number(match[3]) }))
       .filter((item) => item.last > 0 && item.value > 0 && Number.isFinite(item.growth))
-      .sort((a, b) => Math.abs(a.last - latestDollars) - Math.abs(b.last - latestDollars))[0];
-    if (!year1 || Math.abs(year1.last / latestDollars - 1) > .15) return null;
+      .filter((item) => {
+        const calculated = revenueGrowth(item.value, item.last);
+        return calculated !== null && Math.abs(calculated - item.growth) < 1;
+      });
+    const scaleMatchedYear1 = [...year1Candidates].sort((a, b) => Math.abs(a.last - latestDollars) - Math.abs(b.last - latestDollars))[0];
+    const year1 = scaleMatchedYear1 && Math.abs(scaleMatchedYear1.last / latestDollars - 1) <= .15
+      ? scaleMatchedYear1
+      : [...year1Candidates].sort((a, b) => b.last - a.last)[0];
+    if (!year1) return null;
     const year2 = nextMatches
       .map((match) => ({ last: Number(match[1]), value: Number(match[2]), growth: Number(match[3]) }))
       .filter((item) => item.last > 0 && item.value > 0 && Number.isFinite(item.growth))
@@ -316,11 +323,14 @@ async function analystRevenueForecast(symbol: string, latestRevenue: number, lat
     if (!year2 || Math.abs(year2.last / year1.value - 1) > .15) return null;
     const source = "S&P Global consensus via Stock Analysis";
     const asOf = todayPacific();
-    const year1Revenue = year1.value / 1_000_000;
-    const year2Revenue = year2.value / 1_000_000;
-    const year1Growth = revenueGrowth(year1Revenue, latestRevenue);
-    const year2Growth = revenueGrowth(year2Revenue, year1Revenue);
+    const year1Growth = revenueGrowth(year1.value, year1.last);
+    const year2Growth = revenueGrowth(year2.value, year2.last);
     if (year1Growth === null || year2Growth === null) return null;
+    // Apply provider growth rates to the normalized reporting currency. This
+    // keeps foreign-issuer forecasts comparable when the source page reports
+    // estimates in local currency but Nasdaq normalizes statements to USD.
+    const year1Revenue = latestRevenue * (1 + year1Growth / 100);
+    const year2Revenue = year1Revenue * (1 + year2Growth / 100);
     return {
       year1Revenue,
       year2Revenue,
@@ -365,9 +375,9 @@ function comparableFromNasdaq(company: Awaited<ReturnType<typeof nasdaqFundament
   const prior = company.historical[1];
   const priceIndependentEv = company.marketCap + (company.ltm?.debt ?? latest.debt) - (company.ltm?.cash ?? latest.cash);
   const ebitda = latest.ebit + latest.depreciation;
-  const ltmRevenue = company.ltm?.revenue || null;
-  const ltmEbit = company.ltm?.ebit || null;
-  const ltmEbitda = company.ltm ? company.ltm.ebit + company.ltm.depreciation : null;
+  const ltmRevenue = company.ltm?.revenue || latest.revenue || null;
+  const ltmEbit = company.ltm?.ebit ?? latest.ebit ?? null;
+  const ltmEbitda = company.ltm ? company.ltm.ebit + company.ltm.depreciation : ebitda;
   const ntmRevenue = forecast?.year1Revenue || null;
   const ntmEbit = ntmRevenue && ltmRevenue && ltmEbit !== null ? ntmRevenue * ltmEbit / ltmRevenue : null;
   const ntmEbitda = ntmRevenue && ltmRevenue && ltmEbitda !== null ? ntmRevenue * ltmEbitda / ltmRevenue : null;
@@ -389,6 +399,7 @@ function comparableFromNasdaq(company: Awaited<ReturnType<typeof nasdaqFundament
     evToEbitdaNtm: ntmEbitda && ntmEbitda > 0 ? priceIndependentEv / ntmEbitda : null,
     evToEbitLtm: ltmEbit && ltmEbit > 0 ? priceIndependentEv / ltmEbit : null,
     evToEbitNtm: ntmEbit && ntmEbit > 0 ? priceIndependentEv / ntmEbit : null,
+    ltmBasis: company.ltm ? "Latest four reported quarters" : `Latest reported fiscal year ended ${latest.fiscalDate}; quarterly provider data unavailable`,
     ntmBasis: forecast ? "Consensus NTM revenue; LTM EBIT and EBITDA margins held constant" : null,
     pe: latest.netIncome > 0 ? company.marketCap / latest.netIncome : null,
   };

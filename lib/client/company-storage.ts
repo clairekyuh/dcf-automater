@@ -2,7 +2,7 @@ import type { CompanyData, RiskItem } from "@/lib/company-data";
 
 export const COMPANY_STORAGE_KEY = "dcf:last-company";
 export const RESEARCH_STORAGE_KEY = "dcf:last-research";
-export const COMPANY_STORAGE_VERSION = 4;
+export const COMPANY_STORAGE_VERSION = 5;
 export const MAX_COMPANY_STORAGE_CHARS = 750_000;
 export const MAX_RESEARCH_STORAGE_CHARS = 100_000;
 
@@ -56,7 +56,7 @@ function isComparable(value: unknown) {
   return ["symbol", "name", "description", "sector", "industry"].every((key) => isString(value[key], 10_000))
     && ["marketCap", "revenueGrowth", "operatingMargin", "evToRevenue", "evToEbitda", "pe"].every((key) => isNullableNumber(value[key]))
     && optionalMetrics.every((key) => value[key] === undefined || isNullableNumber(value[key]))
-    && (value.ntmBasis === undefined || value.ntmBasis === null || isString(value.ntmBasis, 500));
+    && ["ltmBasis", "ntmBasis"].every((key) => value[key] === undefined || value[key] === null || isString(value[key], 500));
 }
 
 function isBusinessAnalysis(value: unknown) {

@@ -88,6 +88,7 @@ export type ComparableCompany = {
   evToEbitdaNtm?: number | null;
   evToEbitLtm?: number | null;
   evToEbitNtm?: number | null;
+  ltmBasis?: string | null;
   ntmBasis?: string | null;
   pe: number | null;
   peerFit?: "focus" | "direct" | "close" | "adjacent";
