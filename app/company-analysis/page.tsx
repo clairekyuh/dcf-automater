@@ -22,6 +22,17 @@ function Metric({ label, value, detail }: { label: string; value: string; detail
   return <div className="analysis-metric"><span>{label}</span><strong>{value}</strong><small>{detail}</small></div>;
 }
 
+function ComparableCompaniesSkeleton() {
+  return <section className="analysis-section comps-analysis comps-skeleton" aria-busy="true" aria-live="polite">
+    <div className="comps-skeleton-heading"><i/><div><i/><i/></div></div>
+    <div className="comps-skeleton-summary"><div><i/><i/></div><div><i/><i/></div></div>
+    <div className="comps-skeleton-table" aria-label="Loading comparable companies">
+      <div className="comps-skeleton-table-head">{Array.from({ length: 10 }, (_, index) => <i key={index}/>)}</div>
+      {Array.from({ length: 5 }, (_, row) => <div className="comps-skeleton-table-row" key={row}>{Array.from({ length: 10 }, (_, column) => <i key={column}/>)}</div>)}
+    </div>
+  </section>;
+}
+
 export default function CompanyAnalysisPage() {
   const [data, setData] = useState<CompanyData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -63,7 +74,10 @@ export default function CompanyAnalysisPage() {
     return () => controller.abort();
   }, []);
 
-  if (!data || !data.businessAnalysis) return <main className="analysis-page"><CompanyNavigation active="company"/><section className="analysis-missing"><span>COMPANY ANALYSIS</span><h1>{loading ? "Loading company…" : "Load a ticker first"}</h1><p>{error || "Enter a ticker in the DCF calculator first."}</p><Link href="/">Return to calculator →</Link></section></main>;
+  if (!data || !data.businessAnalysis) {
+    if (loading) return <main className="analysis-page company-view-page"><CompanyNavigation active="company"/><header className="company-view-header comps-page-skeleton-header"><div><span>Company profile</span><h1>Company analysis</h1></div></header><ComparableCompaniesSkeleton/></main>;
+    return <main className="analysis-page"><CompanyNavigation active="company"/><section className="analysis-missing"><span>COMPANY ANALYSIS</span><h1>Load a ticker first</h1><p>{error || "Enter a ticker in the DCF calculator first."}</p><Link href="/">Return to calculator →</Link></section></main>;
+  }
 
   const analysis = data.businessAnalysis;
   const financials = analysis.financials;
