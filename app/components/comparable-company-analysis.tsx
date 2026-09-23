@@ -1,5 +1,7 @@
 "use client";
 
+import { type ReactNode, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { buildBusinessComparison } from "@/lib/business-comparison";
 import type { CompanyData, ComparableCompany } from "@/lib/company-data";
 import { isStandardDcfUnsupported } from "@/lib/dcf-engine";
@@ -16,6 +18,25 @@ const mean = (values: Array<number | null>) => {
   const valid = validValues(values);
   return valid.length ? valid.reduce((sum, value) => sum + value, 0) / valid.length : null;
 };
+
+function MultipleNote({ children, detail, extreme = false }: { children: ReactNode; detail: string; extreme?: boolean }) {
+  const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const tooltipId = useId();
+  const show = () => {
+    const rect = trigger.current?.getBoundingClientRect();
+    if (!rect) return;
+    const width = Math.min(300, window.innerWidth - 24);
+    const left = Math.max(12, Math.min(window.innerWidth - width - 12, rect.left + rect.width / 2 - width / 2));
+    const spaceBelow = window.innerHeight - rect.bottom;
+    setPosition({ left, top: spaceBelow >= 110 ? rect.bottom + 8 : Math.max(12, rect.top - 104) });
+  };
+  const hide = () => setPosition(null);
+  return <>
+    <button ref={trigger} type="button" className={`comp-multiple-note${extreme ? " extreme" : ""}`} aria-describedby={position ? tooltipId : undefined} onMouseEnter={show} onMouseLeave={hide} onFocus={show} onBlur={hide} onClick={() => position ? hide() : show()}>{children}</button>
+    {position && createPortal(<span id={tooltipId} role="tooltip" className="comp-multiple-tooltip" style={position}>{detail}</span>, document.body)}
+  </>;
+}
 
 function businessFocus(company: Pick<ComparableCompany, "description" | "industry" | "sector" | "businessModel">) {
   if (company.businessModel) return company.businessModel;
@@ -63,8 +84,8 @@ export default function ComparableCompanyAnalysis({ data }: { data: CompanyData 
   const formatCap = (value: number | null) => value === null || !Number.isFinite(value) ? "N/A" : value >= 1000 ? `$${fmt.format(value / 1000)}B` : `$${fmt.format(value)}M`;
   const multipleCell = (peer: ComparableCompany, key: "evToRevenueLtm" | "evToRevenueNtm" | "evToEbitdaLtm" | "evToEbitdaNtm" | "evToEbitLtm" | "evToEbitNtm") => {
     const quality = peer[`${key}Quality` as keyof ComparableCompany];
-    if (quality === "not-meaningful") return <abbr className="comp-multiple-note" title="Not meaningful because the relevant EBIT or EBITDA is zero or negative.">n/m</abbr>;
-    if (quality === "extreme") return <abbr className="comp-multiple-note extreme" title="Extreme result caused by a very small positive profit denominator. Excluded from the peer average and median.">{formatMetric(peer[key] ?? null)}<sup>!</sup></abbr>;
+    if (quality === "not-meaningful") return <MultipleNote detail="Not meaningful because the relevant EBIT or EBITDA is zero or negative.">n/m</MultipleNote>;
+    if (quality === "extreme") return <MultipleNote extreme detail="Extreme result caused by a very small positive profit denominator. Excluded from the peer average and median.">{formatMetric(peer[key] ?? null)}<sup>!</sup></MultipleNote>;
     return formatMetric(peer[key] ?? null);
   };
   const difference = (value: number | null, benchmark: number | null, positive: string, negative: string, gapUnit: string, benchmarkUnit = gapUnit) => {
