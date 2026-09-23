@@ -32,9 +32,11 @@ export default function CompanyAnalysisPage() {
     void Promise.resolve().then(async () => {
       const requested = new URLSearchParams(window.location.search).get("symbol")?.trim().toUpperCase();
       const cached = readCompanyData(requested);
-      if (cached) setData(cached);
+      const hasCurrentComps = Boolean(cached?.comparison?.company.enterpriseValue !== undefined
+        && cached.comparison.peers.every((peer) => peer.enterpriseValue !== undefined && peer.evToRevenueLtm !== undefined));
+      if (cached && hasCurrentComps) setData(cached);
       const symbol = requested || cached?.company.symbol;
-      const needsRefresh = !cached || cached.coverage !== "full" || cached.businessAnalysis?.secStatus !== "available" || !cached.businessAnalysis.filing;
+      const needsRefresh = !cached || !hasCurrentComps || cached.coverage !== "full" || cached.businessAnalysis?.secStatus !== "available" || !cached.businessAnalysis.filing;
       if (!symbol || !/^[A-Z0-9.\-]{1,12}$/.test(symbol)) {
         setLoading(false);
         return;
@@ -53,7 +55,7 @@ export default function CompanyAnalysisPage() {
         setData(company);
       } catch (caught) {
         if (caught instanceof DOMException && caught.name === "AbortError") return;
-        if (!controller.signal.aborted && !cached) setError(caught instanceof Error ? caught.message : "Unable to load this company.");
+        if (!controller.signal.aborted && (!cached || !hasCurrentComps)) setError(caught instanceof Error ? caught.message : "Unable to load this company.");
       } finally {
         if (!controller.signal.aborted) setLoading(false);
       }
