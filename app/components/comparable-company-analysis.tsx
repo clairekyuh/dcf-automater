@@ -33,7 +33,7 @@ function MultipleNote({ children, detail, extreme = false }: { children: ReactNo
   };
   const hide = () => setPosition(null);
   return <>
-    <button ref={trigger} type="button" className={`comp-multiple-note${extreme ? " extreme" : ""}`} aria-describedby={position ? tooltipId : undefined} onMouseEnter={show} onMouseLeave={hide} onFocus={show} onBlur={hide} onClick={() => position ? hide() : show()}>{children}</button>
+    <button ref={trigger} type="button" className={`comp-multiple-note${extreme ? " extreme" : ""}`} aria-describedby={position ? tooltipId : undefined} onMouseEnter={show} onMouseLeave={hide} onFocus={show} onBlur={hide} onClick={show}>{children}</button>
     {position && createPortal(<span id={tooltipId} role="tooltip" className="comp-multiple-tooltip" style={position}>{detail}</span>, document.body)}
   </>;
 }
