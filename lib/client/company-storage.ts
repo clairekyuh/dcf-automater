@@ -52,8 +52,11 @@ function isHistoricalRow(value: unknown) {
 
 function isComparable(value: unknown) {
   if (!isRecord(value)) return false;
+  const optionalMetrics = ["enterpriseValue", "evToRevenueLtm", "evToRevenueNtm", "evToEbitdaLtm", "evToEbitdaNtm", "evToEbitLtm", "evToEbitNtm"];
   return ["symbol", "name", "description", "sector", "industry"].every((key) => isString(value[key], 10_000))
-    && ["marketCap", "revenueGrowth", "operatingMargin", "evToRevenue", "evToEbitda", "pe"].every((key) => isNullableNumber(value[key]));
+    && ["marketCap", "revenueGrowth", "operatingMargin", "evToRevenue", "evToEbitda", "pe"].every((key) => isNullableNumber(value[key]))
+    && optionalMetrics.every((key) => value[key] === undefined || isNullableNumber(value[key]))
+    && (value.ntmBasis === undefined || value.ntmBasis === null || isString(value.ntmBasis, 500));
 }
 
 function isBusinessAnalysis(value: unknown) {

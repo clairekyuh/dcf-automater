@@ -162,16 +162,20 @@ async function nasdaqFundamentals(symbol: string) {
   const encoded = encodeURIComponent(symbol);
   const profilePromise = nasdaq(`/company/${encoded}/company-profile`).catch(() => ({}));
   const summaryPromise = nasdaq(`/quote/${encoded}/summary?assetclass=stocks`, 3600).catch(() => ({}));
-  const [profilePayload, summaryPayload, financialPayload] = await Promise.all([
+  const [profilePayload, summaryPayload, financialPayload, quarterlyPayload] = await Promise.all([
     profilePromise,
     summaryPromise,
     nasdaq(`/company/${encoded}/financials?frequency=1`),
+    nasdaq(`/company/${encoded}/financials?frequency=2`).catch(() => null),
   ]);
   const profile = fieldValues(profilePayload) as Record<string, unknown>;
   const summary = fieldValues(summaryPayload.summaryData || {}) as Record<string, unknown>;
   const income = financialPayload.incomeStatementTable as NasdaqTable;
   const balance = financialPayload.balanceSheetTable as NasdaqTable;
   const cashFlow = financialPayload.cashFlowTable as NasdaqTable;
+  const quarterlyIncome = quarterlyPayload?.incomeStatementTable as NasdaqTable | undefined;
+  const quarterlyCashFlow = quarterlyPayload?.cashFlowTable as NasdaqTable | undefined;
+  const quarterlyBalance = quarterlyPayload?.balanceSheetTable as NasdaqTable | undefined;
   const periodColumns = Object.entries(income.headers || {})
     .filter(([key]) => /^value[2-9]$/.test(key))
     .map(([key, date]) => ({ key, date }))
@@ -221,6 +225,24 @@ async function nasdaqFundamentals(symbol: string) {
     };
   }).filter((row) => row.revenue > 0);
   if (!historical.length) throw new Error("Nasdaq did not return complete annual financial statements for this ticker.");
+  const quarterlyColumns = Object.entries(quarterlyIncome?.headers || {})
+    .filter(([key]) => /^value[2-9]$/.test(key))
+    .map(([key, date]) => ({ key, date }))
+    .filter((period) => period.date)
+    .slice(0, 4);
+  const ltmOperating = quarterlyColumns.length === 4 ? quarterlyColumns.reduce((sum, { key }) => ({
+    revenue: sum.revenue + (tableValue(quarterlyIncome!, ["Total Revenue"], key) || 0),
+    ebit: sum.ebit + (tableValue(quarterlyIncome!, ["Operating Income", "Earnings Before Interest and Tax"], key) || 0),
+    depreciation: sum.depreciation + Math.abs(tableValue(quarterlyCashFlow || { rows: [] }, ["Depreciation"], key) || 0),
+  }), { revenue: 0, ebit: 0, depreciation: 0 }) : null;
+  const latestQuarterKey = quarterlyColumns[0]?.key;
+  const ltm = ltmOperating && latestQuarterKey ? {
+    ...ltmOperating,
+    cash: (tableValue(quarterlyBalance || { rows: [] }, ["Cash and Cash Equivalents"], latestQuarterKey) || 0)
+      + (tableValue(quarterlyBalance || { rows: [] }, ["Short-Term Investments"], latestQuarterKey) || 0),
+    debt: Math.abs(tableValue(quarterlyBalance || { rows: [] }, ["Short-Term Debt / Current Portion of Long-Term Debt"], latestQuarterKey) || 0)
+      + Math.abs(tableValue(quarterlyBalance || { rows: [] }, ["Long-Term Debt"], latestQuarterKey) || 0),
+  } : null;
   return {
     symbol,
     name: String(profile.CompanyName || symbol),
@@ -232,6 +254,7 @@ async function nasdaqFundamentals(symbol: string) {
     marketCap: (rawNumber(summary.MarketCap) || 0) / 1_000_000,
     previousClose: rawNumber(summary.PreviousClose) || 0,
     historical,
+    ltm: ltm && ltm.revenue > 0 ? ltm : null,
   };
 }
 
@@ -337,11 +360,17 @@ async function publicCompanyMetadata(symbol: string) {
   }
 }
 
-function comparableFromNasdaq(company: Awaited<ReturnType<typeof nasdaqFundamentals>>) {
+function comparableFromNasdaq(company: Awaited<ReturnType<typeof nasdaqFundamentals>>, forecast: RevenueForecast | null = null) {
   const latest = company.historical[0];
   const prior = company.historical[1];
-  const priceIndependentEv = company.marketCap + latest.debt - latest.cash;
+  const priceIndependentEv = company.marketCap + (company.ltm?.debt ?? latest.debt) - (company.ltm?.cash ?? latest.cash);
   const ebitda = latest.ebit + latest.depreciation;
+  const ltmRevenue = company.ltm?.revenue || null;
+  const ltmEbit = company.ltm?.ebit || null;
+  const ltmEbitda = company.ltm ? company.ltm.ebit + company.ltm.depreciation : null;
+  const ntmRevenue = forecast?.year1Revenue || null;
+  const ntmEbit = ntmRevenue && ltmRevenue && ltmEbit !== null ? ntmRevenue * ltmEbit / ltmRevenue : null;
+  const ntmEbitda = ntmRevenue && ltmRevenue && ltmEbitda !== null ? ntmRevenue * ltmEbitda / ltmRevenue : null;
   return {
     symbol: company.symbol,
     name: company.name,
@@ -349,10 +378,18 @@ function comparableFromNasdaq(company: Awaited<ReturnType<typeof nasdaqFundament
     sector: company.sector,
     industry: company.industry,
     marketCap: company.marketCap || null,
+    enterpriseValue: priceIndependentEv || null,
     revenueGrowth: prior?.revenue ? (latest.revenue / prior.revenue - 1) * 100 : null,
     operatingMargin: latest.revenue ? latest.ebit / latest.revenue * 100 : null,
     evToRevenue: latest.revenue ? priceIndependentEv / latest.revenue : null,
     evToEbitda: ebitda > 0 ? priceIndependentEv / ebitda : null,
+    evToRevenueLtm: ltmRevenue ? priceIndependentEv / ltmRevenue : null,
+    evToRevenueNtm: ntmRevenue ? priceIndependentEv / ntmRevenue : null,
+    evToEbitdaLtm: ltmEbitda && ltmEbitda > 0 ? priceIndependentEv / ltmEbitda : null,
+    evToEbitdaNtm: ntmEbitda && ntmEbitda > 0 ? priceIndependentEv / ntmEbitda : null,
+    evToEbitLtm: ltmEbit && ltmEbit > 0 ? priceIndependentEv / ltmEbit : null,
+    evToEbitNtm: ntmEbit && ntmEbit > 0 ? priceIndependentEv / ntmEbit : null,
+    ntmBasis: forecast ? "Consensus NTM revenue; LTM EBIT and EBITDA margins held constant" : null,
     pe: latest.netIncome > 0 ? company.marketCap / latest.netIncome : null,
   };
 }
@@ -710,33 +747,38 @@ export async function GET(request: NextRequest) {
     const peerResults = valuationOnly
       ? []
       : await Promise.allSettled(selectedPeerSymbols.map((peerSymbol) => measureDiagnostic(diagnostics, { event: "provider_peer_fundamentals", provider: "nasdaq", symbol: peerSymbol }, () => nasdaqFundamentals(peerSymbol))));
-    const peers = peerResults
+    const peerCompanies = peerResults
       .filter((result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof nasdaqFundamentals>>> => result.status === "fulfilled")
-      .map((result) => {
+      .map((result) => result.value);
+    const peerForecasts = valuationOnly ? [] : await Promise.all(peerCompanies.map((peer) =>
+      measureDiagnostic(diagnostics, { event: "provider_peer_forecast", provider: "stock-analysis", symbol: peer.symbol }, () =>
+        analystRevenueForecast(peer.symbol, peer.historical[0].revenue, peer.historical[0].fiscalDate)).catch(() => null),
+    ));
+    const peers = peerCompanies.map((peer, index) => {
         const peerDescription = conciseBusinessDescription({
-          symbol: result.value.symbol,
-          name: result.value.name,
-          description: result.value.description,
-          sector: result.value.sector,
-          industry: result.value.industry,
+          symbol: peer.symbol,
+          name: peer.name,
+          description: peer.description,
+          sector: peer.sector,
+          industry: peer.industry,
         });
-        const existingDetail = peerSet.rationales?.[result.value.symbol]?.detail;
+        const existingDetail = peerSet.rationales?.[peer.symbol]?.detail;
         return {
-          ...comparableFromNasdaq(result.value),
+          ...comparableFromNasdaq(peer, peerForecasts[index] || null),
           description: peerDescription,
-          peerFit: peerSet.rationales?.[result.value.symbol]?.fit || "close",
-          businessModel: peerSet.rationales?.[result.value.symbol]?.businessModel || peerSet.label,
+          peerFit: peerSet.rationales?.[peer.symbol]?.fit || "close",
+          businessModel: peerSet.rationales?.[peer.symbol]?.businessModel || peerSet.label,
           peerRationale: buildPeerSimilarityRationale({
             targetSymbol: symbol,
             nicheLabel: peerSet.label,
             existingDetail,
             peer: {
-              symbol: result.value.symbol,
-              name: result.value.name,
+              symbol: peer.symbol,
+              name: peer.name,
               description: peerDescription,
-              sector: result.value.sector,
-              industry: result.value.industry,
-              businessModel: peerSet.rationales?.[result.value.symbol]?.businessModel || peerSet.label,
+              sector: peer.sector,
+              industry: peer.industry,
+              businessModel: peerSet.rationales?.[peer.symbol]?.businessModel || peerSet.label,
               peerRationale: existingDetail,
             },
           }),
@@ -915,7 +957,7 @@ export async function GET(request: NextRequest) {
       forecast: revenueForecast,
       revenueData,
       comparison: {
-        company: { ...comparableFromNasdaq(primary), description: companyDescription, peerFit: "focus", businessModel: peerSet.rationales?.[symbol]?.businessModel || peerSet.label, peerRationale: `Focus company classified as ${peerSet.label.toLowerCase()}.` },
+        company: { ...comparableFromNasdaq(primary, revenueForecast), description: companyDescription, peerFit: "focus", businessModel: peerSet.rationales?.[symbol]?.businessModel || peerSet.label, peerRationale: `Focus company classified as ${peerSet.label.toLowerCase()}.` },
         peers,
         selectedPeerSymbols,
         industryGrowthRate,

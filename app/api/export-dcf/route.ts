@@ -42,10 +42,18 @@ type ExportHistorical = {
 type ExportPeer = {
   symbol: string;
   name: string;
+  marketCap?: number | null;
+  enterpriseValue?: number | null;
   revenueGrowth: number | null;
   operatingMargin: number | null;
   evToRevenue: number | null;
   evToEbitda: number | null;
+  evToRevenueLtm?: number | null;
+  evToRevenueNtm?: number | null;
+  evToEbitdaLtm?: number | null;
+  evToEbitdaNtm?: number | null;
+  evToEbitLtm?: number | null;
+  evToEbitNtm?: number | null;
   pe: number | null;
   peerFit?: string;
   peerRationale?: string;
@@ -418,36 +426,44 @@ export async function POST(request: Request) {
     applyBodyStyle(output, "D24:I26"); applyBodyStyle(output, "K24:P26");
     ["G25", "N25"].forEach((address) => { const cell = output.getCell(address); cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: teal } }; cell.font = { bold: true, color: { argb: white } }; cell.border = { top: { style: "medium", color: { argb: white } }, bottom: { style: "medium", color: { argb: white } }, left: { style: "medium", color: { argb: white } }, right: { style: "medium", color: { argb: white } } }; });
 
-    comps.columns = [{ width: 3 }, { width: 12 }, { width: 30 }, { width: 15 }, { width: 17 }, { width: 17 }, { width: 15 }, { width: 15 }, { width: 64 }];
-    setTitle(comps, "B2:I2", `${payload.company.name} | Comparable Companies`, "Peer selection and ratios are source data from the website, not formulas inferred by Excel.");
-    comps.getRow(4).values = [null, "Ticker", "Company", "Peer fit", "Revenue growth", "Operating margin", "EV / Revenue", "EV / EBITDA", "Business similarity"];
-    styleTableHeader(comps.getRow(4), 2, 9);
+    comps.columns = [{ width: 3 }, { width: 12 }, { width: 28 }, { width: 16 }, { width: 16 }, ...Array.from({ length: 6 }, () => ({ width: 16 })), { width: 14 }, { width: 58 }];
+    setTitle(comps, "B2:M2", `${payload.company.name} | Comparable Companies`, "LTM uses the latest four reported quarters. NTM uses consensus revenue with LTM margins held constant.");
+    comps.getRow(4).values = [null, "Ticker", "Company", "Market cap", "TEV", "EV / Revenue LTM", "EV / Revenue NTM", "EV / EBITDA LTM", "EV / EBITDA NTM", "EV / EBIT LTM", "EV / EBIT NTM", "Peer fit", "Business similarity"];
+    styleTableHeader(comps.getRow(4), 2, 13);
     const peers = payload.comparison?.peers || [];
     peers.forEach((peer, index) => {
       const row = 5 + index;
-      comps.getRow(row).values = [null, peer.symbol, peer.name, peer.peerFit || "", peer.revenueGrowth === null ? null : peer.revenueGrowth / 100, peer.operatingMargin === null ? null : peer.operatingMargin / 100, peer.evToRevenue, peer.evToEbitda, peer.peerRationale || ""];
-      comps.getCell(row, 5).numFmt = percentFormat; comps.getCell(row, 6).numFmt = percentFormat; comps.getCell(row, 7).numFmt = multipleFormat; comps.getCell(row, 8).numFmt = multipleFormat;
-      comps.getCell(row, 9).alignment = { wrapText: true, vertical: "top" };
+      comps.getRow(row).values = [null, peer.symbol, peer.name, peer.marketCap, peer.enterpriseValue, peer.evToRevenueLtm, peer.evToRevenueNtm, peer.evToEbitdaLtm, peer.evToEbitdaNtm, peer.evToEbitLtm, peer.evToEbitNtm, peer.peerFit || "", peer.peerRationale || ""];
+      comps.getCell(row, 4).numFmt = moneyFormat; comps.getCell(row, 5).numFmt = moneyFormat;
+      for (let column = 6; column <= 11; column += 1) comps.getCell(row, column).numFmt = multipleFormat;
+      comps.getCell(row, 13).alignment = { wrapText: true, vertical: "top" };
       comps.getRow(row).height = 48;
     });
     const meanRow = 5 + peers.length;
-    comps.getCell(meanRow, 2).value = "Peer mean"; comps.mergeCells(meanRow, 2, meanRow, 3);
+    comps.getCell(meanRow, 2).value = "Average"; comps.mergeCells(meanRow, 2, meanRow, 3);
     if (peers.length) {
       const peerMetrics = [
-        peers.map((peer) => peer.revenueGrowth === null ? null : peer.revenueGrowth / 100),
-        peers.map((peer) => peer.operatingMargin === null ? null : peer.operatingMargin / 100),
-        peers.map((peer) => peer.evToRevenue),
-        peers.map((peer) => peer.evToEbitda),
+        peers.map((peer) => peer.marketCap ?? null), peers.map((peer) => peer.enterpriseValue ?? null),
+        peers.map((peer) => peer.evToRevenueLtm ?? null), peers.map((peer) => peer.evToRevenueNtm ?? null),
+        peers.map((peer) => peer.evToEbitdaLtm ?? null), peers.map((peer) => peer.evToEbitdaNtm ?? null),
+        peers.map((peer) => peer.evToEbitLtm ?? null), peers.map((peer) => peer.evToEbitNtm ?? null),
       ];
-      [5, 6, 7, 8].forEach((column, index) => {
+      [4, 5, 6, 7, 8, 9, 10, 11].forEach((column, index) => {
         const letter = comps.getColumn(column).letter;
         const valid = peerMetrics[index].filter((value): value is number => value !== null && Number.isFinite(value));
         const mean = valid.length ? valid.reduce((sum, value) => sum + value, 0) / valid.length : 0;
         comps.getCell(meanRow, column).value = formulaCell(`AVERAGE(${letter}5:${letter}${meanRow - 1})`, mean);
-        comps.getCell(meanRow, column).numFmt = column <= 6 ? percentFormat : multipleFormat;
+        comps.getCell(meanRow, column).numFmt = column <= 5 ? moneyFormat : multipleFormat;
       });
     }
-    for (let column = 2; column <= 9; column += 1) { comps.getCell(meanRow, column).font = { bold: true, color: { argb: navy } }; comps.getCell(meanRow, column).border = { top: { style: "thin", color: { argb: navy } } }; }
+    const medianRow = meanRow + 1;
+    comps.getCell(medianRow, 2).value = "Median"; comps.mergeCells(medianRow, 2, medianRow, 3);
+    if (peers.length) for (let column = 4; column <= 11; column += 1) {
+      const letter = comps.getColumn(column).letter;
+      comps.getCell(medianRow, column).value = { formula: `MEDIAN(${letter}5:${letter}${meanRow - 1})` };
+      comps.getCell(medianRow, column).numFmt = column <= 5 ? moneyFormat : multipleFormat;
+    }
+    for (const row of [meanRow, medianRow]) for (let column = 2; column <= 13; column += 1) { comps.getCell(row, column).font = { bold: true, color: { argb: navy } }; comps.getCell(row, column).border = { top: { style: "thin", color: { argb: navy } } }; }
 
     visuals.columns = [
       { width: 3 },

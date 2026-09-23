@@ -77,10 +77,18 @@ export type ComparableCompany = {
   sector: string;
   industry: string;
   marketCap: number | null;
+  enterpriseValue?: number | null;
   revenueGrowth: number | null;
   operatingMargin: number | null;
   evToRevenue: number | null;
   evToEbitda: number | null;
+  evToRevenueLtm?: number | null;
+  evToRevenueNtm?: number | null;
+  evToEbitdaLtm?: number | null;
+  evToEbitdaNtm?: number | null;
+  evToEbitLtm?: number | null;
+  evToEbitNtm?: number | null;
+  ntmBasis?: string | null;
   pe: number | null;
   peerFit?: "focus" | "direct" | "close" | "adjacent";
   businessModel?: string;
