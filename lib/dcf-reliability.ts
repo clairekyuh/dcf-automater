@@ -10,7 +10,7 @@ export type DcfReliability = {
   level: "clear" | "caution" | "blocked";
   title: string;
   summary: string;
-  reasons: string[];
+  reasons: Array<{ label: string; detail: string }>;
 };
 
 export function assessDcfReliability(
@@ -26,37 +26,49 @@ export function assessDcfReliability(
   if (!perpetuity.valid && !multiple.valid) {
     return {
       level: "blocked",
-      title: "DCF unavailable",
-      summary: "The current inputs do not support a valid valuation.",
-      reasons: invalidReasons,
+      title: "WARNING: DCF UNAVAILABLE",
+      summary: "The calculator cannot produce a valid DCF with the current inputs.",
+      reasons: invalidReasons.map((detail) => ({ label: "INVALID VALUATION INPUTS", detail })),
     };
   }
 
-  const reasons: string[] = [];
+  const reasons: DcfReliability["reasons"] = [];
   const latestMargin = data.metrics.ebitMargin;
   const finalMargin = model.forecastDrivers.at(-1)?.ebitMargin;
 
   if (!perpetuity.valid || !multiple.valid) {
-    reasons.push(`One valuation method is unavailable: ${invalidReasons.join(" ")}`);
+    reasons.push({ label: "METHOD UNAVAILABLE", detail: invalidReasons.join(" ") });
   }
 
   if (Number.isFinite(latestMargin) && latestMargin < 0) {
-    reasons.push(`The latest EBIT margin is ${latestMargin.toFixed(1)}%, so the business is currently loss-making on this operating measure.`);
+    reasons.push({
+      label: "NEGATIVE EBIT MARGIN",
+      detail: `The latest EBIT margin is ${latestMargin.toFixed(1)}%. Current operations are loss-making on this measure.`,
+    });
     if (finalMargin !== undefined && finalMargin > 0) {
-      reasons.push(`The model assumes EBIT margin reaches ${finalMargin.toFixed(1)}% by the final forecast year. That turnaround is an editable model estimate, not analyst consensus.`);
+      reasons.push({
+        label: "UNVERIFIED TURNAROUND",
+        detail: `The model assumes EBIT margin reaches ${finalMargin.toFixed(1)}% by the final forecast year. This is an editable model estimate, not analyst consensus.`,
+      });
     }
   }
 
   if (!data.forecast) {
-    reasons.push("No validated external revenue forecast was available. All forecast years are automatic estimates.");
+    reasons.push({ label: "NO VALIDATED REVENUE FORECAST", detail: "All forecast years are automatic estimates." });
   }
 
   if (data.historical.length < 3) {
-    reasons.push(`Only ${data.historical.length} annual period${data.historical.length === 1 ? " is" : "s are"} available, which is too little history to judge a normal operating cycle confidently.`);
+    reasons.push({
+      label: "LIMITED OPERATING HISTORY",
+      detail: `Only ${data.historical.length} annual period${data.historical.length === 1 ? " is" : "s are"} available. This is too little history to judge a normal operating cycle confidently.`,
+    });
   }
 
   if ((data.metrics.preferredInterest ?? 0) < 0) {
-    reasons.push("Other non-equity claims were reported with a negative carrying value. The calculator uses $0 and requires manual verification of this balance-sheet item.");
+    reasons.push({
+      label: "BALANCE-SHEET DATA ISSUE",
+      detail: "Other non-equity claims were reported with a negative carrying value. The calculator uses $0, so this item must be verified manually.",
+    });
   }
 
   if (!reasons.length) {
@@ -70,8 +82,8 @@ export function assessDcfReliability(
 
   return {
     level: "caution",
-    title: "DCF estimate requires caution",
-    summary: "Treat the result as a scenario until these items are verified.",
+    title: "WARNING: DCF MAY BE UNRELIABLE",
+    summary: "Do not rely on the implied value until these risks are reviewed.",
     reasons: reasons.slice(0, 4),
   };
 }
