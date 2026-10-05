@@ -143,6 +143,52 @@
   border-bottom: 1px solid #cbd1cc;
 }
 
+.modelWarning {
+  display: grid;
+  grid-template-columns: minmax(220px, .65fr) minmax(0, 1.35fr);
+  gap: 28px;
+  margin: 0 0 28px;
+  padding: 22px 24px;
+  border-top: 1px solid #c9a966;
+  border-bottom: 1px solid #c9a966;
+  background: #f6f0df;
+  color: #473b25;
+}
+
+.modelWarningBlocked {
+  border-color: #bd756a;
+  background: #f8e9e6;
+  color: #632f29;
+}
+
+.modelWarning span {
+  display: block;
+  margin-bottom: 7px;
+  color: #86631d;
+  font: 700 11px/1.2 "Google Sans", Arial, sans-serif;
+  letter-spacing: .08em;
+}
+
+.modelWarningBlocked span { color: #93473e; }
+
+.modelWarning h2 {
+  margin: 0 0 7px;
+  font-family: Geomini, Arial, sans-serif;
+  font-size: 24px;
+  line-height: 1.1;
+}
+
+.modelWarning p,
+.modelWarning li {
+  font-family: "Google Sans", Arial, sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.modelWarning p { margin: 0; }
+.modelWarning ul { margin: 0; padding-left: 18px; }
+.modelWarning li + li { margin-top: 7px; }
+
 .companyIdentity p,
 .companyIdentity span,
 .marketPrice span,
@@ -391,6 +437,7 @@
   .tickerSearch label { min-height: 52px; }
   .tickerSearch button { min-height: 48px; border-top: 1px solid #79867f; border-left: 0; }
   .companyRow { grid-template-columns: 1fr; gap: 24px; padding: 24px 0; }
+  .modelWarning { grid-template-columns: 1fr; gap: 14px; margin-bottom: 22px; padding: 19px 18px; }
   .loadingSummary { width: calc(100% - 32px); }
   .loadingCompanyRow { grid-template-columns: 1fr; gap: 24px; padding: 24px 0; }
   .loadingPrice { padding: 20px 0 0; border-top: 1px solid #cbd1cc; border-left: 0; }

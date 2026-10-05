@@ -24,6 +24,7 @@ import {
   type DcfModel,
   type ForecastDriver,
 } from "@/lib/dcf-engine";
+import { assessDcfReliability } from "@/lib/dcf-reliability";
 import { betaCoveragePremium } from "@/lib/valuation-inputs";
 import { financialSectorRiskAnalysis, riskAnalysis } from "@/lib/risk-analysis";
 
@@ -209,7 +210,7 @@ function buildModel(data: CompanyData): Model {
     cash: data.metrics.cash,
     shortDebt: data.metrics.shortDebt || 0,
     longDebt: data.metrics.longDebt ?? data.metrics.debt,
-    preferredInterest: data.metrics.preferredInterest || 0,
+    preferredInterest: Math.max(0, data.metrics.preferredInterest || 0),
     shares: Math.round((data.market.shares || 1) * 1000) / 1000,
     marketPrice: Math.round(data.market.estimatedPrice * 100) / 100,
     valuationDate: localValuationDate(),
@@ -313,6 +314,10 @@ export default function Home() {
   const rec = useMemo(() => recommendations(data), [data]);
   const perpetuity = useMemo(() => calculate(data, model, "perpetuity"), [data, model]);
   const multiple = useMemo(() => calculate(data, model, "multiple"), [data, model]);
+  const dcfReliability = useMemo(
+    () => assessDcfReliability(data, model, perpetuity, multiple),
+    [data, model, perpetuity, multiple],
+  );
   const result = perpetuity;
   const financialUnsupported = isStandardDcfUnsupported(data.company);
   const risks = useMemo(
@@ -627,6 +632,18 @@ export default function Home() {
     {financialUnsupported && <section className="sheet-section sector-notice"><div className="section-heading"><div><p>SECTOR LIMIT</p><h2>Standard unlevered DCF is disabled</h2></div></div><p>{data.company.name} is a financial institution. Debt, interest, and regulatory capital are operating inputs for banks and insurers, so treating debt as a financing claim and valuing UFCF would produce a misleading result. Use a dividend-discount, residual-income, excess-return, or price-to-book framework with regulatory-capital forecasts instead.</p></section>}
 
     {!financialUnsupported && <section className="sheet-section output-section" id="output">
+      {dcfReliability.level !== "clear" && <aside
+        className={`${dashboardStyles.modelWarning} ${dcfReliability.level === "blocked" ? dashboardStyles.modelWarningBlocked : ""}`}
+        role="status"
+        aria-live="polite"
+      >
+        <div>
+          <span>{dcfReliability.level === "blocked" ? "MODEL STATUS" : "REVIEW BEFORE USING"}</span>
+          <h2>{dcfReliability.title}</h2>
+          <p>{dcfReliability.summary}</p>
+        </div>
+        <ul>{dcfReliability.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
+      </aside>}
       {selectedWacc <= model.terminalGrowth && <div className="api-error valuation-warning"><b>Assumption error:</b> WACC must be greater than terminal growth for the perpetual-growth method.</div>}
       {(model.terminalGrowth < 2 || model.terminalGrowth > 4 || model.terminalGrowth > model.riskFreeRate) && <div className="api-error valuation-warning"><b>Review terminal growth:</b> Use a sustainable long-run rate below WACC and generally below the same-currency risk-free rate.</div>}
       {((perpetuity.valid && perpetuity.rawEquityValue < 0) || (multiple.valid && multiple.rawEquityValue < 0)) && <div className="negative-explainer"><b>WHY A METHOD CAN SHOW $0 FOR COMMON EQUITY</b><p>Under at least one valid terminal method, enterprise value plus cash does not cover funded debt. The mathematical bridge is negative, but common stock has limited liability, so the displayed value stops at $0 rather than showing a negative share price.</p></div>}
