@@ -131,4 +131,9 @@ test("ancillary financial services do not disable Walmart's unlevered DCF", () =
   assert.equal(isStandardDcfUnsupported({
     description: "The company provides consumer and commercial banking services.",
   }), true);
+  assert.equal(isStandardDcfUnsupported({
+    sector: "Technology",
+    industry: "Application Software",
+    description: "The company develops software used by property and casualty insurers.",
+  }), false);
 });

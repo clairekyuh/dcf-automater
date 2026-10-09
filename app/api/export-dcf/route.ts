@@ -60,11 +60,11 @@ type ExportPeer = {
 };
 
 type ExportPayload = {
-  company: { symbol: string; name: string; exchange: string; industry: string };
+  company: { symbol: string; name: string; exchange: string; sector: string; industry: string; description: string };
   source: string;
   asOf: string;
   sharesSource?: string;
-  metrics: { revenue: number };
+  metrics: { revenue: number; ebitMargin: number; cash: number };
   market?: { priceHistory?: Array<{ date: string; close: number }> };
   historical: ExportHistorical[];
   model: DcfModel;

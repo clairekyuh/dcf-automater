@@ -60,3 +60,56 @@ test("negative non-equity claims are called out for manual verification", () => 
   assert.equal(assessment.reasons[0].label, "DATA ISSUE");
   assert.equal(assessment.reasons[0].detail, "non-equity claims set to $0");
 });
+
+test("banks are blocked from the generic UFCF model", () => {
+  const data = company();
+  data.company = { ...data.company, sector: "Finance", industry: "Major Banks", description: "Consumer and commercial bank." };
+  const assessment = assessDcfReliability(data, model(), validResult, validResult);
+  assert.equal(assessment.level, "blocked");
+  assert.equal(assessment.reasons[0].label, "BANK OR INSURER MODEL REQUIRED");
+});
+
+test("REITs are routed to a property-specific model", () => {
+  const data = company();
+  data.company = { ...data.company, sector: "Real Estate", industry: "Real Estate Investment Trusts" };
+  const assessment = assessDcfReliability(data, model(), validResult, validResult);
+  assert.equal(assessment.level, "blocked");
+  assert.equal(assessment.reasons[0].label, "REIT MODEL REQUIRED");
+});
+
+test("pre-commercial pipeline biotech is routed to probability-weighted valuation", () => {
+  const data = company({ revenue: 4, cash: 1_900, ebitMargin: -1_000 });
+  data.company = { ...data.company, sector: "Health Care", industry: "Biotechnology", description: "Clinical pipeline of gene-editing product candidates." };
+  const assessment = assessDcfReliability(data, model(), validResult, validResult);
+  assert.equal(assessment.level, "blocked");
+  assert.equal(assessment.reasons[0].label, "PIPELINE MODEL REQUIRED");
+});
+
+test("profitable commercial pharma is not blocked by the biotech rule", () => {
+  const data = company({ revenue: 5_000, cash: 2_000, ebitMargin: 20 });
+  data.company = { ...data.company, sector: "Health Care", industry: "Biotechnology", description: "Commercial medicines and a clinical pipeline." };
+  assert.equal(assessDcfReliability(data, model(), validResult, validResult).level, "clear");
+});
+
+test("material digital-asset treasury companies are routed to NAV", () => {
+  const data = company({ ebitMargin: -100 });
+  data.company = { ...data.company, description: "A bitcoin treasury company with an enterprise software business." };
+  const assessment = assessDcfReliability(data, model(), validResult, validResult);
+  assert.equal(assessment.level, "blocked");
+  assert.equal(assessment.reasons[0].label, "ASSET NAV REQUIRED");
+});
+
+test("commodity producers receive a cycle-normalization warning without being blocked", () => {
+  const data = company();
+  data.company = { ...data.company, sector: "Energy", industry: "Integrated oil companies", description: "Oil and gas producer." };
+  const assessment = assessDcfReliability(data, model(), validResult, validResult);
+  assert.equal(assessment.level, "caution");
+  assert.equal(assessment.reasons[0].label, "CYCLICAL CASH FLOW");
+});
+
+test("capital-intensive loss makers disclose funding risk", () => {
+  const data = company({ ebitMargin: -20, capexPercentRevenue: 45, debt: 1_500 });
+  const assessment = assessDcfReliability(data, model(15), validResult, validResult);
+  assert.equal(assessment.level, "caution");
+  assert.ok(assessment.reasons.some((reason) => reason.label === "FUNDING RISK"));
+});

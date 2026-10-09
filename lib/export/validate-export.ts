@@ -1,3 +1,5 @@
+import { assessStandardDcfApplicability } from "@/lib/dcf-applicability";
+
 const MAX_REQUEST_BYTES = 1_000_000;
 const MAX_STRING_LENGTH = 1_000;
 const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
@@ -52,10 +54,26 @@ export function validateExportPayload(payload: unknown): string | null {
   if (!isObject(payload) || !isObject(payload.company) || !isObject(payload.model) || !isObject(payload.metrics)) {
     return "A loaded company and complete model are required.";
   }
-  const symbol = payload.company.symbol;
+  const company = payload.company;
+  const metrics = payload.metrics;
+  const symbol = company.symbol;
   if (typeof symbol !== "string" || !/^[A-Z0-9.-]{1,12}$/.test(symbol)) return "The company ticker is invalid.";
-  if (typeof payload.company.name !== "string" || !payload.company.name.trim() || payload.company.name.length > 160) return "The company name is invalid.";
-  if (!finiteNumber(payload.metrics.revenue)) return "The company revenue input is invalid.";
+  if (typeof company.name !== "string" || !company.name.trim() || company.name.length > 160) return "The company name is invalid.";
+  if (["sector", "industry", "description"].some((field) => typeof company[field] !== "string")) return "The company classification is incomplete.";
+  if (!hasFiniteFields(metrics, ["revenue", "ebitMargin", "cash"])) return "The company operating inputs are invalid.";
+  const applicability = assessStandardDcfApplicability({
+    company: {
+      sector: company.sector as string,
+      industry: company.industry as string,
+      description: company.description as string,
+    },
+    metrics: {
+      revenue: metrics.revenue as number,
+      ebitMargin: metrics.ebitMargin as number,
+      cash: metrics.cash as number,
+    },
+  });
+  if (!applicability.supported) return `Excel export is disabled: ${applicability.shortDetail}.`;
   if (payload.market !== undefined) {
     if (!isObject(payload.market)) return "Market-history data is invalid.";
     if (payload.market.priceHistory !== undefined) {

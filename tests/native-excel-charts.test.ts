@@ -6,9 +6,9 @@ import { POST } from "@/app/api/export-dcf/route";
 
 function payload() {
   return {
-    company: { symbol: "AAPL", name: "Apple Inc.", exchange: "NASDAQ", industry: "Consumer electronics" },
+    company: { symbol: "AAPL", name: "Apple Inc.", exchange: "NASDAQ", sector: "Technology", industry: "Consumer electronics", description: "Consumer devices and services." },
     source: "Test data", asOf: "2026-09-30", sharesSource: "Test shares",
-    metrics: { revenue: 400_000 },
+    metrics: { revenue: 400_000, ebitMargin: 31, cash: 60_000 },
     market: { priceHistory: [{ date: "2026-09-17", close: 200 }, { date: "2025-09-17", close: 180 }] },
     historical: [],
     comparison: { nicheLabel: "Consumer devices", peers: [

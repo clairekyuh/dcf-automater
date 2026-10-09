@@ -3,8 +3,8 @@ import test from "node:test";
 import { validateExportPayload, validateExportRequestHeaders } from "@/lib/export/validate-export";
 
 const validPayload = () => ({
-  company: { symbol: "AAPL", name: "Apple Inc." },
-  metrics: { revenue: 400_000 },
+  company: { symbol: "AAPL", name: "Apple Inc.", sector: "Technology", industry: "Consumer electronics", description: "Consumer devices and services." },
+  metrics: { revenue: 400_000, ebitMargin: 31, cash: 60_000 },
   historical: [],
   model: {
     valuationDate: "2026-09-11", marketPrice: 200, shares: 15_000, cash: 50_000,
@@ -51,6 +51,12 @@ test("rejects non-finite model inputs", () => {
 test("rejects oversized peer arrays", () => {
   const payload = { ...validPayload(), comparison: { peers: Array.from({ length: 21 }, (_, index) => ({ symbol: `P${index}` })) } };
   assert.match(validateExportPayload(payload) || "", /20 peers/i);
+});
+
+test("rejects exports when the generic automated DCF is structurally unsuitable", () => {
+  const payload = validPayload();
+  payload.company = { symbol: "JPM", name: "JPMorgan", sector: "Finance", industry: "Major Banks", description: "Commercial bank." };
+  assert.match(validateExportPayload(payload) || "", /export is disabled/i);
 });
 
 test("requires JSON and caps declared request size", () => {

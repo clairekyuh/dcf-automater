@@ -272,7 +272,11 @@ export function isStandardDcfUnsupported(company: { sector?: string; industry?: 
   const industry = company.industry?.trim() || "";
   if (/^(?:diversified )?financial services$/i.test(industry)) return true;
 
-  // Description is only a fallback for specific institution language, never
-  // the generic phrase “financial services.”
-  return financialInstitution.test(company.description || "");
+  // Description is only a fallback when the provider did not supply a useful
+  // classification, or when the sector itself is financial. This prevents an
+  // operating company from being blocked merely because it serves banks or
+  // insurers.
+  const classificationUnavailable = !primaryClassification.trim() || /unclassified|unknown/i.test(primaryClassification);
+  const financialSector = /finance|financial/i.test(company.sector || "");
+  return (classificationUnavailable || financialSector) && financialInstitution.test(company.description || "");
 }

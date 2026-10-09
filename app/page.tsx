@@ -26,6 +26,7 @@ import {
   type ForecastDriver,
 } from "@/lib/dcf-engine";
 import { assessDcfReliability } from "@/lib/dcf-reliability";
+import { assessStandardDcfApplicability } from "@/lib/dcf-applicability";
 import { betaCoveragePremium } from "@/lib/valuation-inputs";
 import { financialSectorRiskAnalysis, riskAnalysis } from "@/lib/risk-analysis";
 
@@ -320,7 +321,9 @@ export default function Home() {
     () => assessDcfReliability(data, model, perpetuity, multiple),
     [data, model, perpetuity, multiple],
   );
-  const warningKey = `${data.company.symbol}:${dcfReliability.level}:${dcfReliability.reasons.map((reason) => reason.label).join("|")}`;
+  const dcfApplicability = useMemo(() => assessStandardDcfApplicability(data), [data]);
+  const modelUnsupported = !dcfApplicability.supported;
+  const warningKey = `${data.company.symbol}:${dcfReliability.level}:${dcfReliability.reasons.map((reason) => `${reason.label}:${reason.detail}`).join("|")}`;
   const result = perpetuity;
   const financialUnsupported = isStandardDcfUnsupported(data.company);
   const risks = useMemo(
@@ -508,12 +511,14 @@ export default function Home() {
             symbol: data.company.symbol,
             name: data.company.name,
             exchange: data.company.exchange,
+            sector: data.company.sector,
             industry: data.company.industry,
+            description: data.company.description,
           },
           source: data.source,
           asOf: data.asOf,
           sharesSource: data.market.sharesSource,
-          metrics: { revenue: data.metrics.revenue },
+          metrics: { revenue: data.metrics.revenue, ebitMargin: data.metrics.ebitMargin, cash: data.metrics.cash },
           market: {
             priceHistory: [...(data.market.priceHistory || [])]
               .sort((a, b) => b.date.localeCompare(a.date))
@@ -631,21 +636,21 @@ export default function Home() {
       </div>
     </header>
 
-    {companyReady && !financialUnsupported && dcfReliability.level !== "clear" && dismissedWarningKey !== warningKey
+    {companyReady && dcfReliability.level !== "clear" && dismissedWarningKey !== warningKey
       ? <DcfWarningDialog warning={dcfReliability} onDismiss={() => setDismissedWarningKey(warningKey)}/>
       : null}
 
     {!companyReady ? <DcfSummarySkeleton symbol={startingExample.symbol}/> : <div className="model-pages">
-    {financialUnsupported && <section className="sheet-section sector-notice"><div className="section-heading"><div><p>SECTOR LIMIT</p><h2>Standard unlevered DCF is disabled</h2></div></div><p>{data.company.name} is a financial institution. Debt, interest, and regulatory capital are operating inputs for banks and insurers, so treating debt as a financing claim and valuing UFCF would produce a misleading result. Use a dividend-discount, residual-income, excess-return, or price-to-book framework with regulatory-capital forecasts instead.</p></section>}
+    {!dcfApplicability.supported && <section className="sheet-section sector-notice"><div className="section-heading"><div><p>MODEL LIMIT</p><h2>This automated DCF is not suitable for {data.company.name}</h2></div></div><p>{dcfApplicability.detail}</p></section>}
 
-    {!financialUnsupported && <section className="sheet-section output-section" id="output">
+    {!modelUnsupported && <section className="sheet-section output-section" id="output">
       {selectedWacc <= model.terminalGrowth && <div className="api-error valuation-warning"><b>Assumption error:</b> WACC must be greater than terminal growth for the perpetual-growth method.</div>}
       {(model.terminalGrowth < 2 || model.terminalGrowth > 4 || model.terminalGrowth > model.riskFreeRate) && <div className="api-error valuation-warning"><b>Review terminal growth:</b> Use a sustainable long-run rate below WACC and generally below the same-currency risk-free rate.</div>}
       {((perpetuity.valid && perpetuity.rawEquityValue < 0) || (multiple.valid && multiple.rawEquityValue < 0)) && <div className="negative-explainer"><b>WHY A METHOD CAN SHOW $0 FOR COMMON EQUITY</b><p>Under at least one valid terminal method, enterprise value plus cash does not cover funded debt. The mathematical bridge is negative, but common stock has limited liability, so the displayed value stops at $0 rather than showing a negative share price.</p></div>}
       <OutputScreen data={data} model={model} perpetuity={perpetuity} multiple={multiple} financialUnsupported={financialUnsupported} onOpenAssumption={openAssumption}/>
     </section>}
 
-    {!financialUnsupported && <section className={dashboardStyles.modelDetails}>
+    {!modelUnsupported && <section className={dashboardStyles.modelDetails}>
       <div className={dashboardStyles.workflowBar}>
         <nav className={dashboardStyles.detailActions} aria-label="DCF workspace" role="tablist">
           {(["valuation", "charts", "forecast", "assumptions"] as Workspace[]).map((workspace) => <button key={workspace} type="button" role="tab" aria-selected={activeWorkspace === workspace} aria-controls="detail-workspace" onClick={() => openWorkspace(workspace)}>{workspace[0].toUpperCase() + workspace.slice(1)}</button>)}
@@ -656,19 +661,19 @@ export default function Home() {
       {excelExportError && <small className="excel-export-error" role="alert">{excelExportError}</small>}
     </section>}
 
-    {!financialUnsupported && activeWorkspace === "charts" && <section className={`${dashboardStyles.detailPanel} sheet-section`} id="detail-workspace" role="tabpanel" aria-labelledby="charts-title">
+    {!modelUnsupported && activeWorkspace === "charts" && <section className={`${dashboardStyles.detailPanel} sheet-section`} id="detail-workspace" role="tabpanel" aria-labelledby="charts-title">
       <div className="section-heading"><div><h2 id="charts-title">Charts</h2></div></div>
       <ValuationVisuals data={data} model={model} perpetuity={perpetuity} multiple={multiple}/>
     </section>}
 
-    {!financialUnsupported && activeWorkspace === "forecast" && <details className={dashboardStyles.detailDisclosure}><summary>Forecast confidence</summary><div className={dashboardStyles.disclosureBody}>
+    {!modelUnsupported && activeWorkspace === "forecast" && <details className={dashboardStyles.detailDisclosure}><summary>Forecast confidence</summary><div className={dashboardStyles.disclosureBody}>
       <div className={dashboardStyles.forecastReview}>
         <article><span>Forecast confidence</span><h3>{forecastConfidence}</h3><p>{forecastConfidenceDetail}</p></article>
         <article><span>Top items to verify</span><ol>{risks.slice(0, 3).map((risk) => <li key={risk.title}><b>{risk.title}</b><p>{risk.detail}</p></li>)}</ol></article>
       </div>
     </div></details>}
 
-    {!financialUnsupported && activeWorkspace === "forecast" && <section className={`${dashboardStyles.detailPanel} sheet-section`} id="detail-workspace" role="tabpanel" aria-labelledby="forecast-title">
+    {!modelUnsupported && activeWorkspace === "forecast" && <section className={`${dashboardStyles.detailPanel} sheet-section`} id="detail-workspace" role="tabpanel" aria-labelledby="forecast-title">
       <div className="section-heading"><div><h2 id="forecast-title">Forecast</h2><p>USD millions, except per share</p></div></div>
       <div className="workbook-shell">
         <div className="formula-bar"><b>fx</b><code>{workbookFormula.dcf}</code></div>
@@ -678,14 +683,14 @@ export default function Home() {
       </div>
     </section>}
 
-    {!financialUnsupported && activeWorkspace === "valuation" && <section className={`${dashboardStyles.detailPanel} sheet-section`} id="detail-workspace" role="tabpanel" aria-labelledby="valuation-title">
+    {!modelUnsupported && activeWorkspace === "valuation" && <section className={`${dashboardStyles.detailPanel} sheet-section`} id="detail-workspace" role="tabpanel" aria-labelledby="valuation-title">
       <div className="section-heading"><div><h2 id="valuation-title">Valuation</h2></div></div>
       <div className={dashboardStyles.sensitivityPanel}><div className="sensitivity-grid workbook-sensitivity"><SensitivityTable data={data} model={model} method="perpetuity"/><SensitivityTable data={data} model={model} method="multiple"/></div></div>
       <details className={dashboardStyles.inlineDisclosure}><summary>DCF output</summary><div><DcfCashFlowOutput result={perpetuity}/></div></details>
       <details className={dashboardStyles.inlineDisclosure}><summary>Enterprise-to-equity bridge</summary><div className="workbook-shell"><div className="formula-bar"><b>fx</b><code>{workbookFormula.valuation}</code></div><div className="workbook-panel"><div className="model-table-wrap"><table className="workbook-table valuation-workbook"><thead><tr><th>Valuation bridge</th><th>Perpetual growth</th><th>Exit multiple</th></tr></thead><tbody>{valuationSheet.map(([label, perpetuityValue, multipleValue]) => <tr className={["Enterprise value", "Equity value"].includes(String(label)) ? "workbook-total" : ""} key={String(label)}><td>{label}</td><td>{perpetuity.valid ? workbookMoney(Number(perpetuityValue)) : "N/A"}</td><td>{multiple.valid ? workbookMoney(Number(multipleValue)) : "N/A"}</td></tr>)}<tr><td>Share count used</td><td>{fmt.format(model.shares)}M</td><td>{fmt.format(model.shares)}M</td></tr><tr className="workbook-answer"><td>Implied value per share</td><td>{perpetuity.valid ? usd.format(perpetuity.perShare) : "N/A"}</td><td>{multiple.valid ? usd.format(multiple.perShare) : "N/A"}</td></tr></tbody></table></div></div></div></details>
     </section>}
 
-    {!financialUnsupported && activeWorkspace === "assumptions" && <section className={`${dashboardStyles.detailPanel} sheet-section`} id="detail-workspace" role="tabpanel" aria-labelledby="assumptions-title">
+    {!modelUnsupported && activeWorkspace === "assumptions" && <section className={`${dashboardStyles.detailPanel} sheet-section`} id="detail-workspace" role="tabpanel" aria-labelledby="assumptions-title">
       <div className="section-heading"><div><h2 id="assumptions-title">Assumptions</h2></div></div>
       <div className="recommendation"><b>{data.comparison?.nicheLabel || data.company.industry} starting point</b><p>{rec.note}</p><span>{data.forecast ? `Revenue years 1–2: ${data.forecast.source}${data.forecast.asOf ? ` (${data.forecast.asOf})` : ""}. Years 3–6: editable estimates.` : "No analyst forecast found; all six years are editable estimates."}</span><span> ΔNWC defaults to 2% of incremental revenue. Deferred tax and other non-cash adjustments default to 0%.</span></div>
       <div className="forecast-editor"><div className="sheet-bar">Fiscal forecast drivers · each green cell is editable</div><div className="table-scroll"><table><thead><tr><th>Driver</th>{model.forecastDrivers.map((driver) => <th key={driver.periodEnd}>{fiscalPeriodLabel(driver.periodEnd)}</th>)}</tr></thead><tbody>{([
@@ -714,7 +719,7 @@ export default function Home() {
       </div>
     </section>}
 
-    {!financialUnsupported && activeWorkspace === "assumptions" && <details className={dashboardStyles.detailDisclosure}><summary>Formulas</summary><div className={dashboardStyles.disclosureBody}><MethodAudit/><div className="bridge-grid"><ValuationBridge title="Perpetual Growth Method" result={perpetuity} model={model} method="perpetuity" data={data}/><ValuationBridge title="Exit Multiple Method" result={multiple} model={model} method="multiple" data={data}/></div></div></details>}
+    {!modelUnsupported && activeWorkspace === "assumptions" && <details className={dashboardStyles.detailDisclosure}><summary>Formulas</summary><div className={dashboardStyles.disclosureBody}><MethodAudit/><div className="bridge-grid"><ValuationBridge title="Perpetual Growth Method" result={perpetuity} model={model} method="perpetuity" data={data}/><ValuationBridge title="Exit Multiple Method" result={multiple} model={model} method="multiple" data={data}/></div></div></details>}
 
     <footer><span>THIS IS NOT FINANCIAL ADVICE</span></footer>
     </div>}
