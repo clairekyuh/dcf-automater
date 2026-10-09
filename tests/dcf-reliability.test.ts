@@ -43,20 +43,20 @@ test("profitable companies with adequate data do not receive a warning", () => {
 test("loss-making companies receive a specific turnaround warning", () => {
   const assessment = assessDcfReliability(company({ ebitMargin: -16.1 }), model(15), validResult, validResult);
   assert.equal(assessment.level, "caution");
-  assert.deepEqual(assessment.reasons.map((reason) => reason.label), ["NEGATIVE EBIT MARGIN", "UNVERIFIED TURNAROUND"]);
-  assert.match(assessment.reasons.map((reason) => reason.detail).join(" "), /assumes EBIT margin reaches 15\.0%/);
+  assert.deepEqual(assessment.reasons.map((reason) => reason.label), ["NEGATIVE EBIT MARGIN", "TURNAROUND ASSUMED"]);
+  assert.match(assessment.reasons.map((reason) => reason.detail).join(" "), /15\.0% EBIT margin/);
 });
 
 test("invalid methods block the valuation and expose the calculation reason", () => {
   const invalid = { valid: false, invalidReason: "Year-5 EBITDA must be positive." };
   const assessment = assessDcfReliability(company(), model(), invalid, invalid);
   assert.equal(assessment.level, "blocked");
-  assert.deepEqual(assessment.reasons, [{ label: "INVALID VALUATION INPUTS", detail: "Year-5 EBITDA must be positive." }]);
+  assert.deepEqual(assessment.reasons, [{ label: "INVALID INPUTS", detail: "Year-5 EBITDA must be positive." }]);
 });
 
 test("negative non-equity claims are called out for manual verification", () => {
   const assessment = assessDcfReliability(company({ preferredInterest: -2.7 }), model(), validResult, validResult);
   assert.equal(assessment.level, "caution");
-  assert.equal(assessment.reasons[0].label, "BALANCE-SHEET DATA ISSUE");
-  assert.match(assessment.reasons[0].detail, /negative carrying value/);
+  assert.equal(assessment.reasons[0].label, "DATA ISSUE");
+  assert.match(assessment.reasons[0].detail, /reported value was negative/);
 });

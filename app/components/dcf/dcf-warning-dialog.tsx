@@ -39,12 +39,12 @@ export default function DcfWarningDialog({ warning, onDismiss }: { warning: DcfR
       </div>
       <div className={styles.warningRisks}>
         {warning.reasons.map((reason) => <div key={reason.label}>
-          <strong>{reason.label}</strong>
+          <h3>{reason.label}</h3>
           <p>{reason.detail}</p>
         </div>)}
       </div>
       <div className={styles.warningFooter}>
-        <button type="button" onClick={onDismiss}>Dismiss warning</button>
+        <button type="button" onClick={onDismiss}>Continue</button>
       </div>
     </section>
   </div>;
