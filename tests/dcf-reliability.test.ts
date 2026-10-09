@@ -58,5 +58,5 @@ test("negative non-equity claims are called out for manual verification", () => 
   const assessment = assessDcfReliability(company({ preferredInterest: -2.7 }), model(), validResult, validResult);
   assert.equal(assessment.level, "caution");
   assert.equal(assessment.reasons[0].label, "DATA ISSUE");
-  assert.match(assessment.reasons[0].detail, /reported value was negative/);
+  assert.equal(assessment.reasons[0].detail, "non-equity claims set to $0");
 });

@@ -27,25 +27,16 @@ export default function DcfWarningDialog({ warning, onDismiss }: { warning: DcfR
       role="dialog"
       aria-modal="true"
       aria-labelledby="dcf-warning-title"
-      aria-describedby="dcf-warning-summary"
     >
       <div className={styles.warningHeader}>
-        <div className={styles.warningSymbol} aria-hidden="true">!</div>
-        <div>
-          <h2 id="dcf-warning-title">{warning.title}</h2>
-          <p id="dcf-warning-summary">{warning.summary}</p>
-        </div>
+        <h2 id="dcf-warning-title">{warning.title}</h2>
         <button ref={closeButton} className={styles.warningClose} type="button" onClick={onDismiss} aria-label="Dismiss warning">×</button>
       </div>
-      <div className={styles.warningRisks}>
-        {warning.reasons.map((reason) => <div key={reason.label}>
-          <h3>{reason.label}</h3>
-          <p>{reason.detail}</p>
-        </div>)}
-      </div>
-      <div className={styles.warningFooter}>
-        <button type="button" onClick={onDismiss}>Continue</button>
-      </div>
+      <ul className={styles.warningRisks}>
+        {warning.reasons.map((reason) => <li key={reason.label}>
+          <strong>{reason.label}</strong>{reason.detail ? `: ${reason.detail}` : ""}
+        </li>)}
+      </ul>
     </section>
   </div>;
 }

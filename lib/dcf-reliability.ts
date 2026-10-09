@@ -43,31 +43,31 @@ export function assessDcfReliability(
   if (Number.isFinite(latestMargin) && latestMargin < 0) {
     reasons.push({
       label: "NEGATIVE EBIT MARGIN",
-      detail: `${latestMargin.toFixed(1)}%. The company is currently loss-making.`,
+      detail: `${latestMargin.toFixed(1)}%`,
     });
     if (finalMargin !== undefined && finalMargin > 0) {
       reasons.push({
         label: "TURNAROUND ASSUMED",
-        detail: `${finalMargin.toFixed(1)}% EBIT margin in the final year. Not analyst consensus.`,
+        detail: `${finalMargin.toFixed(1)}% EBIT margin by the final year`,
       });
     }
   }
 
   if (!data.forecast) {
-    reasons.push({ label: "NO REVENUE FORECAST", detail: "All forecast years are automatic estimates." });
+    reasons.push({ label: "NO REVENUE FORECAST", detail: "automatic estimates used" });
   }
 
   if (data.historical.length < 3) {
     reasons.push({
       label: "LIMITED HISTORY",
-      detail: `Only ${data.historical.length} annual period${data.historical.length === 1 ? " is" : "s are"} available.`,
+      detail: `${data.historical.length} annual period${data.historical.length === 1 ? "" : "s"} available`,
     });
   }
 
   if ((data.metrics.preferredInterest ?? 0) < 0) {
     reasons.push({
       label: "DATA ISSUE",
-      detail: "Non-equity claims were set to $0 because the reported value was negative.",
+      detail: "non-equity claims set to $0",
     });
   }
 
