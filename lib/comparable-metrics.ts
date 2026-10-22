@@ -24,50 +24,35 @@ const median = (values: number[]) => {
   return values.length % 2 ? values[middle] : (values[middle - 1] + values[middle]) / 2;
 };
 
-/**
- * Returns descriptive statistics for every reported multiple, but only selects
- * an automatic exit multiple when at least two positive, non-extreme,
- * operationally relevant observations are available and their spread is not
- * excessive. A two-company sample is explicitly labeled as limited rather
- * than discarded. Raw signed values remain visible in the comps table.
- */
+/** Every finite reported LTM EV / EBITDA value participates in the statistics. */
 export function peerExitBenchmark(peers: ReadonlyArray<ExitPeer>) {
   const values = peers
     .map((peer) => peer.evToEbitdaLtm)
     .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
     .sort((a, b) => a - b);
-  const eligible = peers
-    .filter((peer) => peer.peerFit !== "adjacent")
-    .filter((peer) => {
-      const value = peer.evToEbitdaLtm;
-      if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return false;
-      if (peer.evToEbitdaLtmQuality && peer.evToEbitdaLtmQuality !== "normal") return false;
-      return value <= 100;
-    })
-    .map((peer) => peer.evToEbitdaLtm!)
-    .sort((a, b) => a - b);
   const average = values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
-  const eligibleAverage = eligible.length ? eligible.reduce((sum, value) => sum + value, 0) / eligible.length : null;
-  const dispersion = eligible.length >= 2 && eligible[0] > 0 ? eligible.at(-1)! / eligible[0] : null;
-  const maximumDispersion = eligible.length === 2 ? 2.5 : 3;
-  const sufficient = eligible.length >= 2 && dispersion !== null && dispersion <= maximumDispersion;
-  const selected = sufficient ? median(eligible) : null;
-  const reason = eligible.length < 2
-    ? `Only ${eligible.length} usable positive peer multiple${eligible.length === 1 ? " is" : "s are"} available; at least 2 are required for an automatic exit multiple.`
-    : dispersion !== null && dispersion > maximumDispersion
-      ? `Usable peer multiples span ${dispersion.toFixed(1)}× from low to high, which is too dispersed for an automatic exit multiple.`
-      : eligible.length === 2
-        ? "Selected as the midpoint of 2 usable peer EV / EBITDA LTM multiples. The limited sample should be verified or expanded."
-        : "Selected as the median of positive, non-extreme, operationally relevant peer EV / EBITDA LTM multiples.";
+  const reportedMedian = median(values);
+  const dispersion = values.length >= 2 && values[0] > 0 ? values.at(-1)! / values[0] : null;
+  const selected = reportedMedian !== null && reportedMedian > 0 ? reportedMedian : null;
+  const sufficient = selected !== null;
+  const reason = !values.length
+    ? "No peer has a numerical LTM EV / EBITDA value."
+    : selected === null
+      ? `The full peer median is ${reportedMedian?.toFixed(1)}×, which cannot be applied as a positive terminal EBITDA multiple.`
+      : values.length === 1
+        ? "Uses the only numerical peer LTM EV / EBITDA value. Verify the assumption before relying on it."
+        : values.length === 2
+          ? "Uses the midpoint of both numerical peer LTM EV / EBITDA values."
+          : "Uses the median of all numerical peer LTM EV / EBITDA values.";
   return {
     values,
     count: values.length,
     average,
-    median: median(values),
-    eligibleValues: eligible,
-    eligibleCount: eligible.length,
-    eligibleAverage,
-    eligibleMedian: median(eligible),
+    median: reportedMedian,
+    eligibleValues: values,
+    eligibleCount: values.length,
+    eligibleAverage: average,
+    eligibleMedian: reportedMedian,
     dispersion,
     sufficient,
     selected,

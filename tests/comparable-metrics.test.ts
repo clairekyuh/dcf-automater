@@ -16,7 +16,7 @@ test("missing inputs and zero denominators stay undefined instead of becoming ze
   assert.equal(signedMultiple(null, 5), null);
 });
 
-test("exit benchmark retains raw signed values but selects only a sufficient usable peer median", async () => {
+test("exit benchmark uses the median of every finite reported peer multiple", async () => {
   const { peerExitBenchmark } = await import("../lib/comparable-metrics");
   const benchmark = peerExitBenchmark([
     { evToEbitdaLtm: -30, evToEbitdaLtmQuality: "not-meaningful" },
@@ -26,26 +26,31 @@ test("exit benchmark retains raw signed values but selects only a sufficient usa
     { evToEbitdaLtm: 1_000, evToEbitdaLtmQuality: "extreme" },
   ]);
   assert.deepEqual(benchmark.values, [-30, 18, 20, 24, 1_000]);
-  assert.deepEqual(benchmark.eligibleValues, [18, 20, 24]);
+  assert.deepEqual(benchmark.eligibleValues, [-30, 18, 20, 24, 1_000]);
   assert.equal(benchmark.selected, 20);
   assert.equal(benchmark.sufficient, true);
 });
 
-test("automatic exit benchmark accepts two clean peers but rejects one, dispersion, or adjacent peers", async () => {
+test("automatic exit benchmark retains one, dispersed, adjacent, negative, and extreme observations", async () => {
   const { peerExitBenchmark } = await import("../lib/comparable-metrics");
   const limited = peerExitBenchmark([{ evToEbitdaLtm: 17 }, { evToEbitdaLtm: 35 }]);
   assert.equal(limited.selected, 26);
-  assert.match(limited.reason, /limited sample/i);
+  assert.match(limited.reason, /midpoint/i);
 
   const thin = peerExitBenchmark([{ evToEbitdaLtm: 17 }]);
-  assert.equal(thin.selected, null);
-  assert.match(thin.reason, /Only 1 usable/);
+  assert.equal(thin.selected, 17);
+  assert.match(thin.reason, /only numerical peer/i);
 
   const dispersed = peerExitBenchmark([{ evToEbitdaLtm: 10 }, { evToEbitdaLtm: 20 }, { evToEbitdaLtm: 40 }]);
-  assert.equal(dispersed.selected, null);
-  assert.match(dispersed.reason, /too dispersed/);
+  assert.equal(dispersed.selected, 20);
 
   const adjacent = peerExitBenchmark([{ evToEbitdaLtm: 15, peerFit: "adjacent" }, { evToEbitdaLtm: 18 }, { evToEbitdaLtm: 20 }]);
-  assert.equal(adjacent.eligibleCount, 2);
-  assert.equal(adjacent.selected, 19);
+  assert.equal(adjacent.eligibleCount, 3);
+  assert.equal(adjacent.selected, 18);
+
+  const nonPositiveMedian = peerExitBenchmark([{ evToEbitdaLtm: -20 }, { evToEbitdaLtm: -10 }, { evToEbitdaLtm: 5 }]);
+  assert.deepEqual(nonPositiveMedian.values, [-20, -10, 5]);
+  assert.equal(nonPositiveMedian.median, -10);
+  assert.equal(nonPositiveMedian.selected, null);
+  assert.match(nonPositiveMedian.reason, /cannot be applied as a positive/i);
 });
