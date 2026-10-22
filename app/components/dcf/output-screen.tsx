@@ -40,6 +40,7 @@ export default function OutputScreen({
   model,
   perpetuity,
   multiple,
+  exitUnavailableReason,
   financialUnsupported,
   onOpenAssumption,
 }: {
@@ -47,6 +48,7 @@ export default function OutputScreen({
   model: DcfModel;
   perpetuity: ReturnType<typeof calculateDcf>;
   multiple: ReturnType<typeof calculateDcf>;
+  exitUnavailableReason?: string | null;
   financialUnsupported: boolean;
   onOpenAssumption: (target: AssumptionTarget) => void;
 }) {
@@ -81,7 +83,7 @@ export default function OutputScreen({
         <article>
           <span>Exit multiple</span>
           <strong>{multiple.valid ? usd.format(multiple.perShare) : "N/A"}</strong>
-          <small className={multipleMove.positive === true ? styles.positive : multipleMove.positive === false ? styles.negative : ""}>{multiple.valid ? multipleMove.label : multiple.invalidReason}</small>
+          <small className={multipleMove.positive === true ? styles.positive : multipleMove.positive === false ? styles.negative : ""}>{multiple.valid ? multipleMove.label : exitUnavailableReason || multiple.invalidReason}</small>
         </article>
       </div>
 
@@ -93,7 +95,7 @@ export default function OutputScreen({
           <span>Long-term growth</span><b>{fmt.format(model.terminalGrowth)}%</b>
         </button>
         <button type="button" onClick={() => onOpenAssumption("exit-multiple")} aria-label="Edit exit EBITDA multiple">
-          <span>Exit multiple</span><b>{fmt.format(model.exitMultiple)}×</b>
+          <span>Exit multiple</span><b>{exitUnavailableReason ? "N/A" : `${fmt.format(model.exitMultiple)}×`}</b>
         </button>
         <button type="button" onClick={() => onOpenAssumption("valuation-date")} aria-label="Edit forecast period">
           <span>Forecast period</span><b>{forecastPeriod(model.valuationDate)}</b>

@@ -26,9 +26,10 @@ const median = (values: number[]) => {
 
 /**
  * Returns descriptive statistics for every reported multiple, but only selects
- * an automatic exit multiple when at least three positive, non-extreme,
+ * an automatic exit multiple when at least two positive, non-extreme,
  * operationally relevant observations are available and their spread is not
- * excessive. Raw signed values remain visible in the comps table.
+ * excessive. A two-company sample is explicitly labeled as limited rather
+ * than discarded. Raw signed values remain visible in the comps table.
  */
 export function peerExitBenchmark(peers: ReadonlyArray<ExitPeer>) {
   const values = peers
@@ -48,13 +49,16 @@ export function peerExitBenchmark(peers: ReadonlyArray<ExitPeer>) {
   const average = values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
   const eligibleAverage = eligible.length ? eligible.reduce((sum, value) => sum + value, 0) / eligible.length : null;
   const dispersion = eligible.length >= 2 && eligible[0] > 0 ? eligible.at(-1)! / eligible[0] : null;
-  const sufficient = eligible.length >= 3 && dispersion !== null && dispersion <= 3;
+  const maximumDispersion = eligible.length === 2 ? 2.5 : 3;
+  const sufficient = eligible.length >= 2 && dispersion !== null && dispersion <= maximumDispersion;
   const selected = sufficient ? median(eligible) : null;
-  const reason = eligible.length < 3
-    ? `Only ${eligible.length} usable positive peer multiple${eligible.length === 1 ? " is" : "s are"} available; at least 3 are required for an automatic exit multiple.`
-    : dispersion !== null && dispersion > 3
+  const reason = eligible.length < 2
+    ? `Only ${eligible.length} usable positive peer multiple${eligible.length === 1 ? " is" : "s are"} available; at least 2 are required for an automatic exit multiple.`
+    : dispersion !== null && dispersion > maximumDispersion
       ? `Usable peer multiples span ${dispersion.toFixed(1)}× from low to high, which is too dispersed for an automatic exit multiple.`
-      : "Selected as the median of positive, non-extreme, operationally relevant peer EV / EBITDA LTM multiples.";
+      : eligible.length === 2
+        ? "Selected as the midpoint of 2 usable peer EV / EBITDA LTM multiples. The limited sample should be verified or expanded."
+        : "Selected as the median of positive, non-extreme, operationally relevant peer EV / EBITDA LTM multiples.";
   return {
     values,
     count: values.length,

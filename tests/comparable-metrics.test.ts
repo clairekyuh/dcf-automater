@@ -31,11 +31,15 @@ test("exit benchmark retains raw signed values but selects only a sufficient usa
   assert.equal(benchmark.sufficient, true);
 });
 
-test("automatic exit benchmark is suppressed for thin, dispersed, or adjacent peer sets", async () => {
+test("automatic exit benchmark accepts two clean peers but rejects one, dispersion, or adjacent peers", async () => {
   const { peerExitBenchmark } = await import("../lib/comparable-metrics");
-  const thin = peerExitBenchmark([{ evToEbitdaLtm: 17 }, { evToEbitdaLtm: 35 }]);
+  const limited = peerExitBenchmark([{ evToEbitdaLtm: 17 }, { evToEbitdaLtm: 35 }]);
+  assert.equal(limited.selected, 26);
+  assert.match(limited.reason, /limited sample/i);
+
+  const thin = peerExitBenchmark([{ evToEbitdaLtm: 17 }]);
   assert.equal(thin.selected, null);
-  assert.match(thin.reason, /Only 2 usable/);
+  assert.match(thin.reason, /Only 1 usable/);
 
   const dispersed = peerExitBenchmark([{ evToEbitdaLtm: 10 }, { evToEbitdaLtm: 20 }, { evToEbitdaLtm: 40 }]);
   assert.equal(dispersed.selected, null);
@@ -43,5 +47,5 @@ test("automatic exit benchmark is suppressed for thin, dispersed, or adjacent pe
 
   const adjacent = peerExitBenchmark([{ evToEbitdaLtm: 15, peerFit: "adjacent" }, { evToEbitdaLtm: 18 }, { evToEbitdaLtm: 20 }]);
   assert.equal(adjacent.eligibleCount, 2);
-  assert.equal(adjacent.selected, null);
+  assert.equal(adjacent.selected, 19);
 });
