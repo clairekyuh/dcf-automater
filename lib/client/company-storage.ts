@@ -1,8 +1,8 @@
-import type { CompanyData, RiskItem } from "@/lib/company-data";
+import type { CompanyData, ComparableCompany, RiskItem } from "@/lib/company-data";
 
 export const COMPANY_STORAGE_KEY = "dcf:last-company";
 export const RESEARCH_STORAGE_KEY = "dcf:last-research";
-export const COMPANY_STORAGE_VERSION = 6;
+export const COMPANY_STORAGE_VERSION = 9;
 export const MAX_COMPANY_STORAGE_CHARS = 750_000;
 export const MAX_RESEARCH_STORAGE_CHARS = 100_000;
 
@@ -188,7 +188,7 @@ export function readCompanyData(requestedSymbol?: string, targets = browserTarge
   const selected = candidates.find(({ payload }) => !requestedSymbol || payload.company.symbol === requestedSymbol.toUpperCase());
   if (!selected) return null;
   if (selected.legacy) storeCompanyData(selected.payload, targets);
-  return selected.payload;
+  return withManualPeers(selected.payload, targets);
 }
 
 export function storeResearchData(research: StoredResearch, targets = browserTargets()) {
@@ -211,4 +211,41 @@ export function readResearchData(symbol: string, targets = browserTargets()) {
   if (!selected) return null;
   if (selected.legacy) storeResearchData(selected.payload, targets);
   return selected.payload;
+}
+
+const manualKey = (symbol: string) => `dcf:manual-comps:v1:${symbol}`;
+
+export function readManualPeers(symbol: string, targets = browserTargets()): ComparableCompany[] {
+  try {
+    const raw = safeGet(targets.local, manualKey(symbol)) ?? safeGet(targets.session, manualKey(symbol));
+    if (!raw || raw.length > MAX_COMPANY_STORAGE_CHARS) return [];
+    const peers: unknown = JSON.parse(raw);
+    return Array.isArray(peers) && peers.length <= 20 && peers.every(isComparable) ? peers : [];
+  } catch { return []; }
+}
+
+export function saveManualPeers(symbol: string, peers: ComparableCompany[], targets = browserTargets()) {
+  if (peers.length > 20 || !peers.every(isComparable)) return false;
+  const value = JSON.stringify(peers);
+  for (const storage of [targets.local, targets.session]) {
+    try {
+      if (!storage) continue;
+      storage.setItem(manualKey(symbol), value);
+      if (storage === targets.local) safeRemove(targets.session, manualKey(symbol));
+      return true;
+    } catch { /* Try session storage when persistent storage is unavailable. */ }
+  }
+  return false;
+}
+
+export function withManualPeers(data: CompanyData, targets = browserTargets()): CompanyData {
+  if (!data.comparison) return data;
+  const peers = data.comparison.peers.filter((peer) => !peer.manualAdded);
+  for (const peer of readManualPeers(data.company.symbol, targets)) {
+    if (peer.symbol !== data.company.symbol && !peers.some((existing) => existing.symbol === peer.symbol)) peers.push({ ...peer, manualAdded: true });
+  }
+  const growth = peers.map((peer) => peer.revenueGrowth).filter((value): value is number => value !== null && Number.isFinite(value)).sort((a, b) => a - b);
+  const mid = Math.floor(growth.length / 2);
+  const industryGrowthRate = !growth.length ? null : growth.length % 2 ? growth[mid] : (growth[mid - 1] + growth[mid]) / 2;
+  return { ...data, comparison: { ...data.comparison, peers, selectedPeerSymbols: peers.map((peer) => peer.symbol), industryGrowthRate } };
 }

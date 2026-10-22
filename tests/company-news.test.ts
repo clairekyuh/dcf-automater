@@ -81,3 +81,8 @@ test("related-symbol tagging alone does not make a peer headline company news", 
   const result = selectRelevantNews([rows[0]], "CRWV", "CoreWeave, Inc.");
   assert.equal(result.length, 0);
 });
+
+test("generic description text does not turn an investment opinion into a legal event", () => {
+  const items = selectRelevantNews([{ title: "ASML: A Rule Breaker Test of Lasting Leadership", description: "We examine an investigation into the company's investment appeal.", created: "Oct 14, 2026", publisher: "Test", url: "/articles/asml-rule-breaker" }], "ASML", "ASML");
+  assert.ok(items.every((item) => item.category !== "Regulation & legal"));
+});

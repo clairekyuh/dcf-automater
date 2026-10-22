@@ -1,11 +1,12 @@
 "use client";
 
+import { companyDataStale, refreshManualPeers } from "@/lib/client/refresh-company";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import CompanyNavigation from "@/app/components/company-navigation";
 import ComparableCompanyAnalysis from "@/app/components/comparable-company-analysis";
 import { apiErrorMessage } from "@/lib/client/api-error";
-import { readCompanyData, storeCompanyData } from "@/lib/client/company-storage";
+import { readCompanyData, storeCompanyData, withManualPeers } from "@/lib/client/company-storage";
 import type { CompanyData } from "@/lib/company-data";
 
 const fmt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
@@ -37,6 +38,7 @@ export default function CompanyAnalysisPage() {
   const [data, setData] = useState<CompanyData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [refreshVersion, setRefreshVersion] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -47,7 +49,7 @@ export default function CompanyAnalysisPage() {
         && cached.comparison.peers.every((peer) => peer.enterpriseValue !== undefined && peer.evToRevenueLtm !== undefined && peer.ltmBasis !== undefined && peer.evToEbitdaLtmQuality !== undefined));
       if (cached && hasCurrentComps) setData(cached);
       const symbol = requested || cached?.company.symbol;
-      const needsRefresh = !cached || !hasCurrentComps || cached.coverage !== "full" || cached.businessAnalysis?.secStatus !== "available" || !cached.businessAnalysis.filing;
+      const needsRefresh = refreshVersion > 0 || companyDataStale(cached) || !cached || !hasCurrentComps || cached.coverage !== "full" || cached.businessAnalysis?.secStatus !== "available" || !cached.businessAnalysis.filing;
       if (!symbol || !/^[A-Z0-9.\-]{1,12}$/.test(symbol)) {
         setLoading(false);
         return;
@@ -61,18 +63,19 @@ export default function CompanyAnalysisPage() {
         const payload = await response.json();
         if (!response.ok) throw new Error(apiErrorMessage(payload, "Unable to refresh company data."));
         if (controller.signal.aborted) return;
-        const company = payload as CompanyData;
+        const company = await refreshManualPeers(withManualPeers(payload as CompanyData), { force: refreshVersion > 0, signal: controller.signal });
+        if (controller.signal.aborted) return;
         storeCompanyData(company);
         setData(company);
       } catch (caught) {
         if (caught instanceof DOMException && caught.name === "AbortError") return;
-        if (!controller.signal.aborted && (!cached || !hasCurrentComps)) setError(caught instanceof Error ? caught.message : "Unable to load this company.");
+        if (!controller.signal.aborted) setError(caught instanceof Error ? caught.message : "Unable to load this company.");
       } finally {
         if (!controller.signal.aborted) setLoading(false);
       }
     });
     return () => controller.abort();
-  }, []);
+  }, [refreshVersion]);
 
   if (!data || !data.businessAnalysis) {
     if (loading) return <main className="analysis-page company-view-page"><CompanyNavigation active="company"/><header className="company-view-header comps-page-skeleton-header"><div><span>Company profile</span><h1>Company analysis</h1></div></header><ComparableCompaniesSkeleton/></main>;
@@ -94,7 +97,7 @@ export default function CompanyAnalysisPage() {
     <CompanyNavigation symbol={data.company.symbol} name={data.company.name} active="company"/>
     <header className="company-view-header" id="analysis-top"><div><span>Company profile</span><h1>Company analysis</h1><p>{shortDescription(analysis.filing ? analysis.companyDescription : data.company.description)}</p></div><aside><strong>{data.company.name}</strong><small>{data.company.symbol} · {data.company.exchange} · {data.company.industry}</small></aside></header>
 
-    <ComparableCompanyAnalysis data={data}/>
+    <ComparableCompanyAnalysis data={data} refreshing={loading} onRefresh={() => { setLoading(true); setError(""); setRefreshVersion((version) => version + 1); }} refreshError={error} onChange={(updated) => { setData(updated); storeCompanyData(updated); }}/>
 
     <details className="analysis-secondary">
       <summary><span>Additional filing data</span><small>{secUnavailable ? "SEC unavailable" : analysis.filing ? `${analysis.filing.form} · ${analysis.filing.filingDate}` : "Available data"}</small></summary>

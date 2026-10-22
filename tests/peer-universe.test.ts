@@ -55,3 +55,14 @@ test("unclassified companies do not receive an unrelated fallback universe", () 
   assert.deepEqual(result.symbols, []);
   assert.match(result.label, /peer set not validated/);
 });
+
+test("GOOG never treats its own GOOGL share class as an external comp", () => {
+  assert.deepEqual(selectPeerSet(company({ symbol: "GOOG" })).symbols, ["MSFT", "AMZN", "ORCL"]);
+});
+
+test("ASML is matched with fab equipment suppliers rather than chip designers", () => {
+  const peers = selectPeerSet(company({ symbol: "ASML", name: "ASML", industry: "Industrial machinery", description: "Lithography systems" }));
+  assert.equal(peers.id, "semiconductor-equipment");
+  assert.deepEqual(peers.symbols, ["AMAT", "LRCX", "KLAC"]);
+  assert.match(peers.rationales!.AMAT.detail, /deposition/);
+});

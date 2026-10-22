@@ -8,6 +8,8 @@ export default defineConfig([
   globalIgnores([
     ".next/**",
     "outputs/**",
+    "comps-analyst/**",
+    "dcf-design-mockup/**",
     "out/**",
     "build/**",
     "next-env.d.ts",

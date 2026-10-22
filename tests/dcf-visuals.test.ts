@@ -70,7 +70,7 @@ test("valuation ranges contain valuation methods rather than stock-trading windo
   assert.deepEqual(ranges.at(-1), { label: "Comparable companies", low: 40, high: 60, kind: "comps" });
 });
 
-test("comparable valuation range excludes extreme peer-multiple outliers", () => {
+test("comparable valuation range retains negative and extreme peer multiples", () => {
   const outlierData = {
     ...data,
     comparison: {
@@ -79,11 +79,13 @@ test("comparable valuation range excludes extreme peer-multiple outliers", () =>
         { peerFit: "direct", evToRevenue: 4 },
         { peerFit: "direct", evToRevenue: 6 },
         { peerFit: "direct", evToRevenue: 40 },
+        { peerFit: "direct", evToRevenue: -3 },
+        { peerFit: "direct", evToRevenue: null },
       ],
     },
   } as unknown as CompanyData;
   const comparableRange = buildValuationRanges(outlierData, model).find((item) => item.kind === "comps");
-  assert.deepEqual(comparableRange, { label: "Comparable companies", low: 40, high: 60, kind: "comps" });
+  assert.deepEqual(comparableRange, { label: "Comparable companies", low: -30, high: 400, kind: "comps" });
 });
 
 test("terminal mix reconciles to enterprise value components", () => {

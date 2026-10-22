@@ -199,11 +199,12 @@ function RangeChart({ data, model }: { data: CompanyData; model: DcfModel }) {
   const left = 190;
   const right = 60;
   const maximum = Math.max(model.marketPrice, ...ranges.map((item) => item.high), 1) * 1.08;
-  const x = (value: number) => left + Math.max(0, value) / maximum * (width - left - right);
+  const minimum = Math.min(0, ...ranges.map((item) => item.low)) * 1.08;
+  const x = (value: number) => left + (value - minimum) / (maximum - minimum) * (width - left - right);
   const markerX = x(model.marketPrice);
 
   return <article className={`${styles.chartBlock} ${styles.rangeWide}`}>
-    <header><div><h3>Valuation range</h3><p>DCF and comparable-company methods</p></div></header>
+    <header><div><h3>Valuation range</h3><p>DCF and unfiltered peer EV / revenue ranges. Negative implied equity is an arithmetic result, not a realizable share price.</p></div></header>
     <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Valuation methods compared with the current share price">
       <line x1={markerX} x2={markerX} y1="18" y2={height - 32} className={styles.currentMarker}/>
       <text x={markerX} y="12" textAnchor="middle">Current {money.format(model.marketPrice)}</text>
@@ -281,10 +282,10 @@ function EnterpriseToEquityWaterfall({ model, perpetuity, multiple }: { model: D
 function PeerScatter({ data }: { data: CompanyData }) {
   const company = data.comparison?.company;
   const peers = [...(company ? [company] : []), ...(data.comparison?.peers || [])]
+    .map((peer) => ({ ...peer, evToRevenue: peer.evToRevenueLtm === undefined ? peer.evToRevenue : peer.evToRevenueLtm }))
     .filter((peer): peer is ComparableCompany & { revenueGrowth: number; evToRevenue: number } => (
       peer.revenueGrowth !== null && Number.isFinite(peer.revenueGrowth)
       && peer.evToRevenue !== null && Number.isFinite(peer.evToRevenue)
-      && peer.evToRevenue >= 0
     ));
 
   if (peers.length < 2) return <article className={styles.chartBlock}>
@@ -316,7 +317,7 @@ function PeerScatter({ data }: { data: CompanyData }) {
   const tooltipHeight = 66;
 
   return <article className={styles.chartBlock}>
-    <header><div><h3>Peer valuation</h3><p>Revenue growth versus EV / revenue</p></div></header>
+    <header><div><h3>Peer valuation</h3><p>Annual revenue growth versus EV / revenue LTM</p></div></header>
     <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Comparable-company revenue growth versus enterprise value to revenue">
       <line x1={padding.left} x2={width - padding.right} y1={height - padding.bottom} y2={height - padding.bottom} className={styles.grid}/>
       <line x1={padding.left} x2={padding.left} y1={padding.top} y2={height - padding.bottom} className={styles.grid}/>

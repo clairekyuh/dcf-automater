@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { companyDataStale, refreshManualPeers } from "@/lib/client/refresh-company";
 import Link from "next/link";
 import CompanyNavigation, { type CompanyNavView } from "@/app/components/company-navigation";
 import CompanyNews from "@/app/components/company-news";
@@ -44,7 +45,7 @@ export default function CompanyResearchPage({ view }: { view: "price" | "news" |
         setData(cached);
         setRisks(readResearchData(cached.company.symbol)?.risks || baselineRisks(cached));
         setLoading(false);
-        if (view !== "risks" || cached.coverage === "full") return;
+        if (!companyDataStale(cached) && (view !== "risks" || cached.coverage === "full")) return;
       }
       if (!requested || !/^[A-Z0-9.\-]{1,12}$/.test(requested)) {
         setError("Load a ticker in the DCF model first.");
@@ -55,7 +56,7 @@ export default function CompanyResearchPage({ view }: { view: "price" | "news" |
         const response = await fetch(`/api/company?symbol=${encodeURIComponent(requested)}`, { signal: controller.signal });
         const payload = await response.json();
         if (!response.ok) throw new Error(apiErrorMessage(payload, "Unable to load this company."));
-        const company = payload as CompanyData;
+        const company = await refreshManualPeers(payload as CompanyData, { signal: controller.signal });
         if (controller.signal.aborted) return;
         storeCompanyData(company);
         setData(company);

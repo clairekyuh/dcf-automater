@@ -109,3 +109,19 @@ test("research storage validates the ticker and bounded risk records", () => {
   assert.equal(readResearchData("AAPL", { local }), null);
   assert.equal(local.getItem(RESEARCH_STORAGE_KEY), null);
 });
+
+test("manual comps survive refreshed data, update growth and can be removed", async () => {
+  const { saveManualPeers, withManualPeers } = await import("../lib/client/company-storage");
+  const local = new MemoryStorage();
+  const targets = { local };
+  const peer = { symbol: "MSFT", name: "Microsoft", description: "Software", sector: "Technology", industry: "Software", marketCap: 100, revenueGrowth: -10, operatingMargin: -5, evToRevenue: -2, evToEbitda: -30, pe: -20, evToEbitdaLtm: -30 };
+  const original = { ...company(), comparison: { company: { ...peer, symbol: "AAPL" }, peers: [], selectedPeerSymbols: [], industryGrowthRate: null } };
+  assert.equal(saveManualPeers("AAPL", [peer], targets), true);
+  const merged = withManualPeers(original, targets);
+  assert.equal(merged.comparison?.peers[0].evToEbitdaLtm, -30);
+  assert.equal(merged.comparison?.industryGrowthRate, -10);
+  assert.equal(withManualPeers(merged, targets).comparison?.peers.length, 1);
+  assert.equal(withManualPeers({ ...original, company: { ...original.company, symbol: "GOOG" } }, targets).comparison?.peers.length, 0);
+  assert.equal(saveManualPeers("AAPL", [], targets), true);
+  assert.equal(withManualPeers(merged, targets).comparison?.peers.length, 0);
+});

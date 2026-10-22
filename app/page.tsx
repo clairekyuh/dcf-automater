@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { FormEvent, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import CompanyNavigation from "@/app/components/company-navigation";
 import { DateField, NumberField } from "@/app/components/dcf/assumption-fields";
@@ -7,10 +9,12 @@ import { DcfRowLabel, DefinedTerm } from "@/app/components/dcf/defined-term";
 import OutputScreen, { type AssumptionTarget } from "@/app/components/dcf/output-screen";
 import DcfCashFlowOutput from "@/app/components/dcf/dcf-cash-flow-output";
 import DcfSummarySkeleton from "@/app/components/dcf/dcf-summary-skeleton";
-import DcfWarningDialog from "@/app/components/dcf/dcf-warning-dialog";
 import ValuationVisuals from "@/app/components/dcf/valuation-visuals";
 import dashboardStyles from "@/app/components/dcf/dcf-dashboard.module.css";
-import { readCompanyData, storeCompanyData, storeResearchData } from "@/lib/client/company-storage";
+import { companyDataStale, refreshManualPeers } from "@/lib/client/refresh-company";
+import { readModel, restoreModel, restoredForecastEdits, saveModel } from "@/lib/client/model-storage";
+import { peerExitBenchmark } from "@/lib/comparable-metrics";
+import { readCompanyData, storeCompanyData, storeResearchData, withManualPeers } from "@/lib/client/company-storage";
 import { apiErrorMessage } from "@/lib/client/api-error";
 import type { CompanyData, HistoricalRow, PricePoint } from "@/lib/company-data";
 import { actualFiscalLabel, historicalEffectiveTaxRate, historicalRevenueGrowth, historicalUfcf } from "@/lib/historical-dcf";
@@ -25,9 +29,8 @@ import {
   type DcfModel,
   type ForecastDriver,
 } from "@/lib/dcf-engine";
-import { assessDcfReliability } from "@/lib/dcf-reliability";
 import { assessStandardDcfApplicability } from "@/lib/dcf-applicability";
-import { betaCoveragePremium } from "@/lib/valuation-inputs";
+import { estimateTerminalRoic } from "@/lib/terminal-assumptions";
 import { financialSectorRiskAnalysis, riskAnalysis } from "@/lib/risk-analysis";
 
 type Model = DcfModel;
@@ -95,16 +98,16 @@ const LARGE_COMPANY_EXAMPLES = [
   { symbol: "XOM", name: "Exxon Mobil" },
 ];
 const industryRules = [
-  { match: /AI-native GPU cloud|data-center ownership|data center/i, multiple: 12, wacc: 11, terminal: 2.5, margin: 22, da: 18, capex: 22, note: "AI infrastructure can grow quickly, but GPU obsolescence, power availability, utilization, customer concentration, and heavy financing needs justify a high discount rate and substantial continuing reinvestment." },
-  { match: /consumer devices and digital ecosystems/i, multiple: 15, wacc: 9, terminal: 3, margin: 25, note: "Consumer ecosystems can combine hardware, services, and switching costs. Forecast the mix explicitly and compare the multiple with other diversified platform companies." },
-  { match: /electronic design automation/i, multiple: 20, wacc: 9, terminal: 3, margin: 30, note: "EDA revenue can be recurring and workflow-embedded, but the model should reflect semiconductor cycles, acquisition effects, and stock-based compensation." },
-  { match: /diversified public-cloud/i, multiple: 17, wacc: 9, terminal: 3, margin: 25, note: "Diversified cloud platforms mix infrastructure, software, advertising, devices, and other businesses. Segment mix and reinvestment matter more than one blended headline multiple." },
-  { match: /software|internet|semiconductor|technology/i, multiple: 18, wacc: 9.5, terminal: 3, margin: 22, note: "Technology can support strong margins, but infrastructure-heavy companies require more reinvestment than asset-light software." },
-  { match: /biotech|pharma|health/i, multiple: 14, wacc: 10, terminal: 2.5, margin: 18, note: "Pipeline, patent, reimbursement, and regulatory outcomes can dominate historical trends." },
-  { match: /oil|gas|energy|mining/i, multiple: 7, wacc: 10, terminal: 1.5, margin: 15, note: "Commodity cycles and reserve replacement make normalized margins more useful than a single recent year." },
-  { match: /utility|telecom/i, multiple: 8, wacc: 7.5, terminal: 2, margin: 18, note: "Stable demand can support lower discount rates, while leverage and capital intensity constrain flexibility." },
-  { match: /retail|consumer|restaurant/i, multiple: 10, wacc: 9, terminal: 2.5, margin: 12, note: "Brand strength, same-store growth, input costs, and consumer cycles are the key drivers." },
-  { match: /industrial|manufactur|aerospace|transport/i, multiple: 9, wacc: 9, terminal: 2.25, margin: 15, note: "Backlogs and operating leverage help visibility, but cyclicality and capital spending increase downside risk." },
+  { match: /AI-native GPU cloud|data-center ownership|data center/i, terminal: 2.5, margin: 22, da: 18, capex: 22, note: "AI infrastructure can grow quickly, but GPU obsolescence, power availability, utilization, customer concentration, and heavy financing needs require explicit scenarios and substantial continuing reinvestment." },
+  { match: /consumer devices and digital ecosystems/i, terminal: 3, margin: 25, note: "Consumer ecosystems can combine hardware, services, and switching costs. Forecast the mix explicitly and compare the multiple with other diversified platform companies." },
+  { match: /electronic design automation/i, terminal: 3, margin: 30, note: "EDA revenue can be recurring and workflow-embedded, but the model should reflect semiconductor cycles, acquisition effects, and stock-based compensation." },
+  { match: /diversified public-cloud/i, terminal: 3, margin: 25, note: "Diversified cloud platforms mix infrastructure, software, advertising, devices, and other businesses. Segment mix and reinvestment matter more than one blended headline multiple." },
+  { match: /software|internet|semiconductor|technology/i, terminal: 3, margin: 22, note: "Technology can support strong margins, but infrastructure-heavy companies require more reinvestment than asset-light software." },
+  { match: /biotech|pharma|health/i, terminal: 2.5, margin: 18, note: "Pipeline, patent, reimbursement, and regulatory outcomes can dominate historical trends." },
+  { match: /oil|gas|energy|mining/i, terminal: 1.5, margin: 15, note: "Commodity cycles and reserve replacement make normalized margins more useful than a single recent year." },
+  { match: /utility|telecom/i, terminal: 2, margin: 18, note: "Stable demand can support lower operating volatility, while leverage and capital intensity constrain flexibility." },
+  { match: /retail|consumer|restaurant/i, terminal: 2.5, margin: 12, note: "Brand strength, same-store growth, input costs, and consumer cycles are the key drivers." },
+  { match: /industrial|manufactur|aerospace|transport/i, terminal: 2.25, margin: 15, note: "Backlogs and operating leverage help visibility, but cyclicality and capital spending increase downside risk." },
 ];
 
 const fmt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
@@ -139,7 +142,7 @@ function marketPriceContext(data: CompanyData) {
 
 function recommendations(data: CompanyData) {
   const text = `${data.comparison?.nicheLabel || ""} ${data.company.sector} ${data.company.industry}`;
-  const rule = industryRules.find((item) => item.match.test(text)) || { multiple: 10, wacc: 9.5, terminal: 2.5, margin: 15, note: "Use a conservative starting point and compare every assumption with direct industry peers." };
+  const rule = industryRules.find((item) => item.match.test(text)) || { terminal: 2.5, margin: 15, note: "Use a conservative starting point and compare every assumption with direct industry peers." };
   const historicalGrowth = data.metrics.revenueGrowth;
   const growth = data.forecast?.year1Growth ?? (historicalGrowth > 100 ? 40 : historicalGrowth > 50 ? 30 : historicalGrowth > 25 ? 20 : clamp(historicalGrowth * .65, 2, 18));
   const margin = data.metrics.ebitMargin < 3 ? rule.margin : clamp(data.metrics.ebitMargin, 3, 40);
@@ -208,7 +211,9 @@ function buildModel(data: CompanyData): Model {
     companyRiskPremium: rec.companyRiskPremium,
     terminalGrowth: rec.terminal,
     terminalRoic: 10,
-    exitMultiple: rec.multiple,
+    exitMultiple: peerExitBenchmark(data.comparison?.peers || []).selected
+      ?? data.comparison?.company.evToEbitda
+      ?? 10,
     cash: data.metrics.cash,
     shortDebt: data.metrics.shortDebt || 0,
     longDebt: data.metrics.longDebt ?? data.metrics.debt,
@@ -217,9 +222,27 @@ function buildModel(data: CompanyData): Model {
     marketPrice: Math.round(data.market.estimatedPrice * 100) / 100,
     valuationDate: localValuationDate(),
   };
-  baseModel.companyRiskPremium = betaCoveragePremium(data.market.betaSource, rec.wacc, calculateWacc(baseModel).baseWacc);
-  baseModel.terminalRoic = calculateWacc(baseModel).selectedWacc;
+  const selectedWacc = calculateWacc(baseModel).selectedWacc;
+  baseModel.terminalRoic = Math.round(estimateTerminalRoic(data.historical, baseModel.normalizedTaxRate, selectedWacc).value * 100) / 100;
   return baseModel;
+}
+
+function mergeSupplementalCompany(core: CompanyData, fullData: CompanyData): CompanyData {
+  return {
+    ...core,
+    coverage: "full",
+    source: fullData.source,
+    retrievedAt: fullData.retrievedAt,
+    qualityNotes: fullData.qualityNotes,
+    company: {
+      ...core.company,
+      description: fullData.company.description,
+      descriptionSource: fullData.company.descriptionSource,
+      country: fullData.company.country,
+    },
+    comparison: fullData.comparison,
+    businessAnalysis: fullData.businessAnalysis,
+  };
 }
 
 const calculate = (data: CompanyData, model: Model, method: Method, overrides: { wacc?: number; terminalGrowth?: number; exitMultiple?: number } = {}) =>
@@ -231,9 +254,9 @@ function EquationLine({ operator, label, value, emphasis = "" }: { operator: str
 
 function ValuationBridge({ title, result, model, method, data }: { title: string; result: ReturnType<typeof calculate>; model: Model; method: Method; data: CompanyData }) {
   const industryGrowth = data.comparison?.industryGrowthRate ?? null;
-  const closePeers = (data.comparison?.peers || []).filter((peer) => peer.peerFit !== "adjacent");
-  const peerMultiples = closePeers.map((peer) => peer.evToEbitda).filter((value): value is number => value !== null && Number.isFinite(value));
-  const medianMultiple = peerMultiples.length >= 2 ? validMedian(peerMultiples) : null;
+  const benchmark = peerExitBenchmark(data.comparison?.peers || []);
+  const peerMultiples = benchmark.values;
+  const averageMultiple = benchmark.selected;
   const impliedExitMultiple = result.terminalEbitda > 0 ? result.terminalValue / result.terminalEbitda : null;
   const terminalFcfYield = result.terminalValue > 0 ? result.terminalFcf / result.terminalValue : null;
   const impliedGrowth = terminalFcfYield === null ? null : (result.waccPercent / 100 - terminalFcfYield) / (1 + terminalFcfYield) * 100;
@@ -247,7 +270,7 @@ function ValuationBridge({ title, result, model, method, data }: { title: string
       <div className="equation-context"><span>Growth <b>{fmt.format(model.terminalGrowth)}%</b></span><span><DefinedTerm term="terminalRoic">ROIC</DefinedTerm> <b>{fmt.format(model.terminalRoic)}%</b></span><span>Reinvestment <b>{result.terminalReinvestmentRate === null ? "N/A" : `${fmt.format(result.terminalReinvestmentRate * 100)}%`}</b></span><span>Peer growth <b>{industryGrowth === null ? "N/A" : `${fmt.format(industryGrowth)}%`}</b></span><span>Implied exit multiple <b>{impliedExitMultiple === null ? "N/A" : `${fmt.format(impliedExitMultiple)}×`}</b></span></div>
     </> : <>
       <div className="terminal-equation"><div><span><DefinedTerm term="terminalValue">Terminal value</DefinedTerm></span><code>{fmt.format(result.terminalEbitda)} Year-5 EBITDA × {fmt.format(model.exitMultiple)}×</code></div><b>{validMoney(result.terminalValue)}</b></div>
-      <div className="equation-context"><span>Year-5 <DefinedTerm term="ebitda">EBITDA</DefinedTerm> <b>{usd0.format(result.terminalEbitda)}M</b></span><span>Exit multiple <b>{fmt.format(model.exitMultiple)}×</b></span><span>Peer median <b>{medianMultiple === null ? "N/A" : `${fmt.format(medianMultiple)}×`}</b></span><span>Peer range <b>{peerMultiples.length ? `${fmt.format(Math.min(...peerMultiples))} to ${fmt.format(Math.max(...peerMultiples))}×` : "N/A"}</b></span><span>Implied growth <b>{impliedGrowth === null ? "N/A" : `${fmt.format(impliedGrowth)}%`}</b></span></div>
+      <div className="equation-context"><span>Year-5 <DefinedTerm term="ebitda">EBITDA</DefinedTerm> <b>{usd0.format(result.terminalEbitda)}M</b></span><span>Exit multiple <b>{fmt.format(model.exitMultiple)}×</b></span><span>Usable-peer median <b>{averageMultiple === null ? "N/A" : `${fmt.format(averageMultiple)}×`}</b></span><span>Reported peer range <b>{peerMultiples.length ? `${fmt.format(Math.min(...peerMultiples))} to ${fmt.format(Math.max(...peerMultiples))}×` : "N/A"}</b></span><span>Implied growth <b>{impliedGrowth === null ? "N/A" : `${fmt.format(impliedGrowth)}%`}</b></span></div>
     </>}
     <div className="equation-flow">
       <EquationLine operator="" label={<><DefinedTerm term="pv">PV</DefinedTerm> of forecast <DefinedTerm term="ufcf">UFCF</DefinedTerm></>} value={`${usd0.format(result.pvForecast)}M`}/>
@@ -269,7 +292,7 @@ function SensitivityTable({ data, model, method }: { data: CompanyData; model: M
   const waccs = [-1, -.5, 0, .5, 1].map((shift) => Math.max(1, selectedWacc + shift));
   const columns = method === "perpetuity"
     ? [-1, -.5, 0, .5, 1].map((shift) => Math.max(0, model.terminalGrowth + shift))
-    : [-4, -2, 0, 2, 4].map((shift) => Math.max(1, model.exitMultiple + shift));
+    : [-4, -2, 0, 2, 4].map((shift) => model.exitMultiple + shift);
   return <div className="sensitivity-wrap">
     <div className={dashboardStyles.sensitivityTitle}><b>{method === "perpetuity" ? "Perpetual growth" : "Exit multiple"}</b><span>Rows: WACC · Columns: {method === "perpetuity" ? "long-term growth" : "exit multiple"}</span></div>
     <div className="table-scroll"><table className="sensitivity-table" aria-label={`${method === "perpetuity" ? "Perpetual growth" : "Exit multiple"} implied price sensitivity`}><thead><tr><th><DefinedTerm term="wacc">WACC</DefinedTerm> ↓</th>{columns.map((value) => <th key={value}>{fmt.format(value)}{method === "perpetuity" ? "%" : "×"}</th>)}</tr></thead><tbody>
@@ -300,7 +323,10 @@ function MethodAudit() {
 export default function Home() {
   const [ticker, setTicker] = useState("");
   const [data, setData] = useState<CompanyData>(demo);
-  const [model, setModel] = useState<Model>(() => buildModel(demo));
+  const [modelInputs, setModel] = useState<Model>(() => buildModel(demo));
+  const [manualExitMultiple, setManualExitMultiple] = useState(false);
+  const exitBenchmark = useMemo(() => peerExitBenchmark(data.comparison?.peers || []), [data.comparison]);
+
   const [loading, setLoading] = useState(false);
   const [companyReady, setCompanyReady] = useState(false);
   const [startingExample, setStartingExample] = useState(LARGE_COMPANY_EXAMPLES[0]);
@@ -308,22 +334,46 @@ export default function Home() {
   const [exportingExcel, setExportingExcel] = useState(false);
   const [excelExportError, setExcelExportError] = useState("");
   const [error, setError] = useState("");
-  const [dismissedWarningKey, setDismissedWarningKey] = useState("");
   const companyRequestController = useRef<AbortController | null>(null);
   const supplementalRequestController = useRef<AbortController | null>(null);
   const supplementalTimer = useRef<number | null>(null);
   const companyRequestVersion = useRef(0);
   const dailyHistoryRetries = useRef(new Set<string>());
+  const [editedFields, setEditedFields] = useState<string[]>([]);
+  const [editedForecastFields, setEditedForecastFields] = useState<Record<string, string[]>>({});
+  const modelOwner = useRef("");
+  const installModel = (company: CompanyData) => {
+    const saved = readModel(company.company.symbol);
+    setEditedFields(saved?.editedFields || []);
+    setEditedForecastFields(restoredForecastEdits(buildModel(company), saved));
+    modelOwner.current = company.company.symbol;
+    setModel(restoreModel(buildModel(company), saved));
+    setManualExitMultiple(saved?.manualExitMultiple || false);
+  };
+  const model = useMemo(() => {
+    const sourceInputOverrides: string[] = [];
+    if (editedFields.includes("cash")) sourceInputOverrides.push("cash");
+    if (editedFields.includes("shortDebt") && editedFields.includes("longDebt")) sourceInputOverrides.push("debt");
+    for (const [source, driver] of [["ebit", "ebitMargin"], ["depreciation", "daPercent"], ["capex", "capexPercent"]]) {
+      if (modelInputs.forecastDrivers.every((_, index) => editedForecastFields[String(index)]?.includes(driver))) sourceInputOverrides.push(source);
+    }
+    return {
+      ...modelInputs,
+      sourceInputOverrides,
+      // Peer data is enriched after the core valuation response. Keep the
+      // model's sector-based multiple until a usable peer benchmark arrives.
+      exitMultiple: manualExitMultiple
+        ? modelInputs.exitMultiple
+        : data.coverage === "full"
+          ? exitBenchmark.selected ?? 0
+          : modelInputs.exitMultiple,
+    };
+  }, [modelInputs, manualExitMultiple, exitBenchmark.selected, editedFields, editedForecastFields, data.coverage]);
   const rec = useMemo(() => recommendations(data), [data]);
   const perpetuity = useMemo(() => calculate(data, model, "perpetuity"), [data, model]);
   const multiple = useMemo(() => calculate(data, model, "multiple"), [data, model]);
-  const dcfReliability = useMemo(
-    () => assessDcfReliability(data, model, perpetuity, multiple),
-    [data, model, perpetuity, multiple],
-  );
   const dcfApplicability = useMemo(() => assessStandardDcfApplicability(data), [data]);
   const modelUnsupported = !dcfApplicability.supported;
-  const warningKey = `${data.company.symbol}:${dcfReliability.level}:${dcfReliability.reasons.map((reason) => `${reason.label}:${reason.detail}`).join("|")}`;
   const result = perpetuity;
   const financialUnsupported = isStandardDcfUnsupported(data.company);
   const risks = useMemo(
@@ -331,6 +381,7 @@ export default function Home() {
     [data, financialUnsupported, model, perpetuity, multiple],
   );
   const priceContext = marketPriceContext(data);
+  const terminalRoicBasis = useMemo(() => estimateTerminalRoic(data.historical, model.normalizedTaxRate, calculateWacc(model).selectedWacc), [data.historical, model]);
   const forecastConfidence = data.forecast && data.businessAnalysis?.filing ? "Moderate" : "Low";
   const turnaroundCaveat = data.metrics.ebitMargin < 0 && (model.forecastDrivers.at(-1)?.ebitMargin ?? 0) > 0
     ? ` The automatic scenario assumes EBIT margin improves from ${fmt.format(data.metrics.ebitMargin)}% in the latest period to ${fmt.format(model.forecastDrivers.at(-1)!.ebitMargin)}% in the final explicit year. That turnaround is not analyst consensus and should be replaced with a defensible operating plan.`
@@ -338,13 +389,19 @@ export default function Home() {
   const forecastConfidenceDetail = data.forecast
     ? `Only the first two revenue years use an external consensus source. Years 3–6 and all margin, tax, D&A, capex, and working-capital drivers are editable model estimates.${data.businessAnalysis?.filing ? " Filing data was available." : " SEC filing data was unavailable."}${turnaroundCaveat}`
     : `No validated analyst revenue forecast was available. All six annual operating forecasts are editable model estimates.${turnaroundCaveat}`;
-  type NumericModelKey = Exclude<keyof Model, "valuationDate" | "forecastDrivers">;
-  const update = (key: NumericModelKey, value: number) => setModel((current) => ({ ...current, [key]: value }));
-  const updateValuationDate = (value: string) => setModel((current) => ({ ...current, valuationDate: value }));
-  const updateForecastDriver = (index: number, key: Exclude<keyof ForecastDriver, "periodEnd" | "source">, value: number) => setModel((current) => ({
+  type NumericModelKey = Exclude<keyof Model, "valuationDate" | "forecastDrivers" | "sourceInputOverrides">;
+  const update = (key: NumericModelKey, value: number) => {
+    setEditedFields((current) => [...new Set([...current, key])]);
+    if (key === "exitMultiple") setManualExitMultiple(true);
+    setModel((current) => ({ ...current, [key]: value }));
+  };
+  const updateValuationDate = (value: string) => { setEditedFields((current) => [...new Set([...current, "valuationDate"])]); setModel((current) => ({ ...current, valuationDate: value })); };
+  const updateForecastDriver = (index: number, key: Exclude<keyof ForecastDriver, "periodEnd" | "source">, value: number) => {
+    setEditedForecastFields((current) => ({ ...current, [String(index)]: [...new Set([...(current[String(index)] || []), key])] }));
+    setModel((current) => ({
     ...current,
     forecastDrivers: current.forecastDrivers.map((driver, driverIndex) => driverIndex === index ? { ...driver, [key]: value } : driver),
-  }));
+  })); };
 
   useEffect(() => {
     let active = true;
@@ -362,9 +419,8 @@ export default function Home() {
       const cached = readCompanyData(initialCompany.symbol);
       if (cached) {
         setData(cached);
-        setModel(buildModel(cached));
+        installModel(cached);
         setTicker(cached.company.symbol);
-        setCompanyReady(true);
       }
       void loadCompany(initialCompany.symbol);
     });
@@ -375,6 +431,11 @@ export default function Home() {
       if (supplementalTimer.current !== null) window.clearTimeout(supplementalTimer.current);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps -- Initial company loading runs once per page mount.
+
+  useEffect(() => {
+    if (!companyReady || modelOwner.current !== data.company.symbol) return;
+    saveModel(data.company.symbol, { model: modelInputs, manualExitMultiple, editedFields, editedForecastFields });
+  }, [companyReady, data.company.symbol, modelInputs, manualExitMultiple, editedFields, editedForecastFields]);
 
   useEffect(() => {
     if (!companyReady) return;
@@ -404,12 +465,13 @@ export default function Home() {
     if (supplementalTimer.current !== null) window.clearTimeout(supplementalTimer.current);
     const controller = new AbortController();
     const requestVersion = companyRequestVersion.current + 1;
-    const replacingCompany = companyReady && data.company.symbol !== symbol;
     companyRequestController.current = controller;
     companyRequestVersion.current = requestVersion;
     setStartingExample({ symbol, name: symbol });
     setTicker(symbol);
-    if (replacingCompany) setCompanyReady(false);
+    // Do not present cached or previous-ticker calculations as final while the
+    // current ticker's valuation payload is still being refreshed.
+    setCompanyReady(false);
     setLoading(true);
     setError("");
     try {
@@ -417,20 +479,33 @@ export default function Home() {
         signal: controller.signal,
         cache: forceRefresh ? "reload" : "default",
       });
-      const json = await response.json();
+      const payload = await response.json();
+      let json = response.ok ? await refreshManualPeers(withManualPeers(payload), { force: forceRefresh, signal: controller.signal }) : payload;
       if (!response.ok) throw new Error(apiErrorMessage(json, "Unable to load company."));
+      if (peerExitBenchmark(json.comparison?.peers || []).selected === null) {
+        const fullResponse = await fetch(`/api/company?symbol=${encodeURIComponent(symbol)}`, {
+          signal: controller.signal,
+          cache: forceRefresh ? "reload" : "default",
+        });
+        if (fullResponse.ok) {
+          const fullPayload = await fullResponse.json();
+          const fullData = await refreshManualPeers(withManualPeers(fullPayload), { force: forceRefresh, signal: controller.signal });
+          json = mergeSupplementalCompany(json, fullData);
+        }
+      }
       if (requestVersion !== companyRequestVersion.current) return;
-      setData((current) => current.company.symbol === json.company.symbol && current.coverage === "full" ? {
+      setData((current) => current.company.symbol === json.company.symbol && current.coverage === "full" && !forceRefresh && !companyDataStale(current) ? {
         ...json,
         coverage: "full",
+        retrievedAt: current.retrievedAt,
         comparison: current.comparison,
         businessAnalysis: current.businessAnalysis,
       } : json);
-      setModel(buildModel(json));
+      installModel(json);
       setTicker(json.company.symbol);
       setCompanyReady(true);
       window.history.replaceState(null, "", `/?symbol=${encodeURIComponent(json.company.symbol)}`);
-      if (readCompanyData(json.company.symbol)?.coverage !== "full") {
+      if (json.coverage !== "full" && (forceRefresh || readCompanyData(json.company.symbol)?.coverage !== "full" || companyDataStale(readCompanyData(json.company.symbol)))) {
         supplementalTimer.current = window.setTimeout(() => void loadSupplementalCompany(json.company.symbol, requestVersion), 500);
       }
     } catch (caught) {
@@ -451,22 +526,10 @@ export default function Home() {
     supplementalRequestController.current = controller;
     try {
       const response = await fetch(`/api/company?symbol=${encodeURIComponent(symbol)}`, { signal: controller.signal });
-      const fullData = await response.json();
+      const payload = await response.json();
+      const fullData = response.ok ? await refreshManualPeers(withManualPeers(payload), { signal: controller.signal }) : payload;
       if (!response.ok || controller.signal.aborted || requestVersion !== companyRequestVersion.current) return;
-      setData((current) => current.company.symbol === symbol ? {
-        ...current,
-        coverage: "full",
-        source: fullData.source,
-        qualityNotes: fullData.qualityNotes,
-        company: {
-          ...current.company,
-          description: fullData.company.description,
-          descriptionSource: fullData.company.descriptionSource,
-          country: fullData.company.country,
-        },
-        comparison: fullData.comparison,
-        businessAnalysis: fullData.businessAnalysis,
-      } : current);
+      setData((current) => current.company.symbol === symbol ? mergeSupplementalCompany(current, fullData) : current);
     } catch {
       // Research-only enrichment must not interrupt an already usable valuation.
     } finally {
@@ -518,6 +581,10 @@ export default function Home() {
           source: data.source,
           asOf: data.asOf,
           sharesSource: data.market.sharesSource,
+          denomination: data.denomination,
+          shareBasis: data.shareBasis,
+          retrievedAt: data.retrievedAt,
+          missingFinancialInputs: data.missingFinancialInputs,
           metrics: { revenue: data.metrics.revenue, ebitMargin: data.metrics.ebitMargin, cash: data.metrics.cash },
           market: {
             priceHistory: [...(data.market.priceHistory || [])]
@@ -528,6 +595,7 @@ export default function Home() {
           model,
           comparison: data.comparison ? {
             nicheLabel: data.comparison.nicheLabel,
+            company: data.comparison.company,
             peers: data.comparison.peers,
           } : undefined,
         }),
@@ -558,11 +626,11 @@ export default function Home() {
   const grossProfit = (row: HistoricalRow) => row.cogs === undefined ? null : row.revenue - row.cogs;
   const operatingExpenses = (row: HistoricalRow) => {
     const gross = grossProfit(row);
-    return gross === null ? null : gross - row.ebit;
+    return gross === null || row.missingFields?.includes("ebit") ? null : gross - row.ebit;
   };
   const operatingTax = (row: HistoricalRow) => {
     const rate = historicalEffectiveTaxRate(row);
-    return rate === null ? null : Math.max(0, row.ebit * rate / 100);
+    return rate === null || row.missingFields?.includes("ebit") ? null : Math.max(0, row.ebit * rate / 100);
   };
   const tableRows: Array<{ label: string; actuals: Array<number | null>; values: Array<number | null>; terminal?: number | null; type?: "percent" | "factor" | "total" | "negative" }> = [
     { label: "Revenue", actuals: actualValues((row) => row.revenue), values: result.years.map((year) => year.revenue) },
@@ -573,27 +641,27 @@ export default function Home() {
     { label: "Gross Margin", actuals: actualValues((row) => row.grossMargin ?? null), values: result.years.map((year) => year.grossMargin), type: "percent" },
     { label: "Less: Operating Expenses", actuals: actualValues(operatingExpenses), values: result.years.map((year) => year.operatingExpenses), type: "negative" },
     { label: "Operating Expenses / Revenue", actuals: actualValues((row) => { const expenses = operatingExpenses(row); return expenses === null || !row.revenue ? null : expenses / row.revenue * 100; }), values: result.years.map((year) => year.operatingExpenses / year.revenue * 100), type: "percent" },
-    { label: "Operating Income", actuals: actualValues((row) => row.ebit), values: result.years.map((year) => year.ebit), type: "total" },
-    { label: "Operating Margin", actuals: actualValues((row) => row.ebitMargin), values: result.years.map((year) => year.margin), type: "percent" },
+    { label: "Operating Income", actuals: actualValues((row) => row.missingFields?.includes("ebit") ? null : row.ebit), values: result.years.map((year) => year.ebit), type: "total" },
+    { label: "Operating Margin", actuals: actualValues((row) => row.missingFields?.includes("ebitMargin") ? null : row.ebitMargin), values: result.years.map((year) => year.margin), type: "percent" },
     { label: "Less: Tax on Operating Income", actuals: actualValues(operatingTax), values: result.years.map((year) => year.tax), type: "negative" },
     { label: "Operating Tax Rate", actuals: actualValues(historicalEffectiveTaxRate), values: result.years.map((year) => year.taxRate), type: "percent" },
     { label: "NOPAT", actuals: actualValues((row) => { const tax = operatingTax(row); return tax === null ? null : row.ebit - tax; }), values: result.years.map((year) => year.nopat), terminal: result.terminalNopat, type: "total" },
-    { label: "Plus: Depreciation & Amortization", actuals: actualValues((row) => row.depreciation), values: result.years.map((year) => year.depreciation) },
+    { label: "Plus: Depreciation & Amortization", actuals: actualValues((row) => row.missingFields?.includes("depreciation") ? null : row.depreciation), values: result.years.map((year) => year.depreciation) },
     { label: "D&A / Revenue", actuals: actualValues((row) => row.revenue ? row.depreciation / row.revenue * 100 : null), values: result.years.map((year) => year.daPercent), type: "percent" },
-    { label: "Less: Capital Expenditure", actuals: actualValues((row) => row.capex), values: result.years.map((year) => year.capex), type: "negative" },
+    { label: "Less: Capital Expenditure", actuals: actualValues((row) => row.missingFields?.includes("capex") ? null : row.capex), values: result.years.map((year) => year.capex), type: "negative" },
     { label: "Capex / Revenue", actuals: actualValues((row) => row.capexPercentRevenue), values: result.years.map((year) => year.capexPercent), type: "percent" },
     { label: "Less: Changes in Net Working Capital", actuals: actualValues(() => null), values: result.years.map((year) => year.changeNwc), type: "negative" },
     { label: "Changes in NWC / Revenue", actuals: actualValues(() => null), values: result.years.map((year) => year.nwcPercent), type: "percent" },
     { label: "Plus: Changes in Net Long-Term Deferred Tax Liabilities", actuals: actualValues(() => null), values: result.years.map((year) => year.deferredTax) },
     { label: "Deferred Tax Change / Revenue", actuals: actualValues(() => null), values: result.years.map((year) => year.deferredTaxPercent), type: "percent" },
-    { label: "Plus: Other Estimated Non-Cash Adjustments", actuals: actualValues(() => null), values: result.years.map((year) => year.otherNonCash) },
+    { label: "Other Operating Cash-Flow Adjustments", actuals: actualValues(() => null), values: result.years.map((year) => year.otherNonCash) },
     { label: "Terminal Reinvestment / NOPAT", actuals: actualValues(() => null), values: result.years.map(() => null), terminal: result.terminalReinvestmentRate === null ? null : result.terminalReinvestmentRate * 100, type: "percent" },
     { label: "Unlevered Free Cash Flow (UFCF)", actuals: actualValues((row) => historicalUfcf(row, model.normalizedTaxRate)), values: result.years.map((year) => year.fcf), terminal: result.terminalFcf, type: "total" },
     { label: "% of FCF Discounted", actuals: actualValues(() => null), values: result.years.map((year) => year.weight * 100), type: "percent" },
     { label: "Mid-Year Discount Period", actuals: actualValues(() => null), values: result.years.map((year) => year.discountPeriod), type: "factor" },
     { label: "Discount Factor", actuals: actualValues(() => null), values: result.years.map((year) => year.discountFactor), type: "factor" },
     { label: "Present Value of Free Cash Flow", actuals: actualValues(() => null), values: result.years.map((year) => year.pv), terminal: result.pvForecast, type: "total" },
-    { label: "EBITDA", actuals: actualValues((row) => row.ebit + row.depreciation), values: result.years.map((year) => year.ebitda), terminal: result.terminalEbitda, type: "total" },
+    { label: "EBITDA", actuals: actualValues((row) => row.missingFields?.some((field) => ["ebit", "depreciation"].includes(field)) ? null : row.ebit + row.depreciation), values: result.years.map((year) => year.ebitda), terminal: result.terminalEbitda, type: "total" },
   ];
   const formatCell = (value: number | null, type?: string) => {
     if (value === null || !Number.isFinite(value)) return "N/A";
@@ -610,7 +678,7 @@ export default function Home() {
   const equityRiskPremium = model.equityRiskPremium;
   const preTaxDebt = model.preTaxCostDebt;
   const workbookFormula = {
-    dcf: "UFCF = EBIT × (1 − Tax Rate) + D&A − Capex − ΔNWC + Δ Deferred Tax + Other Non-Cash Adjustments",
+    dcf: "UFCF = EBIT × (1 − Tax Rate) + D&A − Capex − ΔNWC + Δ Deferred Tax + Other Operating Adjustments",
     valuation: "Equity Value = Enterprise Value + Cash − Debt − Other Non-Equity Claims",
     sensitivity: "Implied Share Price = Equity Value ÷ Fully Diluted Shares",
   };
@@ -627,7 +695,7 @@ export default function Home() {
   ];
   const workbookMoney = (value: number) => value < 0 ? `(${usd0.format(Math.abs(value))}M)` : `${usd0.format(value)}M`;
   return <main className="sleek-app">
-    <CompanyNavigation symbol={companyReady ? data.company.symbol : undefined} name={companyReady ? data.company.name : undefined} active="model"/>
+    <CompanyNavigation symbol={companyReady ? data.company.symbol : startingExample.symbol} name={companyReady ? data.company.name : undefined} active="model"/>
     <header id="top" className={dashboardStyles.commandBar}>
       <div className={dashboardStyles.commandInner}>
         <h1><span>DCF Calculator</span></h1>
@@ -635,10 +703,6 @@ export default function Home() {
         {error && <div className="api-error"><b>Data connection:</b> {error}</div>}
       </div>
     </header>
-
-    {companyReady && dcfReliability.level !== "clear" && dismissedWarningKey !== warningKey
-      ? <DcfWarningDialog warning={dcfReliability} onDismiss={() => setDismissedWarningKey(warningKey)}/>
-      : null}
 
     {!companyReady ? <DcfSummarySkeleton symbol={startingExample.symbol}/> : <div className="model-pages">
     {!dcfApplicability.supported && <section className="sheet-section sector-notice"><div className="section-heading"><div><p>MODEL LIMIT</p><h2>This automated DCF is not suitable for {data.company.name}</h2></div></div><p>{dcfApplicability.detail}</p></section>}
@@ -685,16 +749,16 @@ export default function Home() {
 
     {!modelUnsupported && activeWorkspace === "valuation" && <section className={`${dashboardStyles.detailPanel} sheet-section`} id="detail-workspace" role="tabpanel" aria-labelledby="valuation-title">
       <div className="section-heading"><div><h2 id="valuation-title">Valuation</h2></div></div>
-      <div className={dashboardStyles.sensitivityPanel}><div className="sensitivity-grid workbook-sensitivity"><SensitivityTable data={data} model={model} method="perpetuity"/><SensitivityTable data={data} model={model} method="multiple"/></div></div>
+      <div className={dashboardStyles.sensitivityPanel}><div className="sensitivity-grid workbook-sensitivity"><SensitivityTable data={data} model={model} method="perpetuity"/>{model.exitMultiple > 0 ? <SensitivityTable data={data} model={model} method="multiple"/> : <div className="unavailable-sensitivity"><h3>Exit multiple unavailable</h3><p>{exitBenchmark.reason}</p><Link href={`/company-analysis?symbol=${encodeURIComponent(data.company.symbol)}#competitors`}>Review comparable companies →</Link></div>}</div></div>
       <details className={dashboardStyles.inlineDisclosure}><summary>DCF output</summary><div><DcfCashFlowOutput result={perpetuity}/></div></details>
       <details className={dashboardStyles.inlineDisclosure}><summary>Enterprise-to-equity bridge</summary><div className="workbook-shell"><div className="formula-bar"><b>fx</b><code>{workbookFormula.valuation}</code></div><div className="workbook-panel"><div className="model-table-wrap"><table className="workbook-table valuation-workbook"><thead><tr><th>Valuation bridge</th><th>Perpetual growth</th><th>Exit multiple</th></tr></thead><tbody>{valuationSheet.map(([label, perpetuityValue, multipleValue]) => <tr className={["Enterprise value", "Equity value"].includes(String(label)) ? "workbook-total" : ""} key={String(label)}><td>{label}</td><td>{perpetuity.valid ? workbookMoney(Number(perpetuityValue)) : "N/A"}</td><td>{multiple.valid ? workbookMoney(Number(multipleValue)) : "N/A"}</td></tr>)}<tr><td>Share count used</td><td>{fmt.format(model.shares)}M</td><td>{fmt.format(model.shares)}M</td></tr><tr className="workbook-answer"><td>Implied value per share</td><td>{perpetuity.valid ? usd.format(perpetuity.perShare) : "N/A"}</td><td>{multiple.valid ? usd.format(multiple.perShare) : "N/A"}</td></tr></tbody></table></div></div></div></details>
     </section>}
 
     {!modelUnsupported && activeWorkspace === "assumptions" && <section className={`${dashboardStyles.detailPanel} sheet-section`} id="detail-workspace" role="tabpanel" aria-labelledby="assumptions-title">
       <div className="section-heading"><div><h2 id="assumptions-title">Assumptions</h2></div></div>
-      <div className="recommendation"><b>{data.comparison?.nicheLabel || data.company.industry} starting point</b><p>{rec.note}</p><span>{data.forecast ? `Revenue years 1–2: ${data.forecast.source}${data.forecast.asOf ? ` (${data.forecast.asOf})` : ""}. Years 3–6: editable estimates.` : "No analyst forecast found; all six years are editable estimates."}</span><span> ΔNWC defaults to 2% of incremental revenue. Deferred tax and other non-cash adjustments default to 0%.</span></div>
+      <div className="recommendation"><b>{data.comparison?.nicheLabel || data.company.industry} starting point</b><p>{rec.note}</p><span>{data.forecast ? `Revenue years 1–2: ${data.forecast.source}${data.forecast.asOf ? ` (${data.forecast.asOf})` : ""}. Years 3–6: editable estimates.` : "No analyst forecast found; all six years are editable estimates."}</span><span> ΔNWC defaults to 2% of incremental revenue. Deferred tax and other operating adjustments default to 0% unless a recurring item can be supported.</span></div>
       <div className="forecast-editor"><div className="sheet-bar">Fiscal forecast drivers · each green cell is editable</div><div className="table-scroll"><table><thead><tr><th>Driver</th>{model.forecastDrivers.map((driver) => <th key={driver.periodEnd}>{fiscalPeriodLabel(driver.periodEnd)}</th>)}</tr></thead><tbody>{([
-        ["Revenue growth", "revenueGrowth"], ["Gross margin", "grossMargin"], ["EBIT margin", "ebitMargin"], ["Tax rate", "taxRate"], ["D&A / revenue", "daPercent"], ["Capex / revenue", "capexPercent"], ["ΔNWC / revenue", "changeNwcPercent"], ["Deferred tax / revenue", "deferredTaxPercent"], ["Other non-cash / revenue", "otherNonCashPercent"],
+        ["Revenue growth", "revenueGrowth"], ["Gross margin", "grossMargin"], ["EBIT margin", "ebitMargin"], ["Tax rate", "taxRate"], ["D&A / revenue", "daPercent"], ["Capex / revenue", "capexPercent"], ["ΔNWC / revenue", "changeNwcPercent"], ["Deferred tax / revenue", "deferredTaxPercent"], ["Other operating adjustment / revenue", "otherNonCashPercent"],
       ] as Array<[string, Exclude<keyof ForecastDriver, "periodEnd" | "source">]>).map(([label, key]) => <tr key={key}><th><DcfRowLabel label={label}/></th>{model.forecastDrivers.map((driver, index) => <td key={driver.periodEnd}><input aria-label={`${label} ${driver.periodEnd}`} type="number" step="0.1" value={driver[key]} onChange={(event) => updateForecastDriver(index, key, Number(event.target.value))}/><span>%</span></td>)}</tr>)}<tr className="forecast-source-row"><th>Source status</th>{model.forecastDrivers.map((driver) => <td key={driver.periodEnd}>{driver.source}</td>)}</tr></tbody></table></div></div>
       <div className="assumption-grid">
         <DateField id="assumption-valuation-date" value={model.valuationDate} help="Sets the start of the exact five-year valuation window. It changes the partial weighting of the first and sixth fiscal-year forecasts." onChange={updateValuationDate}/>
@@ -703,19 +767,20 @@ export default function Home() {
         <NumberField label="Beta" term="beta" value={model.beta} suffix="×" help="Equity market sensitivity. Verify the period, frequency, and peer unlevering method before using it in a high-stakes valuation." onChange={(value) => update("beta", value)}/>
         <NumberField label="Equity risk premium" term="equityRiskPremium" value={model.equityRiskPremium} suffix="%" help="Current implied market premium when available; editable." onChange={(value) => update("equityRiskPremium", value)}/>
         <NumberField label="Pre-tax cost of debt" term="preTaxCostOfDebt" value={model.preTaxCostDebt} suffix="%" help="Use a forward borrowing rate or bond yield when available. The automatic value may be a trailing interest-expense proxy." onChange={(value) => update("preTaxCostDebt", value)}/>
-        <NumberField label="Company-specific risk premium" value={model.companyRiskPremium} suffix="%" help={/fallback|insufficient/i.test(data.market.betaSource || "") ? `Beta history was insufficient, so this starts at the gap between formula WACC and the ${pct2.format(rec.wacc)}% industry WACC starting point. Replace it with a bottom-up beta when possible; do not also penalize the same risk in cash flows.` : "Optional judgment adjustment. It starts at 0% to avoid automatically double counting risks already reflected in beta, borrowing costs, or cash-flow forecasts."} onChange={(value) => update("companyRiskPremium", value)}/>
+        <NumberField label="Company-specific risk premium" value={model.companyRiskPremium} suffix="%" help="Optional judgment adjustment. It starts at 0% and is never used to force WACC toward an industry target. Do not also penalize the same risk in forecast cash flows." onChange={(value) => update("companyRiskPremium", value)}/>
         <NumberField id="assumption-terminal-growth" label="Terminal growth" term="terminalGrowth" value={model.terminalGrowth} suffix="%" help="Long-run growth after Year 5. It must remain below WACC and should generally not exceed the same-currency risk-free rate." onChange={(value) => update("terminalGrowth", value)}/>
-        <NumberField label="Terminal ROIC" term="terminalRoic" value={model.terminalRoic} suffix="%" help="Long-run return on new invested capital. The automatic starting point equals WACC, so new perpetual investment creates no excess value. Use a higher value only when durable competitive advantages support it." onChange={(value) => update("terminalRoic", value)}/>
-        <NumberField id="assumption-exit-multiple" label="Exit EBITDA multiple" term="exitMultiple" value={model.exitMultiple} suffix="×" help="Year 5 EBITDA valuation multiple used in the exit-multiple method." onChange={(value) => update("exitMultiple", value)}/>
-        <NumberField label="Market price used for comparison" term="marketPrice" value={model.marketPrice} suffix="$" help={`${priceContext.detail}. This input only calculates upside or downside; it does not change intrinsic value.`} onChange={(value) => update("marketPrice", value)}/>
-        <NumberField label="Cash and included investments" term="cash" value={model.cash} suffix="$M" help="Cash and marketable investments added in the enterprise-to-equity bridge. Reduce this input if part of the balance is required to operate the business rather than being excess cash." onChange={(value) => update("cash", value)}/>
+        <NumberField label="Terminal ROIC" term="terminalRoic" value={model.terminalRoic} suffix="%" help={`Long-run return on new invested capital. ${terminalRoicBasis.source} Replace it when company-specific evidence supports a different mature return.`} onChange={(value) => update("terminalRoic", value)}/>
+        <NumberField id="assumption-exit-multiple" label="Exit EBITDA multiple" term="exitMultiple" value={model.exitMultiple} suffix="×" unavailable={!manualExitMultiple && exitBenchmark.selected === null} help="Defaults to the median of at least three positive, non-extreme, operationally relevant peer EV / EBITDA LTM ratios. If coverage is too thin or dispersed, the automatic exit method is unavailable until you add defensible comps or enter a sourced override." onChange={(value) => update("exitMultiple", value)}/>
+        <div className="exit-comps-basis"><p>{manualExitMultiple ? "Manual override" : exitBenchmark.sufficient ? "Automatic: usable-peer median" : "Automatic multiple unavailable"} · {exitBenchmark.eligibleCount} usable of {data.comparison?.peers.length || 0} peers. {exitBenchmark.reason}</p><Link href={`/company-analysis?symbol=${encodeURIComponent(data.company.symbol)}#competitors`}>Review / add comps →</Link>{manualExitMultiple && <button type="button" onClick={() => { setEditedFields((current) => current.filter((field) => field !== "exitMultiple")); setManualExitMultiple(false); }}>Use peer median{exitBenchmark.selected === null ? "" : ` (${fmt.format(exitBenchmark.selected)}×)`}</button>}</div>
+        <NumberField label="Market price used for comparison" term="marketPrice" value={model.marketPrice} suffix="$" help={`${priceContext.detail}. Changing this input affects upside/downside and the market-equity weight in WACC, so it can also change the DCF value.`} onChange={(value) => update("marketPrice", value)}/>
+        <NumberField label="Cash and included investments" unavailable={data.missingFinancialInputs?.includes("cash") && !editedFields.includes("cash")} term="cash" value={model.cash} suffix="$M" help="Cash and marketable investments added in the enterprise-to-equity bridge. Reduce this input if part of the balance is required to operate the business rather than being excess cash." onChange={(value) => update("cash", value)}/>
         <NumberField label="Short-term debt" term="fundedDebt" value={model.shortDebt} suffix="$M" help="Current borrowings subtracted in the enterprise-to-equity bridge." onChange={(value) => update("shortDebt", value)}/>
         <NumberField label="Long-term debt" term="fundedDebt" value={model.longDebt} suffix="$M" help="Non-current borrowings subtracted in the enterprise-to-equity bridge." onChange={(value) => update("longDebt", value)}/>
         <NumberField label="Preferred & minority interests" term="fundedDebt" value={model.preferredInterest} suffix="$M" help="Other non-equity claims subtracted after funded debt. Preferred stock and non-controlling interests are included when SEC facts identify them. Operating leases are not automatically added because consistent capitalization also requires lease-adjusted EBIT, D&A, capex, and cash flow." onChange={(value) => update("preferredInterest", value)}/>
         <NumberField label="Share count used" term="dilutedShares" value={model.shares} suffix="M" help={`${data.market.sharesSource || "Free-data proxy"}. Replace it when a newer fully diluted share count is available.`} onChange={(value) => update("shares", value)}/>
       </div>
       <div className="assumption-bottom"><div className="wacc-table"><div className="sheet-bar"><DefinedTerm term="wacc">WACC</DefinedTerm></div><div><span><DefinedTerm term="costOfEquity">Cost of equity</DefinedTerm> = {pct2.format(riskFree)}% + {pct2.format(beta)}×{pct2.format(equityRiskPremium)}%</span><b>{pct2.format(costEquity)}%</b></div><div><span>After-tax debt cost = {pct2.format(preTaxDebt)}% × (1 − {pct2.format(model.normalizedTaxRate)}%)</span><b>{pct2.format(afterTaxDebt)}%</b></div><div><span>Capital mix</span><b>{pct2.format(equityWeight * 100)}% equity · {pct2.format(debtWeight * 100)}% debt</b></div><div><span>Base WACC</span><b>{pct2.format(referenceWacc)}%</b></div><div><span><DefinedTerm term="companySpecificPremium">Company premium</DefinedTerm></span><b>{pct2.format(model.companyRiskPremium)}%</b></div><div className="total"><span>Selected <DefinedTerm term="wacc">WACC</DefinedTerm></span><b>{pct2.format(selectedWacc)}%</b></div><small>WACC discounts future UFCF to today’s value. A higher WACC lowers the valuation.</small></div>
-        <div className="data-check"><div className="sheet-bar">Checking the data</div><ul>{(data.qualityNotes?.length ? data.qualityNotes : ["Sample data is active. Enter a ticker to load current public-company data."]).map((note) => <li key={note}>{note}</li>)}</ul></div>
+        <div className="data-check"><div className="sheet-bar">Checking the data</div><ul>{(data.qualityNotes?.length ? data.qualityNotes : ["Sample data is active. Enter a ticker to load current public-company data."]).map((note) => <li key={note}>{note}</li>)}</ul>{data.cashFlowReconciliation && <details><summary>Cash-flow reconciliation</summary><div className="cash-flow-reconciliation"><p>{data.cashFlowReconciliation.explanation}</p><dl><div><dt>Reported CFO less capex</dt><dd>{usd0.format(data.cashFlowReconciliation.reportedFreeCashFlow)}M</dd></div><div><dt>EBIT-derived starting bridge</dt><dd>{usd0.format(data.cashFlowReconciliation.ebitDerivedBeforeOtherItems)}M</dd></div><div><dt>Unreconciled cash conversion</dt><dd>{usd0.format(data.cashFlowReconciliation.residualCashConversion)}M</dd></div>{data.cashFlowReconciliation.knownDrivers.contractCostAssetChange !== null && <div><dt>Contract-cost asset change</dt><dd>{usd0.format(data.cashFlowReconciliation.knownDrivers.contractCostAssetChange)}M</dd></div>}{data.cashFlowReconciliation.knownDrivers.shareBasedCompensation !== null && <div><dt>Share-based compensation</dt><dd>{usd0.format(data.cashFlowReconciliation.knownDrivers.shareBasedCompensation)}M</dd></div>}</dl></div></details>}</div>
       </div>
     </section>}
 

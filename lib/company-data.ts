@@ -14,6 +14,7 @@ export type PricePoint = {
 export type HistoricalRow = {
   year: string;
   fiscalDate?: string;
+  missingFields?: string[];
   revenue: number;
   ebit: number;
   ebitMargin: number;
@@ -28,6 +29,11 @@ export type HistoricalRow = {
   incomeTax?: number;
   earningsBeforeTax?: number;
   netIncome?: number;
+  currentAssets?: number;
+  currentLiabilities?: number;
+  totalAssets?: number;
+  totalLiabilities?: number;
+  retainedEarnings?: number;
   cogs?: number;
   grossMargin?: number;
   shortDebt?: number;
@@ -40,6 +46,30 @@ export type HistoricalRow = {
   revenueNormalizedUnit?: "USD millions";
   revenuePeriodType?: "full-year";
   revenueReconciliation?: "matched" | "conflicting";
+};
+
+export type FinancialConceptObservation = {
+  concept: string;
+  value: number | null;
+  status: "reported" | "calculated" | "not-reported";
+  confidence: "high" | "medium" | "low";
+  method: "aggregate" | "component-sum" | "single-tag" | "unavailable";
+  rawTags: string[];
+  reason: string;
+  originalUnit: string;
+  normalizedUnit: string;
+  components: Array<{
+    tag: string;
+    value: number;
+    start: string | null;
+    end: string;
+    filed: string;
+    accession: string | null;
+    form: string;
+    unit: string;
+    originalUnit: string;
+    normalizedUnit: string;
+  }>;
 };
 
 export type RevenueReconciliation = {
@@ -71,6 +101,15 @@ export type RevenueDataQuality = {
 };
 
 export type ComparableCompany = {
+  ltmRevenue?: number | null;
+  ltmEbitda?: number | null;
+  financialsAsOf?: string;
+  balanceAsOf?: string;
+  forwardPeriodEnd?: string | null;
+  retrievedAt?: string;
+  sourceUrl?: string;
+  preferredInterest?: number | null;
+  dataNotes?: string[];
   symbol: string;
   name: string;
   description: string;
@@ -97,6 +136,7 @@ export type ComparableCompany = {
   pe: number | null;
   peerFit?: "focus" | "direct" | "close" | "adjacent";
   businessModel?: string;
+  manualAdded?: boolean;
   peerRationale?: string;
 };
 
@@ -163,10 +203,35 @@ export type BusinessAnalysis = {
 };
 
 export type CompanyData = {
+  missingFinancialInputs?: string[];
   coverage?: "valuation" | "full";
+  retrievedAt?: string;
   source: string;
   asOf: string;
   qualityNotes?: string[];
+  financialConcepts?: Record<string, FinancialConceptObservation> | null;
+  cashFlowReconciliation?: {
+    period: string;
+    reportedFreeCashFlow: number;
+    afterTaxInterest: number;
+    reportedUfcfProxy: number;
+    nopat: number;
+    depreciationAndAmortization: number;
+    capex: number;
+    ebitDerivedBeforeOtherItems: number;
+    residualCashConversion: number;
+    residualPercentRevenue: number | null;
+    status: "review" | "reconciled";
+    knownDrivers: {
+      shareBasedCompensation: number | null;
+      contractCostAmortization: number | null;
+      contractCostAssetChange: number | null;
+      deferredTaxCashFlowAdjustment: number | null;
+    };
+    explanation: string;
+  } | null;
+  denomination?: { quoteCurrency: string; financialDisplayCurrency: string; issuerReportingCurrency: string; normalizationStatus: string; fxRate: number | null; fxAsOf: string | null; sourceUrl: string; ordinarySharesPerQuotedSecurity: number | null; securitySourceUrl: string | null; verifiedAt: string };
+  shareBasis?: { annualDilutedShares: number | null; annualPeriodEnd: string | null; marketCapImpliedShares: number | null; currentFullyDilutedShares: number | null; status: string; securityRatio: number | null; sourceUrl: string | null };
   company: {
     symbol: string;
     name: string;

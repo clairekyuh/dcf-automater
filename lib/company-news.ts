@@ -127,7 +127,8 @@ export function selectRelevantNews(rows: NasdaqNewsRow[], symbol: string, name: 
     if (hardFluff.test(title)) return [];
 
     const text = `${title} ${row.description || ""}`;
-    const category = categories.find((item) => item.pattern.test(text));
+    const category = categories.find((item) => item.pattern.test(title))
+      || categories.find((item) => item.label !== "Regulation & legal" && item.pattern.test(text));
     const chatter = marketChatter.test(title);
     if (chatter && !concreteEvent.test(title)) return [];
 

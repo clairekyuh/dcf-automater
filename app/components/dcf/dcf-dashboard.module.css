@@ -143,69 +143,6 @@
   border-bottom: 1px solid #cbd1cc;
 }
 
-.warningBackdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 1200;
-  display: grid;
-  place-items: center;
-  padding: 16px;
-  background: rgba(10, 22, 17, .42);
-}
-
-.warningDialog {
-  width: min(400px, 100%);
-  max-height: calc(100vh - 32px);
-  overflow-y: auto;
-  border: 0;
-  border-left: 4px solid #a8372f;
-  background: #fff;
-  color: #14231d;
-  box-shadow: 0 14px 40px rgba(0, 0, 0, .2);
-}
-
-.warningDialogBlocked { border-left-color: #7f201a; }
-
-.warningHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 16px 16px 6px;
-}
-
-.warningHeader h2 {
-  margin: 0;
-  color: #892b24;
-  font-family: var(--font-h2);
-  font-size: 20px;
-  line-height: 1;
-}
-
-.warningClose {
-  width: 28px;
-  height: 28px;
-  border: 0;
-  background: transparent;
-  color: #5d625f;
-  font-size: 22px;
-  line-height: 1;
-}
-
-.warningClose:hover,
-.warningClose:focus-visible { background: #eee8e4; color: #892b24; outline: 2px solid #892b24; outline-offset: 1px; }
-
-.warningRisks {
-  margin: 0;
-  padding: 2px 16px 16px 32px;
-  color: #2d3933;
-  font-family: var(--font-body);
-  font-size: 12px;
-  line-height: 1.45;
-}
-.warningRisks li { padding: 2px 0; }
-.warningRisks strong { color: #2d3933; font-weight: 700; }
-
 .companyIdentity p,
 .companyIdentity span,
 .marketPrice span,
@@ -454,8 +391,6 @@
   .tickerSearch label { min-height: 52px; }
   .tickerSearch button { min-height: 48px; border-top: 1px solid #79867f; border-left: 0; }
   .companyRow { grid-template-columns: 1fr; gap: 24px; padding: 24px 0; }
-  .warningBackdrop { padding: 12px; }
-  .warningDialog { max-height: calc(100vh - 24px); }
   .loadingSummary { width: calc(100% - 32px); }
   .loadingCompanyRow { grid-template-columns: 1fr; gap: 24px; padding: 24px 0; }
   .loadingPrice { padding: 20px 0 0; border-top: 1px solid #cbd1cc; border-left: 0; }

@@ -46,11 +46,13 @@ export default function StockPriceChart({ points, symbol }: { points: PricePoint
     return sampled.filter((point) => new Date(`${point.date}T00:00:00Z`) >= cutoff);
   }, [period, sampled]);
 
-  if (filtered.length < 2) return <div className="chart-empty">Price history was not returned by Nasdaq for this ticker.</div>;
+  if (!points.length) return <div className="chart-empty">Price history was not returned by Nasdaq for this ticker.</div>;
+  const insufficient = filtered.length < 2;
+  const chartPoints = filtered.length ? filtered : points.slice(-1);
   const width = 900;
   const height = 330;
   const pad = { left: 68, right: 22, top: 24, bottom: 48 };
-  const prices = filtered.map((point) => point.close);
+  const prices = chartPoints.map((point) => point.close);
   const rawMin = Math.min(...prices);
   const rawMax = Math.max(...prices);
   const cushion = Math.max((rawMax - rawMin) * .1, rawMax * .02, 1);
@@ -61,8 +63,8 @@ export default function StockPriceChart({ points, symbol }: { points: PricePoint
   const line = filtered.map((point, index) => `${index ? "L" : "M"}${x(index).toFixed(1)},${y(point.close).toFixed(1)}`).join(" ");
   const area = `${line} L${x(filtered.length - 1)},${height - pad.bottom} L${x(0)},${height - pad.bottom} Z`;
   const tickIndexes = Array.from(new Set([0, .25, .5, .75, 1].map((ratio) => Math.round((filtered.length - 1) * ratio))));
-  const first = filtered[0];
-  const last = filtered[filtered.length - 1];
+  const first = chartPoints[0];
+  const last = chartPoints[chartPoints.length - 1];
   const change = (last.close / first.close - 1) * 100;
   const dateLabel = (date: string) => new Intl.DateTimeFormat("en-US", ["3M", "6M", "YTD"].includes(period)
     ? { month: "short", day: "numeric", timeZone: "UTC" }
@@ -78,20 +80,19 @@ export default function StockPriceChart({ points, symbol }: { points: PricePoint
   const fullDateLabel = (date: string) => new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }).format(new Date(`${date}T00:00:00Z`));
   const selectNearestPoint = (clientX: number, currentTarget: SVGRectElement) => {
     const bounds = currentTarget.getBoundingClientRect();
-    const chartX = (clientX - bounds.left) / Math.max(bounds.width, 1) * width;
-    const ratio = clamp((chartX - pad.left) / (width - pad.left - pad.right), 0, 1);
+    const ratio = clamp((clientX - bounds.left) / Math.max(bounds.width, 1), 0, 1);
     setHoveredIndex(Math.round(ratio * (filtered.length - 1)));
   };
   return <div className="price-chart-card">
     <div className="chart-head"><div><span>{symbol} {selectedInterval.heading} CLOSE</span><h3>{usd.format(last.close)} <i className={change >= 0 ? "positive" : "negative"}>{change >= 0 ? "+" : ""}{fmt.format(change)}%</i></h3></div><div className="chart-controls"><div className="chart-control-row"><span>RANGE</span><div className="period-toggle" role="group" aria-label="Stock-price time range">{periods.map((item) => <button type="button" aria-pressed={item === period} className={item === period ? "active" : ""} key={item} onClick={() => setPeriod(item)}>{item}</button>)}</div></div><div className="chart-control-row"><span>INTERVAL</span><div className="period-toggle interval-toggle" role="group" aria-label="Stock-price observation interval">{intervals.map((item) => <button type="button" aria-pressed={item.value === interval} className={item.value === interval ? "active" : ""} key={item.value} onClick={() => setInterval(item.value)}>{item.label}</button>)}</div></div></div></div>
-    <svg className="price-svg" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${symbol} ${selectedInterval.label.toLowerCase()} closing price chart for ${period}`}>
+    {insufficient ? <p className="chart-empty">Not enough observations for this selection. Choose Daily or a wider range.</p> : <svg className="price-svg" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${symbol} ${selectedInterval.label.toLowerCase()} closing price chart for ${period}`}>
       <defs><linearGradient id="priceFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#78924b" stopOpacity=".28"/><stop offset="1" stopColor="#78924b" stopOpacity="0"/></linearGradient></defs>
       {[0, .25, .5, .75, 1].map((ratio) => { const value = max - (max - min) * ratio; const yPos = y(value); return <g key={ratio}><line x1={pad.left} x2={width - pad.right} y1={yPos} y2={yPos}/><text x={pad.left - 10} y={yPos + 4} textAnchor="end">{usd0.format(value)}</text></g>; })}
       {tickIndexes.map((index) => <text key={index} x={x(index)} y={height - 17} textAnchor={index === 0 ? "start" : index === filtered.length - 1 ? "end" : "middle"}>{dateLabel(filtered[index].date)}</text>)}
       <path className="price-area" d={area}/><path className="price-line" d={line}/><circle cx={x(filtered.length - 1)} cy={y(last.close)} r="4"/>
       <rect className="price-hover-target" x={pad.left} y={pad.top} width={width - pad.left - pad.right} height={height - pad.top - pad.bottom} tabIndex={0} aria-label="Hover or use the left and right arrow keys to inspect closing prices" onPointerMove={(event) => selectNearestPoint(event.clientX, event.currentTarget)} onPointerDown={(event) => selectNearestPoint(event.clientX, event.currentTarget)} onPointerLeave={() => setHoveredIndex(null)} onFocus={() => setHoveredIndex(filtered.length - 1)} onBlur={() => setHoveredIndex(null)} onKeyDown={(event) => { if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return; event.preventDefault(); const direction = event.key === "ArrowRight" ? 1 : -1; setHoveredIndex((current) => clamp((current ?? filtered.length - 1) + direction, 0, filtered.length - 1)); }}/>
       {hoveredPoint && hoveredX !== null && hoveredY !== null && <g className="price-tooltip" pointerEvents="none"><line className="price-crosshair" x1={hoveredX} x2={hoveredX} y1={pad.top} y2={height - pad.bottom}/><circle className="price-hover-dot" cx={hoveredX} cy={hoveredY} r="5"/><rect x={tooltipX} y={tooltipY} width={tooltipWidth} height={tooltipHeight} rx="4"/><text className="price-tooltip-date" x={tooltipX + 12} y={tooltipY + 19}>{fullDateLabel(hoveredPoint.date)}</text><text className="price-tooltip-price" x={tooltipX + 12} y={tooltipY + 39}>{usd.format(hoveredPoint.close)} close</text></g>}
-    </svg>
+    </svg>}
     <div className="chart-stats"><span>Period low <b>{usd.format(rawMin)}</b></span><span>Period high <b>{usd.format(rawMax)}</b></span><span>Observations <b>{filtered.length} {selectedInterval.label.toLowerCase()} closes</b></span><span>Price return only <b>dividends excluded · MAX up to 10Y</b></span></div>
   </div>;
 }

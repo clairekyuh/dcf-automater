@@ -50,7 +50,7 @@ function chartXml(chart: NativeChart, id: number) {
 }
 
 function drawingXml(charts: NativeChart[]) {
-  const anchors = charts.map((chart, index) => `<xdr:twoCellAnchor><xdr:from><xdr:col>${chart.from.col}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${chart.from.row}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:to><xdr:col>${chart.to.col}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${chart.to.row}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to><xdr:graphicFrame macro=""><xdr:nvGraphicFramePr><xdr:cNvPr id="${index + 2}" name="Chart ${index + 1}"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr><xdr:xfrm/><a:graphic><a:graphicData uri="${chartNamespace}"><c:chart xmlns:c="${chartNamespace}" xmlns:r="${relationshipNamespace}" r:id="rId${index + 1}"/></a:graphicData></a:graphic></xdr:graphicFrame><xdr:clientData/></xdr:twoCellAnchor>`).join("");
+  const anchors = charts.map((chart, index) => `<xdr:twoCellAnchor><xdr:from><xdr:col>${chart.from.col}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${chart.from.row}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:to><xdr:col>${chart.to.col}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${chart.to.row}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to><xdr:graphicFrame macro=""><xdr:nvGraphicFramePr><xdr:cNvPr id="${index + 2}" name="Chart ${index + 1}"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr><xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm><a:graphic><a:graphicData uri="${chartNamespace}"><c:chart xmlns:c="${chartNamespace}" xmlns:r="${relationshipNamespace}" r:id="rId${index + 1}"/></a:graphicData></a:graphic></xdr:graphicFrame><xdr:clientData/></xdr:twoCellAnchor>`).join("");
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">${anchors}</xdr:wsDr>`;
 }
 
@@ -91,10 +91,25 @@ export async function addNativeVisualSummaryCharts(buffer: Buffer | Uint8Array |
   ];
 
   let worksheetXml = await worksheetFile.async("string");
+  const relationshipsPath = "xl/worksheets/_rels/sheet2.xml.rels";
+  const existingRelationships = zip.file(relationshipsPath);
+  let relationshipsXml = existingRelationships ? await existingRelationships.async("string")
+    : '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>';
+  const usedIds = new Set([...relationshipsXml.matchAll(/\bId="([^"]+)"/g)].map((match) => match[1]));
+  let drawingId = 1;
+  while (usedIds.has(`rId${drawingId}`)) drawingId += 1;
+  const relationshipId = `rId${drawingId}`;
+  if (/<drawing\b/.test(worksheetXml) || zip.file("xl/drawings/drawing1.xml")) throw new Error("Visual Summary already contains a drawing; refusing to overwrite it.");
   if (!worksheetXml.includes("xmlns:r=")) worksheetXml = worksheetXml.replace("<worksheet ", `<worksheet xmlns:r="${relationshipNamespace}" `);
-  worksheetXml = worksheetXml.replace("</worksheet>", '<drawing r:id="rId1"/></worksheet>');
+  // SpreadsheetML requires drawing before legacyDrawing (cell-note VML) and subsequent elements.
+  const drawing = `<drawing r:id="${relationshipId}"/>`;
+  const successor = /<(?:legacyDrawing|legacyDrawingHF|picture|oleObjects|controls|webPublishItems|tableParts|extLst)\b/;
+  const successorIndex = worksheetXml.search(successor);
+  worksheetXml = successorIndex < 0 ? worksheetXml.replace("</worksheet>", `${drawing}</worksheet>`)
+    : worksheetXml.slice(0, successorIndex) + drawing + worksheetXml.slice(successorIndex);
   zip.file(worksheetPath, worksheetXml);
-  zip.file("xl/worksheets/_rels/sheet2.xml.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/></Relationships>`);
+  relationshipsXml = relationshipsXml.replace("</Relationships>", `<Relationship Id="${relationshipId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/></Relationships>`);
+  zip.file(relationshipsPath, relationshipsXml);
   zip.file("xl/drawings/drawing1.xml", drawingXml(charts));
   zip.file("xl/drawings/_rels/drawing1.xml.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${charts.map((_, index) => `<Relationship Id="rId${index + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="../charts/chart${index + 1}.xml"/>`).join("")}</Relationships>`);
   charts.forEach((chart, index) => zip.file(`xl/charts/chart${index + 1}.xml`, chartXml(chart, index + 1)));

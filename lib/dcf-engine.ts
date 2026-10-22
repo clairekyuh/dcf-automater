@@ -16,6 +16,7 @@ export type ForecastDriver = {
 
 export type DcfModel = {
   forecastDrivers: ForecastDriver[];
+  sourceInputOverrides?: string[];
   normalizedTaxRate: number;
   riskFreeRate: number;
   beta: number;
@@ -36,6 +37,7 @@ export type DcfModel = {
 
 export type DcfData = {
   metrics: { revenue: number };
+  missingFinancialInputs?: string[];
 };
 
 const DAY = 86_400_000;
@@ -88,6 +90,19 @@ export function calculateWacc(model: DcfModel) {
   };
 }
 
+export function validateForecastCalendar(model: Pick<DcfModel, "forecastDrivers" | "valuationDate">) {
+  const date = Date.parse(`${model.valuationDate}T00:00:00Z`);
+  if (!Number.isFinite(date)) return "Enter a valid valuation date.";
+  const first = model.forecastDrivers[0]?.periodEnd;
+  if (!first || !Number.isFinite(Date.parse(first))) return "Enter valid forecast period ends.";
+  const prior = addYears(first, -1);
+  if (model.valuationDate < prior || model.valuationDate >= first) return "Valuation date is outside the first forecast fiscal year. Update the financials or forecast calendar before relying on this valuation.";
+  for (let index = 1; index < model.forecastDrivers.length; index += 1) {
+    if (model.forecastDrivers[index].periodEnd !== addYears(first, index)) return "Forecast fiscal periods must be consecutive annual periods.";
+  }
+  return null;
+}
+
 export function forecastTiming(model: Pick<DcfModel, "forecastDrivers" | "valuationDate">) {
   if (model.forecastDrivers.length !== 6) throw new Error("The DCF requires exactly six fiscal forecast periods to value an exact five-year window.");
   const latestFiscalEnd = new Date(`${addYears(model.forecastDrivers[0].periodEnd, -1)}T00:00:00Z`).getTime();
@@ -112,6 +127,8 @@ export function forecastTiming(model: Pick<DcfModel, "forecastDrivers" | "valuat
 }
 
 export function validateModelInputs(data: DcfData, model: DcfModel) {
+  const missing = (data.missingFinancialInputs || []).filter((field) => ["cash", "debt", "ebit", "depreciation", "capex"].includes(field) && !model.sourceInputOverrides?.includes(field));
+  if (missing.length) return `Source inputs unavailable: ${missing.join(", ")}. Enter the missing cash/debt assumptions or explicitly edit each affected forecast row; source values remain N/A.`;
   if (!Number.isFinite(data.metrics.revenue) || data.metrics.revenue <= 0) return "Starting revenue must be a positive finite number.";
   if (model.forecastDrivers.length !== 6) return "The DCF requires exactly six fiscal forecast periods.";
   const percentageFields: Array<keyof Omit<ForecastDriver, "periodEnd" | "source">> = [
@@ -127,9 +144,13 @@ export function validateModelInputs(data: DcfData, model: DcfModel) {
     if (driver.taxRate < 0 || driver.taxRate > 100) return `Forecast Year ${index + 1} tax rate must be between 0% and 100%.`;
     if (driver.daPercent < 0 || driver.capexPercent < 0) return `Forecast Year ${index + 1} D&A and capex cannot be negative.`;
   }
+  const timingError = validateForecastCalendar(model);
+  if (timingError) return timingError;
   const scalarValues = [model.normalizedTaxRate, model.riskFreeRate, model.beta, model.equityRiskPremium, model.preTaxCostDebt, model.companyRiskPremium, model.terminalGrowth, model.terminalRoic, model.exitMultiple, model.cash, model.shortDebt, model.longDebt, model.preferredInterest, model.shares, model.marketPrice];
   if (!scalarValues.every(Number.isFinite)) return "All valuation assumptions must be finite numbers.";
   if ([model.cash, model.shortDebt, model.longDebt, model.preferredInterest].some((value) => value < 0)) return "Cash, debt, and other non-equity claims cannot be negative.";
+  const selectedWacc = calculateWacc(model).selectedWacc;
+  if (selectedWacc <= 0 || selectedWacc > 50) return "Selected WACC must be greater than 0% and no more than 50%. Review the risk-free rate, beta, equity premium, debt cost, and company premium.";
   return null;
 }
 
@@ -223,7 +244,7 @@ export function calculateDcf(
   const totalDebt = model.shortDebt + model.longDebt;
   const rawEquityValue = enterpriseValue + model.cash - totalDebt - model.preferredInterest;
   const equityValue = Math.max(0, rawEquityValue);
-  const perShare = equityValue / Math.max(model.shares, 1);
+  const perShare = model.shares > 0 ? equityValue / model.shares : Number.NaN;
   const impliedTerminalRoic = method === "perpetuity" && terminalReinvestmentRate !== null ? model.terminalRoic : null;
 
   return {

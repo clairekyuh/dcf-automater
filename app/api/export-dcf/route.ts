@@ -25,6 +25,7 @@ const exportConcurrency = createConcurrencyGate(2);
 const exportRateLimit = createFixedWindowRateLimiter({ limit: 12, windowMs: 60_000 });
 
 type ExportHistorical = {
+  missingFields?: string[];
   year: string;
   fiscalDate?: string;
   revenue: number;
@@ -55,6 +56,14 @@ type ExportPeer = {
   evToEbitLtm?: number | null;
   evToEbitNtm?: number | null;
   pe: number | null;
+  financialsAsOf?: string;
+  balanceAsOf?: string;
+  forwardPeriodEnd?: string;
+  retrievedAt?: string;
+  sourceUrl?: string;
+  ltmBasis?: string;
+  ntmBasis?: string;
+  dataNotes?: string[];
   peerFit?: string;
   peerRationale?: string;
 };
@@ -64,11 +73,15 @@ type ExportPayload = {
   source: string;
   asOf: string;
   sharesSource?: string;
+  retrievedAt?: string;
+  missingFinancialInputs?: string[];
+  denomination?: { quoteCurrency: string; financialDisplayCurrency: string; issuerReportingCurrency: string; normalizationStatus: string; fxRate: number | null; fxAsOf: string | null; sourceUrl: string };
+  shareBasis?: { status: string; annualPeriodEnd: string | null; annualDilutedShares: number | null; marketCapImpliedShares: number | null };
   metrics: { revenue: number; ebitMargin: number; cash: number };
   market?: { priceHistory?: Array<{ date: string; close: number }> };
   historical: ExportHistorical[];
   model: DcfModel;
-  comparison?: { nicheLabel?: string; peers?: ExportPeer[] };
+  comparison?: { nicheLabel?: string; company?: { ltmRevenue?: number | null }; peers?: ExportPeer[] };
 };
 
 const { navy, teal, paleBlue, paleGreen, gray, lightBorder, white, black } = workbookColors;
@@ -219,7 +232,7 @@ export async function POST(request: Request) {
     inputs.getCell("B31").value = "Base WACC"; inputs.getCell("C31").value = formulaCell("(C27/(C27+C28))*C29+(C28/(C27+C28))*C30", wacc.baseWacc / 100); inputs.getCell("C31").numFmt = percentFormat;
     inputs.getCell("B32").value = "Selected WACC"; inputs.getCell("C32").value = formulaCell("C31+C22", wacc.selectedWacc / 100); inputs.getCell("C32").numFmt = percentFormat; inputs.getCell("C32").font = { bold: true, color: { argb: black } };
     inputs.getCell("B34").value = "Forecast drivers"; styleSection(inputs.getRow(34), 2, 11);
-    inputs.getRow(35).values = [null, "Fiscal period end", "Revenue growth", "Gross margin", "EBIT margin", "Tax rate", "D&A / revenue", "Capex / revenue", "ΔNWC / revenue", "Deferred tax / revenue", "Other non-cash / revenue"];
+    inputs.getRow(35).values = [null, "Fiscal period end", "Revenue growth", "Gross margin", "EBIT margin", "Tax rate", "D&A / revenue", "Capex / revenue", "ΔNWC / revenue", "Deferred tax / revenue", "Other operating adjustment / revenue"];
     styleTableHeader(inputs.getRow(35), 2, 11);
     payload.model.forecastDrivers.forEach((driver, index) => {
       const row = 36 + index;
@@ -258,7 +271,7 @@ export async function POST(request: Request) {
     const buildLabels: Array<[number, string]> = [
       [6, "Revenue"], [7, "% YoY growth"], [8, "Gross profit"], [9, "Gross margin"], [10, "EBIT"], [11, "EBIT margin"],
       [12, "Less: cash tax on EBIT"], [13, "NOPAT"], [14, "Plus: D&A"], [15, "Less: capex"], [16, "Less: change in NWC"],
-      [17, "Plus: deferred tax change"], [18, "Plus: other non-cash adjustments"], [19, "Unlevered free cash flow"],
+      [17, "Plus: deferred tax change"], [18, "Other operating cash-flow adjustments"], [19, "Unlevered free cash flow"],
       [20, "Included portion of fiscal year"], [21, "Mid-year discount period"], [22, "Discount factor"], [23, "Present value of UFCF"], [24, "EBITDA"],
     ];
     buildLabels.forEach(([row, label]) => { build.getCell(row, 1).value = label; });
@@ -266,17 +279,18 @@ export async function POST(request: Request) {
       const column = historyColumns[index + historyOffset];
       const fullIndex = payload.historical.length - historical.length + index;
       const taxRate = historicalEffectiveTaxRate(row);
+      const known = (field: string) => !row.missingFields?.includes(field);
       const actuals: Record<number, number | null> = {
         6: row.revenue,
         7: historicalRevenueGrowth(payload.historical, fullIndex) === null ? null : historicalRevenueGrowth(payload.historical, fullIndex)! / 100,
         8: row.cogs === undefined ? null : row.revenue - row.cogs,
         9: row.cogs === undefined || !row.revenue ? null : (row.revenue - row.cogs) / row.revenue,
-        10: row.ebit,
-        11: row.ebitMargin / 100,
-        12: taxRate === null ? null : Math.max(0, row.ebit * taxRate / 100),
-        13: taxRate === null ? null : row.ebit - Math.max(0, row.ebit * taxRate / 100),
-        14: row.depreciation,
-        15: row.capex,
+        10: known("ebit") ? row.ebit : null,
+        11: known("ebit") ? row.ebitMargin / 100 : null,
+        12: taxRate === null || !known("ebit") ? null : Math.max(0, row.ebit * taxRate / 100),
+        13: taxRate === null || !known("ebit") ? null : row.ebit - Math.max(0, row.ebit * taxRate / 100),
+        14: known("depreciation") ? row.depreciation : null,
+        15: known("capex") ? row.capex : null,
         16: null,
         17: null,
         18: null,
@@ -285,7 +299,7 @@ export async function POST(request: Request) {
         21: null,
         22: null,
         23: null,
-        24: row.ebit + row.depreciation,
+        24: known("ebit") && known("depreciation") ? row.ebit + row.depreciation : null,
       };
       Object.entries(actuals).forEach(([rowNumber, value]) => { if (value !== null) build.getCell(`${column}${rowNumber}`).value = value; });
     });
@@ -405,6 +419,7 @@ export async function POST(request: Request) {
     output.getCell("D23").value = "WACC"; output.getCell("K23").value = "WACC";
     growthScenarios.forEach((growth, index) => { output.getCell(23, 5 + index).value = growth / 100; output.getCell(23, 5 + index).numFmt = percentFormat; });
     multipleScenarios.forEach((exitMultiple, index) => { output.getCell(23, 12 + index).value = exitMultiple; output.getCell(23, 12 + index).numFmt = multipleFormat; });
+    const forecastPvFormula = (waccCell: string) => `SUM(${forecastColumns.map((column) => `'DCF Build'!${column}19*'DCF Build'!${column}20/(1+${waccCell})^'DCF Build'!${column}21`).join(",")})`;
     waccScenarios.forEach((scenarioWacc, rowIndex) => {
       const row = 24 + rowIndex;
       output.getCell(row, 4).value = scenarioWacc / 100; output.getCell(row, 4).numFmt = percentFormat;
@@ -412,13 +427,13 @@ export async function POST(request: Request) {
       growthScenarios.forEach((growth, columnIndex) => {
         const result = calculateDcf(payload, payload.model, "perpetuity", { wacc: scenarioWacc, terminalGrowth: growth });
         const headerColumn = 5 + columnIndex;
-        const formula = `MAX(0,(SUM('DCF Build'!$G$23:$L$23)+(('DCF Build'!$M$13*(1-${output.getCell(23, headerColumn).address}/'Inputs'!$C$24))*(1+${output.getCell(23, headerColumn).address})/($D${row}-${output.getCell(23, headerColumn).address}))/(1+$D${row})^5+'Inputs'!$C$13-'Inputs'!$C$14-'Inputs'!$C$15-'Inputs'!$C$16)/'Inputs'!$C$12)`;
+        const formula = `MAX(0,(${forecastPvFormula(`$D${row}`)}+(('DCF Build'!$M$13*(1-${output.getCell(23, headerColumn).address}/'Inputs'!$C$24))*(1+${output.getCell(23, headerColumn).address})/($D${row}-${output.getCell(23, headerColumn).address})/(1+$D${row})^5)+'Inputs'!$C$13-'Inputs'!$C$14-'Inputs'!$C$15-'Inputs'!$C$16)/'Inputs'!$C$12)`;
         output.getCell(row, headerColumn).value = formulaCell(formula, safeResult(result.perShare)); output.getCell(row, headerColumn).numFmt = perShareFormat;
       });
       multipleScenarios.forEach((exitMultiple, columnIndex) => {
         const result = calculateDcf(payload, payload.model, "multiple", { wacc: scenarioWacc, exitMultiple });
         const headerColumn = 12 + columnIndex;
-        const formula = `MAX(0,(SUM('DCF Build'!$G$23:$L$23)+('DCF Build'!$M$24*${output.getCell(23, headerColumn).address})/(1+$K${row})^5+'Inputs'!$C$13-'Inputs'!$C$14-'Inputs'!$C$15-'Inputs'!$C$16)/'Inputs'!$C$12)`;
+        const formula = `MAX(0,(${forecastPvFormula(`$K${row}`)}+('DCF Build'!$M$24*${output.getCell(23, headerColumn).address})/(1+$K${row})^5+'Inputs'!$C$13-'Inputs'!$C$14-'Inputs'!$C$15-'Inputs'!$C$16)/'Inputs'!$C$12)`;
         output.getCell(row, headerColumn).value = formulaCell(formula, safeResult(result.perShare)); output.getCell(row, headerColumn).numFmt = perShareFormat;
       });
     });
@@ -427,8 +442,8 @@ export async function POST(request: Request) {
     ["G25", "N25"].forEach((address) => { const cell = output.getCell(address); cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: teal } }; cell.font = { bold: true, color: { argb: white } }; cell.border = { top: { style: "medium", color: { argb: white } }, bottom: { style: "medium", color: { argb: white } }, left: { style: "medium", color: { argb: white } }, right: { style: "medium", color: { argb: white } } }; });
 
     comps.columns = [{ width: 3 }, { width: 12 }, { width: 28 }, { width: 16 }, { width: 16 }, ...Array.from({ length: 6 }, () => ({ width: 16 })), { width: 14 }, { width: 58 }];
-    setTitle(comps, "B2:M2", `${payload.company.name} | Comparable Companies`, "LTM uses the latest four reported quarters. NTM uses consensus revenue with LTM margins held constant.");
-    comps.getRow(4).values = [null, "Ticker", "Company", "Market cap", "TEV", "EV / Revenue LTM", "EV / Revenue NTM", "EV / EBITDA LTM", "EV / EBITDA NTM", "EV / EBIT LTM", "EV / EBIT NTM", "Peer fit", "Business similarity"];
+    setTitle(comps, "B2:M2", `${payload.company.name} | Comparable Companies`, "All finite signed multiples included. LTM: four quarters or disclosed annual fallback. FY1E: full fiscal-year consensus revenue at historical margins.");
+    comps.getRow(4).values = [null, "Ticker", "Company", "Market cap", "TEV", "EV / Revenue LTM", "EV / Revenue FY1E", "EV / EBITDA LTM", "EV / EBITDA FY1E", "EV / EBIT LTM", "EV / EBIT FY1E", "Peer fit", "Business similarity"];
     styleTableHeader(comps.getRow(4), 2, 13);
     const peers = payload.comparison?.peers || [];
     peers.forEach((peer, index) => {
@@ -451,8 +466,8 @@ export async function POST(request: Request) {
       [4, 5, 6, 7, 8, 9, 10, 11].forEach((column, index) => {
         const letter = comps.getColumn(column).letter;
         const valid = peerMetrics[index].filter((value): value is number => value !== null && Number.isFinite(value));
-        const mean = valid.length ? valid.reduce((sum, value) => sum + value, 0) / valid.length : 0;
-        comps.getCell(meanRow, column).value = formulaCell(`AVERAGE(${letter}5:${letter}${meanRow - 1})`, mean);
+        const mean = valid.length ? valid.reduce((sum, value) => sum + value, 0) / valid.length : "N/A";
+        comps.getCell(meanRow, column).value = formulaCell(`IF(COUNT(${letter}5:${letter}${meanRow - 1})=0,"N/A",AVERAGE(${letter}5:${letter}${meanRow - 1}))`, mean);
         comps.getCell(meanRow, column).numFmt = column <= 5 ? moneyFormat : multipleFormat;
       });
     }
@@ -460,7 +475,10 @@ export async function POST(request: Request) {
     comps.getCell(medianRow, 2).value = "Median"; comps.mergeCells(medianRow, 2, medianRow, 3);
     if (peers.length) for (let column = 4; column <= 11; column += 1) {
       const letter = comps.getColumn(column).letter;
-      comps.getCell(medianRow, column).value = { formula: `MEDIAN(${letter}5:${letter}${meanRow - 1})` };
+      const values = peers.map((peer) => [peer.marketCap, peer.enterpriseValue, peer.evToRevenueLtm, peer.evToRevenueNtm, peer.evToEbitdaLtm, peer.evToEbitdaNtm, peer.evToEbitLtm, peer.evToEbitNtm][column - 4]).filter((value): value is number => typeof value === "number" && Number.isFinite(value)).sort((a, b) => a - b);
+      const mid = Math.floor(values.length / 2);
+      const median = !values.length ? "N/A" : values.length % 2 ? values[mid] : (values[mid - 1] + values[mid]) / 2;
+      comps.getCell(medianRow, column).value = formulaCell(`IF(COUNT(${letter}5:${letter}${meanRow - 1})=0,"N/A",MEDIAN(${letter}5:${letter}${meanRow - 1}))`, median);
       comps.getCell(medianRow, column).numFmt = column <= 5 ? moneyFormat : multipleFormat;
     }
     for (const row of [meanRow, medianRow]) for (let column = 2; column <= 13; column += 1) { comps.getCell(row, column).font = { bold: true, color: { argb: navy } }; comps.getCell(row, column).border = { top: { style: "thin", color: { argb: navy } } }; }
@@ -479,14 +497,15 @@ export async function POST(request: Request) {
     const visualWaccs = [wacc.selectedWacc - 0.5, wacc.selectedWacc, wacc.selectedWacc + 0.5];
     const pgVisualValues = visualWaccs.flatMap((scenarioWacc) => growthScenarios.map((growth) => calculateDcf(payload, payload.model, "perpetuity", { wacc: scenarioWacc, terminalGrowth: growth }))).filter((result) => result.valid).map((result) => result.perShare);
     const exitVisualValues = visualWaccs.flatMap((scenarioWacc) => multipleScenarios.map((exitMultiple) => calculateDcf(payload, payload.model, "multiple", { wacc: scenarioWacc, exitMultiple }))).filter((result) => result.valid).map((result) => result.perShare);
-    const peerExitValues = peers.map((peer) => peer.evToEbitda).filter((value): value is number => value !== null && Number.isFinite(value) && value > 0).map((exitMultiple) => calculateDcf(payload, payload.model, "multiple", { exitMultiple })).filter((result) => result.valid).map((result) => result.perShare);
+    const subjectLtmRevenue = payload.comparison?.company?.ltmRevenue === undefined ? payload.metrics.revenue : payload.comparison.company.ltmRevenue;
+    const peerExitValues = subjectLtmRevenue === null ? [] : peers.map((peer) => peer.evToRevenueLtm === undefined ? peer.evToRevenue : peer.evToRevenueLtm).filter((value): value is number => value !== null && Number.isFinite(value)).map((multiple) => (subjectLtmRevenue * multiple + payload.model.cash - payload.model.shortDebt - payload.model.longDebt - payload.model.preferredInterest) / payload.model.shares).filter(Number.isFinite);
     const priceHistory = payload.market?.priceHistory || [];
     const latestPriceTime = priceHistory.reduce((latest, point) => Math.max(latest, Date.parse(point.date) || 0), 0);
     const oneYearPrices = priceHistory.filter((point) => latestPriceTime - (Date.parse(point.date) || 0) <= 366 * 86_400_000).map((point) => point.close);
     const visualRangeRows: Array<{ row: number; label: string; low: number | null; high: number | null; lowFormula?: string; highFormula?: string }> = [
       { row: 6, label: "Perpetual growth", low: pgVisualValues.length ? Math.min(...pgVisualValues) : null, high: pgVisualValues.length ? Math.max(...pgVisualValues) : null, lowFormula: "MIN('DCF Output'!E24:I26)", highFormula: "MAX('DCF Output'!E24:I26)" },
       { row: 7, label: "Exit multiple", low: exitVisualValues.length ? Math.min(...exitVisualValues) : null, high: exitVisualValues.length ? Math.max(...exitVisualValues) : null, lowFormula: "MIN('DCF Output'!L24:P26)", highFormula: "MAX('DCF Output'!L24:P26)" },
-      { row: 8, label: "Peer multiples", low: peerExitValues.length >= 2 ? Math.min(...peerExitValues) : null, high: peerExitValues.length >= 2 ? Math.max(...peerExitValues) : null },
+      { row: 8, label: "Peers: unfiltered EV / revenue", low: peerExitValues.length >= 2 ? Math.min(...peerExitValues) : null, high: peerExitValues.length >= 2 ? Math.max(...peerExitValues) : null },
       { row: 9, label: "52-week price", low: oneYearPrices.length ? Math.min(...oneYearPrices) : null, high: oneYearPrices.length ? Math.max(...oneYearPrices) : null },
       { row: 10, label: "Current price", low: payload.model.marketPrice, high: payload.model.marketPrice, lowFormula: "'Inputs'!C11", highFormula: "'Inputs'!C11" },
     ];
@@ -569,7 +588,7 @@ export async function POST(request: Request) {
         const row = 41 + index;
         visuals.getCell(row, 2).value = peer.symbol;
         visuals.getCell(row, 3).value = peer.name;
-        visuals.getCell(row, 4).value = peer.evToEbitda;
+        visuals.getCell(row, 4).value = peer.evToEbitdaLtm === undefined ? peer.evToEbitda : peer.evToEbitdaLtm;
         visuals.getCell(row, 4).numFmt = multipleFormat;
       });
       applyBodyStyle(visuals, `B41:D${40 + peers.length}`);
@@ -631,6 +650,19 @@ export async function POST(request: Request) {
     cover.getCell("C16").value = "THIS IS NOT FINANCIAL ADVICE";
     cover.getCell("C16").font = { italic: true, color: { argb: gray } };
 
+    let evidenceRow = (checks.lastRow?.number || 18) + 3;
+    checks.getCell(evidenceRow++, 2).value = "Data basis and observation dates";
+    const evidence: Array<[string, string]> = [
+      ["Retrieved", payload.retrievedAt || "Unavailable"],
+      ["Share basis", `${payload.sharesSource || "Unverified"}. ${payload.shareBasis?.status || "Current fully diluted count unverified"}`],
+      ["Financial / quote currency", `${payload.denomination?.financialDisplayCurrency || "USD provider display"} / ${payload.denomination?.quoteCurrency || "USD"}`],
+      ["Issuer reporting currency", payload.denomination?.issuerReportingCurrency || "Unverified"],
+      ["FX normalization", `${payload.denomination?.normalizationStatus || "Provider translation basis unverified"}; rate ${payload.denomination?.fxRate ?? "unavailable"}; date ${payload.denomination?.fxAsOf || "unavailable"}`],
+      ["Denomination source", payload.denomination?.sourceUrl || "Unavailable"],
+      ["Missing financial source inputs", payload.missingFinancialInputs?.join(", ") || "None identified"],
+    ];
+    for (const peer of peers) evidence.push([`${peer.symbol} source / dates`, `Financials ${peer.financialsAsOf || "unavailable"}; balance ${peer.balanceAsOf || "unavailable"}; FY1E ${peer.forwardPeriodEnd || "unavailable"}; retrieved ${peer.retrievedAt || "unavailable"}. ${peer.sourceUrl || "Source unavailable"}. ${peer.ltmBasis || "LTM basis unavailable"}. ${peer.ntmBasis || "Forecast basis unavailable"}. ${(peer.dataNotes || []).join(" ")}`]);
+    for (const [label, value] of evidence) { checks.getCell(evidenceRow, 2).value = label; checks.getCell(evidenceRow, 3).value = value; checks.getCell(evidenceRow, 3).alignment = { wrapText: true, vertical: "top" }; checks.getRow(evidenceRow++).height = 38; }
     const excelBuffer = await workbook.xlsx.writeBuffer();
     const buffer = await addNativeVisualSummaryCharts(Buffer.from(excelBuffer), peers.length);
     const filename = `${payload.company.symbol.replace(/[^A-Z0-9.-]/gi, "-")}-DCF-Model.xlsx`;

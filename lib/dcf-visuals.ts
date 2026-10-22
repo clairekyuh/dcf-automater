@@ -91,7 +91,7 @@ export function buildValuationRanges(data: CompanyData, model: DcfModel): Valuat
   const selectedWacc = calculateWacc(model).selectedWacc;
   const waccs = [-1, -.5, 0, .5, 1].map((shift) => Math.max(1, selectedWacc + shift));
   const growthRates = [-1, -.5, 0, .5, 1].map((shift) => Math.max(0, model.terminalGrowth + shift));
-  const exitMultiples = [-4, -2, 0, 2, 4].map((shift) => Math.max(1, model.exitMultiple + shift));
+  const exitMultiples = [-4, -2, 0, 2, 4].map((shift) => model.exitMultiple + shift);
   const sensitivityValues = (method: DcfMethod, assumptions: number[]) => waccs.flatMap((wacc) => assumptions.map((assumption) => {
     const result = calculateDcf(data, model, method, method === "perpetuity"
       ? { wacc, terminalGrowth: assumption }
@@ -99,20 +99,14 @@ export function buildValuationRanges(data: CompanyData, model: DcfModel): Valuat
     return result.valid ? result.perShare : Number.NaN;
   }));
   const rawPeerMultiples = (data.comparison?.peers || [])
-    .map((peer) => peer.evToRevenue)
-    .filter((value): value is number => value !== null && Number.isFinite(value) && value > 0);
-  const sortedPeerMultiples = [...rawPeerMultiples].sort((a, b) => a - b);
-  const middle = Math.floor(sortedPeerMultiples.length / 2);
-  const medianPeerMultiple = sortedPeerMultiples.length % 2
-    ? sortedPeerMultiples[middle]
-    : (sortedPeerMultiples[middle - 1] + sortedPeerMultiples[middle]) / 2;
-  const peerMultiples = sortedPeerMultiples.length >= 3
-    ? sortedPeerMultiples.filter((multiple) => multiple >= medianPeerMultiple * 0.4 && multiple <= medianPeerMultiple * 2.5)
-    : sortedPeerMultiples;
+    .map((peer) => peer.evToRevenueLtm === undefined ? peer.evToRevenue : peer.evToRevenueLtm)
+    .filter((value): value is number => value !== null && Number.isFinite(value));
+  const peerMultiples = rawPeerMultiples;
   const comparableValues = peerMultiples.map((multiple) => {
-    const enterpriseValue = data.metrics.revenue * multiple;
+    const revenue = data.comparison?.company?.ltmRevenue === undefined ? data.metrics.revenue : data.comparison.company.ltmRevenue;
+    const enterpriseValue = revenue === null ? Number.NaN : revenue * multiple;
     const equityValue = enterpriseValue + model.cash - model.shortDebt - model.longDebt - model.preferredInterest;
-    return model.shares > 0 ? Math.max(0, equityValue / model.shares) : Number.NaN;
+    return model.shares > 0 ? equityValue / model.shares : Number.NaN;
   });
   return [
     range("Perpetual growth", sensitivityValues("perpetuity", growthRates), "dcf"),

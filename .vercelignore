@@ -1,0 +1,6 @@
+comps-analyst/
+dcf-design-mockup/
+outputs/
+.git/
+.env*
+*.tsbuildinfo

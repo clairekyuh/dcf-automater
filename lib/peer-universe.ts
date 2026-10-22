@@ -25,6 +25,12 @@ export type PeerCompanyInput = {
 };
 
 const peerSets: PeerSet[] = [
+  { id: "semiconductor-equipment", label: "Semiconductor manufacturing equipment", basis: "Equipment suppliers serve semiconductor fabs through tool sales, installed-base services and technology upgrades. Product exposure differs: ASML lithography; AMAT deposition/materials engineering; LRCX etch/deposition; KLAC process control.", symbols: ["ASML", "AMAT", "LRCX", "KLAC"], patterns: [/lithography/i, /semiconductor.{0,25}equipment/i], rationales: {
+    AMAT: { fit: "close", businessModel: "Materials engineering equipment", detail: "Both supply semiconductor fabs and earn installed-base service revenue. Applied Materials focuses on deposition and materials engineering rather than ASML's lithography exposure." },
+    LRCX: { fit: "close", businessModel: "Etch and deposition equipment", detail: "Both depend on fab investment, process complexity and tool servicing. Lam focuses on etch and deposition and has a different memory and technology-cycle mix." },
+    KLAC: { fit: "close", businessModel: "Process control and metrology", detail: "Both supply critical tools to advanced semiconductor fabs. KLA specializes in inspection and process control, with different margins, tool pricing and capital intensity." },
+    ASML: { fit: "close", businessModel: "Lithography equipment and services", detail: "Shared semiconductor-fab customers and installed-base service revenue; ASML's EUV lithography position differs from other tool categories." },
+  } },
   {
     id: "ai-cloud",
     label: "AI-native GPU cloud infrastructure",
@@ -62,6 +68,7 @@ const peerSets: PeerSet[] = [
 ];
 
 const exactPeerSet: Record<string, string> = {
+  ASML: "semiconductor-equipment", AMAT: "semiconductor-equipment", LRCX: "semiconductor-equipment", KLAC: "semiconductor-equipment",
   CRWV: "ai-cloud", NBIS: "ai-cloud", IREN: "ai-cloud", APLD: "ai-cloud",
   SNPS: "eda", CDNS: "eda", ADSK: "eda", PTC: "eda", NVDA: "gpu-semiconductors", AMD: "gpu-semiconductors", AVGO: "gpu-semiconductors", INTC: "gpu-semiconductors",
   PANW: "cybersecurity", CRWD: "cybersecurity", FTNT: "cybersecurity", ZS: "cybersecurity", EQIX: "data-centers", DLR: "data-centers", IRM: "data-centers",
@@ -109,7 +116,8 @@ export function selectPeerSet(company: PeerCompanyInput) {
       classificationConfidence: "low" as const,
     };
   }
-  const symbols = selected.symbols.filter((candidate) => candidate !== company.symbol).slice(0, 3);
+  const issuer = (symbol: string) => symbol === "GOOG" ? "GOOGL" : symbol;
+  const symbols = selected.symbols.filter((candidate) => issuer(candidate) !== issuer(company.symbol)).slice(0, 3);
   return {
     ...selected,
     symbols,

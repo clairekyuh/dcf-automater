@@ -98,6 +98,12 @@ test("selected WACC reconciles to formula WACC plus the visible company premium"
   assert.ok(Math.abs(details.selectedWacc - details.baseWacc - 0.5) < 1e-12);
 });
 
+test("implausible WACC inputs are blocked instead of producing a low but confident value", () => {
+  const result = calculateDcf({ metrics: { revenue: 1_000 } }, { ...model(), riskFreeRate: 400 }, "perpetuity");
+  assert.equal(result.valid, false);
+  assert.match(result.invalidReason || "", /Selected WACC/);
+});
+
 test("invalid operating assumptions are rejected instead of producing confident values", () => {
   const impossibleGrowth = model();
   impossibleGrowth.forecastDrivers[0].revenueGrowth = -100;
@@ -136,4 +142,22 @@ test("ancillary financial services do not disable Walmart's unlevered DCF", () =
     industry: "Application Software",
     description: "The company develops software used by property and casualty insurers.",
   }), false);
+});
+
+test("fractional million share counts use the actual positive denominator", () => {
+  const result = calculateDcf({ metrics: { revenue: 1_000 } }, { ...model(), shares: .5 }, "multiple");
+  assert.equal(result.valid, true);
+  assert.equal(result.perShare, result.equityValue / .5);
+});
+test("stale valuation dates and discontinuous fiscal calendars require updated inputs", () => {
+  const stale = { ...model(), valuationDate: "2027-01-01" };
+  assert.match(calculateDcf({ metrics: { revenue: 1000 } }, stale, "perpetuity").invalidReason || "", /outside the first forecast fiscal year/);
+  const gap = model();
+  gap.forecastDrivers[2].periodEnd = "2030-12-31";
+  assert.match(calculateDcf({ metrics: { revenue: 1000 } }, gap, "perpetuity").invalidReason || "", /consecutive annual/);
+});
+test("unavailable cash requires an explicit modeling assumption instead of a fabricated reported zero", () => {
+  const data = { metrics: { revenue: 1000 }, missingFinancialInputs: ["cash"] };
+  assert.equal(calculateDcf(data, model(), "multiple").valid, false);
+  assert.equal(calculateDcf(data, { ...model(), cash: 0, sourceInputOverrides: ["cash"] }, "multiple").valid, true);
 });

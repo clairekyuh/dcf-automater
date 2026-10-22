@@ -1,15 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
+import { fundedDebt } from "@/lib/financial-components";
+import { profitMultiple, signedMultiple } from "@/lib/comparable-metrics";
 import { conciseBusinessDescription } from "@/lib/company-description";
 import { buildPeerSimilarityRationale } from "@/lib/business-comparison";
 import { addYears, isStandardDcfUnsupported } from "@/lib/dcf-engine";
 import { normalizedHistoricalTaxRate } from "@/lib/historical-dcf";
 import { estimateMarketBeta } from "@/lib/market-beta";
+import { latestTreasuryObservation } from "@/lib/market-inputs";
+import { observationMillions, resolveSecFinancialConcepts, type FinancialObservation } from "@/lib/sec-financial-concepts";
 import { selectShareCount } from "@/lib/valuation-inputs";
 import { normalizeTicker } from "@/lib/ticker";
 import { createRequestDiagnostics, logDiagnostic, measureDiagnostic, safeErrorType, withDiagnosticHeaders } from "@/lib/server/diagnostics";
 import { fetchWithTimeout } from "@/lib/server/fetch-with-timeout";
 import { selectPeerSet } from "@/lib/peer-universe";
 import { defaultRiskScreen } from "@/lib/credit-screen";
+import { reconcileHistoricalCashFlow } from "@/lib/cash-flow-reconciliation";
 import { reconcileRevenueHistory, revenueGrowth, withInterimRevenue } from "@/lib/revenue-quality";
 
 export const runtime = "nodejs";
@@ -31,20 +36,43 @@ const wait = (milliseconds: number) => new Promise((resolve) => setTimeout(resol
 const todayPacific = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 
 let secRequestQueue = Promise.resolve();
+type CachedSecResponse = { body: string; status: number; statusText: string; headers: Array<[string, string]>; expiresAt: number };
+const secResponseCache = new Map<string, CachedSecResponse>();
+const secRequestsInFlight = new Map<string, Promise<CachedSecResponse>>();
+const responseFromCachedSec = (cached: CachedSecResponse) => new Response(cached.body, { status: cached.status, statusText: cached.statusText, headers: cached.headers });
+
 async function secFetch(url: string, revalidate: number) {
+  const cached = secResponseCache.get(url);
+  if (cached && cached.expiresAt > Date.now()) return responseFromCachedSec(cached);
+  const existing = secRequestsInFlight.get(url);
+  if (existing) return responseFromCachedSec(await existing);
   const run = async () => {
     await wait(120);
     const response = await fetchWithTimeout(
       url,
-      { headers: SEC_HEADERS, next: { revalidate } },
+      { headers: SEC_HEADERS, cache: "no-store" },
       { timeoutMs: 12_000, maxRetries: 2, baseDelayMs: 300, maxRetryAfterMs: 3_000 },
     );
-    if (response.ok) return response;
-    throw new Error(`SEC EDGAR returned HTTP ${response.status}.`);
+    if (!response.ok) throw new Error(`SEC EDGAR returned HTTP ${response.status}.`);
+    const stored = {
+      body: await response.text(),
+      status: response.status,
+      statusText: response.statusText,
+      headers: [...response.headers.entries()],
+      expiresAt: Date.now() + revalidate * 1000,
+    };
+    if (secResponseCache.size >= 40) secResponseCache.delete(secResponseCache.keys().next().value as string);
+    secResponseCache.set(url, stored);
+    return stored;
   };
   const request = secRequestQueue.then(run, run);
+  secRequestsInFlight.set(url, request);
   secRequestQueue = request.then(() => undefined, () => undefined);
-  return request;
+  try {
+    return responseFromCachedSec(await request);
+  } finally {
+    secRequestsInFlight.delete(url);
+  }
 }
 
 async function currentMarketInputs() {
@@ -60,11 +88,10 @@ async function currentMarketInputs() {
     ]);
     const result = { ...fallback };
     if (fredResponse.ok) {
-      const rows = (await fredResponse.text()).trim().split(/\r?\n/).slice(1).map((row) => row.split(","));
-      const latest = rows.reverse().find((row) => row.length >= 2 && Number.isFinite(Number(row[1])));
+      const latest = latestTreasuryObservation(await fredResponse.text());
       if (latest) {
-        result.riskFreeAsOf = latest[0];
-        result.riskFreeRate = Number(latest[1]);
+        result.riskFreeAsOf = latest.asOf;
+        result.riskFreeRate = latest.rate;
       }
     }
     if (damodaranResponse.ok) {
@@ -114,7 +141,9 @@ async function nasdaq(endpoint: string, revalidate = 86400) {
   // take a ticker offline until the revalidation window expires.
   if (!payload?.data || payload?.status?.rCode && payload.status.rCode !== 200) payload = await load(true);
   if (payload?.status?.rCode && payload.status.rCode !== 200) {
-    throw new Error(payload.status.bCodeMessage?.[0]?.errorMessage || "Nasdaq did not return data for this ticker.");
+    const message = payload.status.bCodeMessage?.[0]?.errorMessage || "Nasdaq did not return data for this ticker.";
+    if (/invalid (?:symbol|ticker)|(?:symbol|ticker).{0,25}(?:not found|does not exist|invalid)/i.test(message)) throw new UnsupportedTickerError(message);
+    throw new Error(message);
   }
   if (!payload?.data) throw new Error("Ticker not found or Nasdaq data is unavailable.");
   return payload.data;
@@ -158,6 +187,8 @@ function growthRate(values: number[]) {
   return (valid[0] / valid[1] - 1) * 100;
 }
 
+class UnsupportedTickerError extends Error {}
+
 async function nasdaqFundamentals(symbol: string) {
   const encoded = encodeURIComponent(symbol);
   const profilePromise = nasdaq(`/company/${encoded}/company-profile`).catch(() => ({}));
@@ -181,6 +212,20 @@ async function nasdaqFundamentals(symbol: string) {
     .map(([key, date]) => ({ key, date }))
     .filter((period) => period.date);
   const historical = periodColumns.map(({ key, date }) => {
+    const reported = {
+      ebit: tableValue(income, ["Operating Income", "Earnings Before Interest and Tax"], key),
+      depreciation: tableValue(cashFlow, ["Depreciation"], key),
+      capex: tableValue(cashFlow, ["Capital Expenditures"], key),
+      operatingCashFlow: tableValue(cashFlow, ["Net Cash Flow-Operating"], key),
+      cash: tableValue(balance, ["Cash and Cash Equivalents"], key),
+      shortDebt: tableValue(balance, ["Short-Term Debt / Current Portion of Long-Term Debt"], key),
+      longDebt: tableValue(balance, ["Long-Term Debt"], key),
+    };
+    const missingFields = Object.entries(reported).filter(([, value]) => value === null).map(([field]) => field);
+    if (reported.shortDebt === null || reported.longDebt === null) missingFields.push("debt");
+    if (reported.ebit === null) missingFields.push("ebitMargin");
+    if (reported.capex === null) missingFields.push("capexPercentRevenue");
+    if (reported.operatingCashFlow === null || reported.capex === null) missingFields.push("freeCashFlow");
     const revenue = tableValue(income, ["Total Revenue"], key) || 0;
     const ebit = tableValue(income, ["Operating Income", "Earnings Before Interest and Tax"], key) || 0;
     const depreciation = Math.abs(tableValue(cashFlow, ["Depreciation"], key) || 0);
@@ -198,6 +243,7 @@ async function nasdaqFundamentals(symbol: string) {
     return {
       year: fiscalDate.slice(0, 4),
       fiscalDate,
+      missingFields,
       revenue,
       ebit,
       ebitMargin: revenue ? ebit / revenue * 100 : 0,
@@ -209,19 +255,24 @@ async function nasdaqFundamentals(symbol: string) {
       cogs,
       grossProfit,
       grossMargin: revenue && grossProfit !== undefined ? grossProfit / revenue * 100 : undefined,
-      interestExpense: Math.abs(tableValue(income, ["Interest Expense"], key) || 0),
+      interestExpense: (() => { const value = tableValue(income, ["Interest Expense"], key); return value === null ? undefined : Math.abs(value); })(),
       cash,
       debt,
       shortDebt,
       longDebt,
-      currentAssets: tableValue(balance, ["Total Current Assets"], key) || 0,
-      currentLiabilities: tableValue(balance, ["Total Current Liabilities"], key) || 0,
-      totalAssets: tableValue(balance, ["Total Assets"], key) || 0,
-      totalLiabilities: tableValue(balance, ["Total Liabilities"], key) || 0,
-      retainedEarnings: tableValue(balance, ["Retained Earnings"], key) || 0,
-      incomeTax: Math.abs(tableValue(income, ["Income Tax"], key) || 0),
-      earningsBeforeTax: tableValue(income, ["Earnings Before Tax"], key) || 0,
-      netIncome: tableValue(income, ["Net Income", "Net Income Applicable to Common Shareholders"], key) || 0,
+      currentAssets: tableValue(balance, ["Total Current Assets"], key) ?? undefined,
+      currentLiabilities: tableValue(balance, ["Total Current Liabilities"], key) ?? undefined,
+      totalAssets: tableValue(balance, ["Total Assets"], key) ?? undefined,
+      totalLiabilities: tableValue(balance, ["Total Liabilities"], key) ?? undefined,
+      retainedEarnings: tableValue(balance, ["Retained Earnings"], key) ?? undefined,
+      incomeTax: (() => { const value = tableValue(income, ["Income Tax"], key); return value === null ? undefined : Math.abs(value); })(),
+      earningsBeforeTax: tableValue(income, ["Earnings Before Tax"], key) ?? undefined,
+      otherClaims: (() => {
+        const preferred = tableValue(balance, ["Preferred Stock", "Preferred Stock and Other Adjustments"], key);
+        const minority = tableValue(balance, ["Minority Interest", "Noncontrolling Interest"], key);
+        return preferred === null && minority === null ? null : (preferred ?? 0) + (minority ?? 0);
+      })(),
+      netIncome: tableValue(income, ["Net Income Applicable to Common Shareholders", "Net Income"], key) ?? undefined,
     };
   }).filter((row) => row.revenue > 0);
   if (!historical.length) throw new Error("Nasdaq did not return complete annual financial statements for this ticker.");
@@ -230,14 +281,23 @@ async function nasdaqFundamentals(symbol: string) {
     .map(([key, date]) => ({ key, date }))
     .filter((period) => period.date)
     .slice(0, 4);
-  const ltmOperating = quarterlyColumns.length === 4 ? quarterlyColumns.reduce((sum, { key }) => ({
-    revenue: sum.revenue + (tableValue(quarterlyIncome!, ["Total Revenue"], key) || 0),
-    ebit: sum.ebit + (tableValue(quarterlyIncome!, ["Operating Income", "Earnings Before Interest and Tax"], key) || 0),
-    depreciation: sum.depreciation + Math.abs(tableValue(quarterlyCashFlow || { rows: [] }, ["Depreciation"], key) || 0),
-  }), { revenue: 0, ebit: 0, depreciation: 0 }) : null;
+  const sumQuarterly = (table: NasdaqTable | undefined, labels: string[], absolute = false) => {
+    const values = quarterlyColumns.map(({ date }) => {
+      const column = Object.entries(table?.headers || {}).find(([, period]) => period === date)?.[0];
+      const value = column && table ? tableValue(table, labels, column) : null;
+      return value === null ? null : absolute ? Math.abs(value) : value;
+    });
+    return values.length === 4 && values.every((value): value is number => value !== null) ? values.reduce((sum, value) => sum + value, 0) : null;
+  };
+  const ltmOperating = quarterlyColumns.length === 4 ? {
+    revenue: sumQuarterly(quarterlyIncome, ["Total Revenue"]),
+    ebit: sumQuarterly(quarterlyIncome, ["Operating Income", "Earnings Before Interest and Tax"]),
+    depreciation: sumQuarterly(quarterlyCashFlow, ["Depreciation"], true),
+  } : null;
   const latestQuarterKey = quarterlyColumns[0]?.key;
   const ltm = ltmOperating && latestQuarterKey ? {
     ...ltmOperating,
+    periodEnd: isoDate(quarterlyColumns[0].date),
     cash: (tableValue(quarterlyBalance || { rows: [] }, ["Cash and Cash Equivalents"], latestQuarterKey) || 0)
       + (tableValue(quarterlyBalance || { rows: [] }, ["Short-Term Investments"], latestQuarterKey) || 0),
     debt: Math.abs(tableValue(quarterlyBalance || { rows: [] }, ["Short-Term Debt / Current Portion of Long-Term Debt"], latestQuarterKey) || 0)
@@ -254,7 +314,7 @@ async function nasdaqFundamentals(symbol: string) {
     marketCap: (rawNumber(summary.MarketCap) || 0) / 1_000_000,
     previousClose: rawNumber(summary.PreviousClose) || 0,
     historical,
-    ltm: ltm && ltm.revenue > 0 ? ltm : null,
+    ltm: ltm && ltm.revenue !== null && ltm.revenue > 0 ? ltm : null,
   };
 }
 
@@ -370,42 +430,40 @@ async function publicCompanyMetadata(symbol: string) {
   }
 }
 
-function comparableFromNasdaq(company: Awaited<ReturnType<typeof nasdaqFundamentals>>, forecast: RevenueForecast | null = null) {
+function comparableFromNasdaq(company: Awaited<ReturnType<typeof nasdaqFundamentals>>, forecast: RevenueForecast | null = null, otherClaims: number | null = null) {
   const latest = company.historical[0];
   const prior = company.historical[1];
-  const priceIndependentEv = company.marketCap + (company.ltm?.debt ?? latest.debt) - (company.ltm?.cash ?? latest.cash);
-  const ebitda = latest.ebit + latest.depreciation;
-  const ltmRevenue = company.ltm?.revenue || latest.revenue || null;
-  const ltmEbit = company.ltm?.ebit ?? latest.ebit ?? null;
-  const ltmEbitda = company.ltm ? company.ltm.ebit + company.ltm.depreciation : ebitda;
-  const ntmRevenue = forecast?.year1Revenue || null;
+  const known = (field: keyof typeof latest) => latest.missingFields?.includes(String(field)) ? null : latest[field] as number;
+  const debt = known("debt");
+  const cash = known("cash");
+  const priceIndependentEv = debt === null || cash === null || (!Number.isFinite(company.marketCap) || company.marketCap <= 0) ? null : company.marketCap + debt - cash + Math.max(0, otherClaims ?? latest.otherClaims ?? 0);
+  const ebitda = known("ebit") === null || known("depreciation") === null ? null : latest.ebit + latest.depreciation;
+  const ltmRevenue = company.ltm?.revenue ?? latest.revenue ?? null;
+  const ltmEbit = company.ltm ? company.ltm.ebit : known("ebit");
+  const ltmEbitda = company.ltm ? company.ltm.ebit === null || company.ltm.depreciation === null ? null : company.ltm.ebit + company.ltm.depreciation : ebitda;
+  const ntmRevenue = forecast?.year1Revenue ?? null;
   const ntmEbit = ntmRevenue && ltmRevenue && ltmEbit !== null ? ntmRevenue * ltmEbit / ltmRevenue : null;
   const ntmEbitda = ntmRevenue && ltmRevenue && ltmEbitda !== null ? ntmRevenue * ltmEbitda / ltmRevenue : null;
-  const profitMultiple = (profit: number | null, revenue: number | null) => {
-    if (profit === null || revenue === null || revenue <= 0) return { value: null, quality: "unavailable" as const };
-    if (profit <= 0) return { value: null, quality: "not-meaningful" as const };
-    const value = priceIndependentEv / profit;
-    const quality = profit / revenue < .02 || value > 100 ? "extreme" as const : "normal" as const;
-    return { value, quality };
-  };
-  const ebitdaLtm = profitMultiple(ltmEbitda, ltmRevenue);
-  const ebitdaNtm = profitMultiple(ntmEbitda, ntmRevenue);
-  const ebitLtm = profitMultiple(ltmEbit, ltmRevenue);
-  const ebitNtm = profitMultiple(ntmEbit, ntmRevenue);
+  const ebitdaLtm = profitMultiple(priceIndependentEv, ltmEbitda, ltmRevenue);
+  const ebitdaNtm = profitMultiple(priceIndependentEv, ntmEbitda, ntmRevenue);
+  const ebitLtm = profitMultiple(priceIndependentEv, ltmEbit, ltmRevenue);
+  const ebitNtm = profitMultiple(priceIndependentEv, ntmEbit, ntmRevenue);
   return {
     symbol: company.symbol,
     name: company.name,
     description: company.description,
     sector: company.sector,
     industry: company.industry,
-    marketCap: company.marketCap || null,
-    enterpriseValue: priceIndependentEv || null,
+    marketCap: company.marketCap ?? null,
+    enterpriseValue: priceIndependentEv,
     revenueGrowth: prior?.revenue ? (latest.revenue / prior.revenue - 1) * 100 : null,
-    operatingMargin: latest.revenue ? latest.ebit / latest.revenue * 100 : null,
-    evToRevenue: latest.revenue ? priceIndependentEv / latest.revenue : null,
-    evToEbitda: ebitda > 0 ? priceIndependentEv / ebitda : null,
-    evToRevenueLtm: ltmRevenue ? priceIndependentEv / ltmRevenue : null,
-    evToRevenueNtm: ntmRevenue ? priceIndependentEv / ntmRevenue : null,
+    operatingMargin: latest.revenue && known("ebit") !== null ? latest.ebit / latest.revenue * 100 : null,
+    evToRevenue: signedMultiple(priceIndependentEv, latest.revenue),
+    evToEbitda: signedMultiple(priceIndependentEv, ebitda),
+    ltmRevenue,
+    ltmEbitda,
+    evToRevenueLtm: signedMultiple(priceIndependentEv, ltmRevenue),
+    evToRevenueNtm: signedMultiple(priceIndependentEv, ntmRevenue),
     evToEbitdaLtm: ebitdaLtm.value,
     evToEbitdaNtm: ebitdaNtm.value,
     evToEbitLtm: ebitLtm.value,
@@ -415,8 +473,14 @@ function comparableFromNasdaq(company: Awaited<ReturnType<typeof nasdaqFundament
     evToEbitLtmQuality: ebitLtm.quality,
     evToEbitNtmQuality: ebitNtm.quality,
     ltmBasis: company.ltm ? "Latest four reported quarters" : `Latest reported fiscal year ended ${latest.fiscalDate}; quarterly provider data unavailable`,
-    ntmBasis: forecast ? "Consensus NTM revenue; LTM EBIT and EBITDA margins held constant" : null,
-    pe: latest.netIncome > 0 ? company.marketCap / latest.netIncome : null,
+    ntmBasis: forecast ? `Full fiscal year ending ${forecast.periods[0]?.periodEnd || "date unavailable"}; consensus revenue, historical EBIT/EBITDA margins held constant; not rolling NTM` : null,
+    forwardPeriodEnd: forecast?.periods[0]?.periodEnd ?? null,
+    financialsAsOf: company.ltm?.periodEnd || latest.fiscalDate,
+    balanceAsOf: latest.fiscalDate,
+    dataNotes: ["EV uses the latest annual funded debt and cash/investments. Preferred/minority claims and lease capitalization are not verified for this provider-only row.", ...(latest.missingFields?.length ? [`Unavailable source fields: ${latest.missingFields.join(", ")}. Affected ratios remain N/A.`] : [])],
+    retrievedAt: new Date().toISOString(),
+    sourceUrl: `https://www.nasdaq.com/market-activity/stocks/${company.symbol.toLowerCase()}/financials`,
+    pe: signedMultiple(company.marketCap, latest.netIncome ?? null),
   };
 }
 
@@ -623,15 +687,48 @@ async function secDatasetRaw(symbol: string, includeNarrative = true) {
     const cash = cashOnly !== undefined || shortTermInvestments !== undefined || longTermInvestments !== undefined
       ? (cashOnly || 0) + (shortTermInvestments || 0) + (longTermInvestments || 0)
       : undefined;
-    const currentDebt = fact(["LongTermDebtAndFinanceLeaseObligationsCurrent", "LongTermDebtCurrent", "ShortTermBorrowings"]);
-    const noncurrentDebt = fact(["LongTermDebtAndFinanceLeaseObligationsNoncurrent", "LongTermDebtNoncurrent"]);
-    const totalDebt = fact(["LongTermDebtAndFinanceLeaseObligations", "LongTermDebt"]);
-    const debt = currentDebt !== undefined || noncurrentDebt !== undefined ? (currentDebt || 0) + (noncurrentDebt || 0) : totalDebt;
+    const debtParts = fundedDebt({
+      currentTerm: fact(["LongTermDebtCurrent", "LongTermDebtAndFinanceLeaseObligationsCurrent"]),
+      shortBorrowings: fact(["ShortTermBorrowings"]),
+      commercialPaper: fact(["CommercialPaper"]),
+      noncurrentTerm: fact(["LongTermDebtNoncurrent", "LongTermDebtAndFinanceLeaseObligationsNoncurrent"]),
+      totalTerm: fact(["LongTermDebt", "LongTermDebtAndFinanceLeaseObligations"]),
+    });
+    const currentDebt = debtParts.current ?? undefined;
+    const noncurrentDebt = debtParts.noncurrent ?? undefined;
+    const debt = debtParts.total ?? undefined;
+    const taxonomy = facts.facts?.["us-gaap"] || {};
+    const operatingConcepts = resolveSecFinancialConcepts(taxonomy, reportDate);
+    const normalizedObservation = (observation: FinancialObservation) => ({
+      ...observation,
+      value: observationMillions(observation),
+      originalUnit: "USD",
+      normalizedUnit: "USD millions",
+      components: observation.components.map((component) => ({ ...component, value: component.value / 1_000_000, originalUnit: component.unit, normalizedUnit: "USD millions" })),
+    });
+    const annualOperatingFacts = [...annualRevenueByDate.keys()].map((fiscalDate) => {
+      const concepts = resolveSecFinancialConcepts(taxonomy, fiscalDate);
+      return {
+        fiscalDate,
+        depreciationAndAmortization: normalizedObservation(concepts.depreciationAndAmortization),
+        propertyDepreciation: normalizedObservation(concepts.propertyDepreciation),
+        intangibleAmortization: normalizedObservation(concepts.intangibleAmortization),
+        contractCostAmortization: normalizedObservation(concepts.contractCostAmortization),
+        shareBasedCompensation: normalizedObservation(concepts.shareBasedCompensation),
+        deferredTaxCashFlowAdjustment: normalizedObservation(concepts.deferredTaxCashFlowAdjustment),
+        propertyCapex: normalizedObservation(concepts.propertyCapex),
+        intangibleCapex: normalizedObservation(concepts.intangibleCapex),
+        totalCapex: normalizedObservation(concepts.totalCapex),
+        contractCostAsset: normalizedObservation(concepts.contractCostAsset),
+      };
+    });
     const revenue = fact(revenueConcepts, "USD", true);
     const operatingIncome = fact(["OperatingIncomeLoss"], "USD", true);
-    const depreciation = fact(["DepreciationDepletionAndAmortization", "DepreciationDepletionAndAmortizationPropertyPlantAndEquipment", "Depreciation"], "USD", true);
+    const depreciation = operatingConcepts.depreciationAndAmortization.value ?? undefined;
     const operatingCashFlow = fact(["NetCashProvidedByUsedInOperatingActivities"], "USD", true);
-    const capex = fact(["PaymentsToAcquirePropertyPlantAndEquipment", "PaymentsForAdditionsToPropertyPlantAndEquipment"], "USD", true);
+    const capex = operatingConcepts.totalCapex.value ?? undefined;
+    const preferredStock = fact(["PreferredStocksIncludingAdditionalPaidInCapital", "PreferredStockValue"]);
+    const minorityInterest = fact(["MinorityInterest", "MinorityInterestInConsolidatedEntity"]);
     const costOfRevenue = fact(["CostOfRevenue", "CostOfGoodsAndServicesSold", "CostOfGoodsAndServiceExcludingDepreciationDepletionAndAmortization"], "USD", true);
     const reportedGrossProfit = fact(["GrossProfit"], "USD", true);
     const secMetrics = {
@@ -653,8 +750,9 @@ async function secDatasetRaw(symbol: string, includeNarrative = true) {
       costOfRevenue,
       grossProfit: reportedGrossProfit ?? (revenue !== undefined && costOfRevenue !== undefined ? revenue - Math.abs(costOfRevenue) : undefined),
       interestExpense: fact(["InterestExpenseNonOperating", "InterestExpense"], "USD", true),
-      preferredInterest: (fact(["PreferredStocksIncludingAdditionalPaidInCapital", "PreferredStockValue"]) || 0)
-        + (fact(["MinorityInterest", "MinorityInterestInConsolidatedEntity"]) || 0),
+      preferredInterest: preferredStock === undefined && minorityInterest === undefined
+        ? undefined
+        : Math.max(0, (preferredStock ?? 0) + (minorityInterest ?? 0)),
       dilutedShares: fact(["WeightedAverageNumberOfDilutedSharesOutstanding"], "shares", true),
     };
     const accession = String(recent.accessionNumber[filingIndex]);
@@ -703,6 +801,8 @@ async function secDatasetRaw(symbol: string, includeNarrative = true) {
         asOf: latestInterimEntry.filed,
       } : null,
       metrics: Object.fromEntries(Object.entries(secMetrics).map(([key, value]) => [key, value === undefined ? undefined : value / 1_000_000])),
+      financialConcepts: Object.fromEntries(Object.entries(operatingConcepts).map(([key, observation]) => [key, normalizedObservation(observation)])),
+      annualOperatingFacts,
       filing: {
         form: String(recent.form[filingIndex]),
         filingDate: String(recent.filingDate[filingIndex]),
@@ -762,6 +862,23 @@ export async function GET(request: NextRequest) {
     const revenueData = withInterimRevenue(revenueHistory.revenueData, sec?.latestInterim || null);
     const historical = [...revenueHistory.historical].reverse();
     const latest = historical[0];
+    const annualOperatingFacts = new Map((sec?.annualOperatingFacts || []).map((row) => [row.fiscalDate, row]));
+    for (const row of historical) {
+      const filed = annualOperatingFacts.get(row.fiscalDate || "");
+      if (!filed) continue;
+      const depreciation = filed.depreciationAndAmortization.value;
+      const capex = filed.totalCapex.value;
+      if (typeof depreciation === "number" && Number.isFinite(depreciation)) {
+        row.depreciation = Math.abs(depreciation);
+        row.missingFields = row.missingFields?.filter((field) => field !== "depreciation") || [];
+      }
+      if (typeof capex === "number" && Number.isFinite(capex)) {
+        row.capex = Math.abs(capex);
+        row.capexPercentRevenue = row.revenue ? row.capex / row.revenue * 100 : 0;
+        row.freeCashFlow = row.operatingCashFlow - row.capex;
+        row.missingFields = row.missingFields?.filter((field) => !["capex", "capexPercentRevenue", "freeCashFlow"].includes(field)) || [];
+      }
+    }
     const peerSet = selectPeerSet({
       symbol,
       sector: primary.sector,
@@ -819,12 +936,34 @@ export async function GET(request: NextRequest) {
     const secDebt = secMetric("debt");
     const secCurrentDebt = secMetric("currentDebt");
     const secNoncurrentDebt = secMetric("noncurrentDebt");
+    const providerNoncurrentDebt = !latest.missingFields?.includes("longDebt") && Number.isFinite(latest.longDebt) ? latest.longDebt : null;
+    const debtResidual = secDebt !== null && (secNoncurrentDebt ?? providerNoncurrentDebt) !== null
+      ? Math.max(0, secDebt - (secNoncurrentDebt ?? providerNoncurrentDebt)!)
+      : null;
+    const resolvedCurrentDebt = secCurrentDebt === null ? debtResidual : debtResidual === null ? secCurrentDebt : Math.max(secCurrentDebt, debtResidual);
+    const resolvedNoncurrentDebt = secDebt !== null && resolvedCurrentDebt !== null
+      ? Math.max(0, secDebt - resolvedCurrentDebt)
+      : secNoncurrentDebt ?? providerNoncurrentDebt;
+    const replaceKnown = (field: keyof typeof latest, value: number | null) => {
+      if (value === null || !sec || sec.reportDate !== latest.fiscalDate) return;
+      Object.assign(latest, { [field]: value });
+      latest.missingFields = latest.missingFields?.filter((missing) => missing !== field) || [];
+    };
+    replaceKnown("cash", secCash);
+    replaceKnown("ebit", secMetric("operatingIncome"));
+    replaceKnown("depreciation", secMetric("depreciation"));
+    replaceKnown("capex", secMetric("capex") === null ? null : Math.abs(secMetric("capex")!));
+    replaceKnown("operatingCashFlow", secMetric("operatingCashFlow"));
+    if (!latest.missingFields?.includes("ebit")) { latest.ebitMargin = latest.ebit / latest.revenue * 100; latest.missingFields = latest.missingFields?.filter((field) => field !== "ebitMargin"); }
+    if (!latest.missingFields?.includes("capex")) { latest.capexPercentRevenue = latest.capex / latest.revenue * 100; latest.missingFields = latest.missingFields?.filter((field) => field !== "capexPercentRevenue"); }
+    if (!latest.missingFields?.includes("operatingCashFlow") && !latest.missingFields?.includes("capex")) { latest.freeCashFlow = latest.operatingCashFlow - latest.capex; latest.missingFields = latest.missingFields?.filter((field) => field !== "freeCashFlow"); }
     if (secCash !== null) latest.cash = secCash;
-    if (secDebt !== null) latest.debt = secDebt;
-    if (secCurrentDebt !== null || secNoncurrentDebt !== null) {
-      latest.shortDebt = secCurrentDebt || 0;
-      latest.longDebt = secNoncurrentDebt ?? Math.max(0, (secDebt || 0) - latest.shortDebt);
+    if (secDebt !== null) { latest.debt = secDebt; latest.missingFields = latest.missingFields?.filter((field) => field !== "debt"); }
+    if (resolvedCurrentDebt !== null || resolvedNoncurrentDebt !== null) {
+      latest.shortDebt = resolvedCurrentDebt ?? 0;
+      latest.longDebt = resolvedNoncurrentDebt ?? Math.max(0, (secDebt || 0) - latest.shortDebt);
       latest.debt = latest.shortDebt + latest.longDebt;
+      latest.missingFields = latest.missingFields?.filter((field) => !["shortDebt", "longDebt", "debt"].includes(field));
     }
     const revenueGrowth = growthRate(historical.map((row) => row.revenue));
     const estimatedPrice = priceHistory.at(-1)?.close || primary.previousClose;
@@ -889,6 +1028,36 @@ export async function GET(request: NextRequest) {
       supplySignals.push({ level: secCapexPercentRevenue > 25 ? "high" as const : "medium" as const, title: "Capital-intensive capacity", detail: `SEC-reported capital spending equals ${secCapexPercentRevenue.toFixed(1)}% of revenue, increasing execution, utilization, and financing exposure in the operating supply chain.` });
     }
     const usedSec = secResult.status === "available" && Boolean(sec);
+    const latestTaxRate = normalizedHistoricalTaxRate(historical);
+    const latestOperatingFacts = sec?.annualOperatingFacts?.find((row) => row.fiscalDate === sec.reportDate) || null;
+    const priorOperatingFacts = sec?.annualOperatingFacts
+      ?.filter((row) => row.fiscalDate < (sec.reportDate || ""))
+      .sort((a, b) => b.fiscalDate.localeCompare(a.fiscalDate))[0] || null;
+    const conceptValue = (observation: { value?: number | null } | null | undefined) => {
+      const value = observation?.value;
+      return typeof value === "number" && Number.isFinite(value) ? value : null;
+    };
+    const cashFlowReconciliation = secRevenue !== null
+      && secOperatingIncome !== null
+      && secDepreciation !== null
+      && secCapex !== null
+      && secOperatingCashFlow !== null
+      ? reconcileHistoricalCashFlow({
+          period: sec?.reportDate || latest.fiscalDate || "Latest annual period",
+          revenue: secRevenue,
+          ebit: secOperatingIncome,
+          taxRate: latestTaxRate,
+          depreciationAndAmortization: Math.abs(secDepreciation),
+          capex: Math.abs(secCapex),
+          operatingCashFlow: secOperatingCashFlow,
+          interestExpense: secInterestExpense,
+          shareBasedCompensation: conceptValue(latestOperatingFacts?.shareBasedCompensation),
+          contractCostAmortization: conceptValue(latestOperatingFacts?.contractCostAmortization),
+          contractCostAssetCurrent: conceptValue(latestOperatingFacts?.contractCostAsset),
+          contractCostAssetPrior: conceptValue(priorOperatingFacts?.contractCostAsset),
+          deferredTaxCashFlowAdjustment: conceptValue(latestOperatingFacts?.deferredTaxCashFlowAdjustment),
+        })
+      : null;
     const qualityNotes = [
       "No Alpha Vantage requests are used. Nasdaq financial statements and cached Nasdaq price history build the DCF without an API key or a 25-request daily quota.",
       "Operating income is used as EBIT; non-operating income and interest are excluded from the EBIT starting point.",
@@ -902,10 +1071,35 @@ export async function GET(request: NextRequest) {
     else qualityNotes.push("A validated two-year analyst revenue forecast was unavailable, so all six revenue forecast rows are clearly labeled editable model estimates.");
     if (revenueData.quality !== "complete") qualityNotes.push(`Annual revenue coverage is ${revenueData.quality}. ${revenueData.issues[0] || "Review the period-level sources before relying on the growth series."}`);
     if (secCash === null) qualityNotes.push("SEC cash was unavailable; the DCF cash assumption uses Nasdaq's displayed cash and short-term investments and stays editable.");
+    const daConcept = sec?.financialConcepts?.depreciationAndAmortization;
+    if (daConcept?.value !== null && daConcept?.value !== undefined) qualityNotes.push(`Latest D&A uses ${daConcept.method === "component-sum" ? "a non-overlapping component reconstruction" : "the filed aggregate"} of $${daConcept.value.toFixed(1)}M (${daConcept.rawTags.join(", ")}). Property depreciation alone is not treated as total D&A.`);
+    const contractAmortization = sec?.financialConcepts?.contractCostAmortization?.value;
+    if (typeof contractAmortization === "number" && contractAmortization !== 0) qualityNotes.push(`Capitalized contract-cost amortization of $${contractAmortization.toFixed(1)}M is disclosed separately. It is not added to D&A or forecast UFCF without the corresponding contract-cost investment.`);
+    if (cashFlowReconciliation?.status === "review") qualityNotes.push(`Cash-flow reconciliation requires review: the reported CFO-based UFCF proxy differs from the EBIT-derived starting bridge by ${cashFlowReconciliation.residualPercentRevenue?.toFixed(1)}% of revenue. Working capital and recurring operating-asset or noncash items must be forecast explicitly rather than hidden in D&A.`);
     if (!/^(?:united states(?: of america)?|u\.?s\.?a?\.?)$/i.test(publicMetadata.country || "")) qualityNotes.push("The automatic WACC does not add a country-risk premium. For a foreign issuer, reflect material country risk either in cash-flow scenarios or in the visible company-specific premium, not in both.");
     qualityNotes.push("Operating-lease liabilities are not automatically added to debt because consistent lease capitalization also requires lease-adjusted EBIT, D&A, capex, and cash flow. Preferred stock and non-controlling interests are included when SEC facts identify them.");
     qualityNotes.push(`WACC uses ${marketInputs.source}. Beta uses ${betaSource.toLowerCase()} and remains editable.`);
-    const latestTaxRate = normalizedHistoricalTaxRate(historical);
+    const focusClaims = secMetric("preferredInterest");
+    const focusComparable = comparableFromNasdaq({ ...primary, historical: [{ ...primary.historical[0], ...latest, missingFields: latest.missingFields || [] }, ...primary.historical.slice(1)] }, revenueForecast, focusClaims);
+    if (focusClaims !== null) focusComparable.dataNotes = ["EV uses the same annual cash/investments and funded debt as the DCF, plus identified preferred/minority claims. No automatic lease capitalization.", ...(latest.missingFields?.length ? [`Unavailable source fields: ${latest.missingFields.join(", ")}.`] : [])];
+    const currencyEvidence: Record<string, { currency: string; url: string }> = {
+      ASML: { currency: "EUR", url: "https://www.asml.com/investors/annual-report/2025" },
+      NIO: { currency: "CNY", url: "https://ir.nio.com/financials/annual-reports" },
+      SONY: { currency: "JPY", url: "https://www.sony.com/en/SonyInfo/IR/library/" },
+    };
+    const issuerCurrency = currencyEvidence[symbol];
+    const denomination = {
+      quoteCurrency: "USD", financialDisplayCurrency: "USD", issuerReportingCurrency: issuerCurrency?.currency || (/^United States$/i.test(publicMetadata.country || "") ? "USD" : "Unverified"),
+      normalizationStatus: issuerCurrency ? "Provider displays USD; conversion rate and translation dates not supplied or independently verified" : "SEC USD facts where available; verify provider denomination for other statements",
+      fxRate: null, fxAsOf: null, sourceUrl: issuerCurrency?.url || sec?.filing.url || `https://www.nasdaq.com/market-activity/stocks/${symbol.toLowerCase()}/financials`,
+      ordinarySharesPerQuotedSecurity: symbol === "NIO" ? 1 : null,
+      securitySourceUrl: symbol === "NIO" ? "https://ir.nio.com/resources/investor-faqs" : null,
+      verifiedAt: new Date().toISOString(),
+    };
+    if (issuerCurrency) qualityNotes.push(`Issuer reports in ${issuerCurrency.currency}; financials here use the provider's USD display. FX normalization rate and dates are unverified. Review the issuer source before relying on cross-currency valuation.`);
+    const impliedShares = estimatedPrice > 0 ? marketCap / estimatedPrice : null;
+    if (impliedShares !== null && shares > 0 && Math.abs(impliedShares / shares - 1) > .1) qualityNotes.push(`Share-basis review: annual diluted/selected shares ${shares.toFixed(1)}M differ from market-cap/price implied ${impliedShares.toFixed(1)}M. Neither establishes current fully diluted shares; reconcile issuances, repurchases, all classes, options and convertibles.`);
+    const shareBasis = { annualDilutedShares: secDilutedShares, annualPeriodEnd: sec?.reportDate || null, marketCapImpliedShares: impliedShares, currentFullyDilutedShares: null, status: "Current fully diluted share count unverified", securityRatio: denomination.ordinarySharesPerQuotedSecurity, sourceUrl: denomination.securitySourceUrl || sec?.filing.url || null };
     const descriptionFromSec = Boolean(sec?.company.description);
     const secCompanyDescription = sec?.company.description
       ? conciseBusinessDescription({ symbol, name: companyName, description: sec.company.description, sector: primary.sector, industry: primary.industry })
@@ -938,7 +1132,13 @@ export async function GET(request: NextRequest) {
       coverage: valuationOnly ? "valuation" : "full",
       source: usedSec ? "Nasdaq financials and market data + SEC filings" : "Nasdaq financials and market data; SEC unavailable",
       asOf: latest.fiscalDate,
+      retrievedAt: new Date().toISOString(),
       qualityNotes,
+      financialConcepts: sec?.financialConcepts || null,
+      cashFlowReconciliation,
+      missingFinancialInputs: latest.missingFields || [],
+      denomination,
+      shareBasis,
       company: {
         symbol,
         name: companyName,
@@ -975,7 +1175,7 @@ export async function GET(request: NextRequest) {
         daPercentRevenue: latest.revenue ? (latest.depreciation / latest.revenue) * 100 : 0,
         cash: latest.cash,
         debt: latest.debt,
-        shortDebt: latest.shortDebt || 0,
+        shortDebt: latest.shortDebt ?? 0,
         longDebt: latest.longDebt ?? latest.debt,
         preferredInterest: secMetric("preferredInterest") || 0,
         taxRate: latestTaxRate,
@@ -983,7 +1183,7 @@ export async function GET(request: NextRequest) {
       forecast: revenueForecast,
       revenueData,
       comparison: {
-        company: { ...comparableFromNasdaq(primary, revenueForecast), description: companyDescription, peerFit: "focus", businessModel: peerSet.rationales?.[symbol]?.businessModel || peerSet.label, peerRationale: `Focus company classified as ${peerSet.label.toLowerCase()}.` },
+        company: { ...focusComparable, description: companyDescription, peerFit: "focus", businessModel: peerSet.rationales?.[symbol]?.businessModel || peerSet.label, peerRationale: `Focus company classified as ${peerSet.label.toLowerCase()}.` },
         peers,
         selectedPeerSymbols,
         industryGrowthRate,
@@ -1054,6 +1254,7 @@ export async function GET(request: NextRequest) {
     });
     return withDiagnosticHeaders(normalizedResponse, diagnostics);
   } catch (error) {
+    if (error instanceof UnsupportedTickerError) return withDiagnosticHeaders(NextResponse.json({ error: "This ticker is not supported by the financial-data provider. Check the symbol or try its supported listing.", code: "UNSUPPORTED_TICKER", requestId: diagnostics.requestId }, { status: 404 }), diagnostics);
     logDiagnostic("error", diagnostics, { event: "company_request_failed", status: 502, symbol, outcome: "error", errorType: safeErrorType(error) });
     return withDiagnosticHeaders(NextResponse.json({ error: "Unable to load company data right now.", code: "COMPANY_DATA_UNAVAILABLE", requestId: diagnostics.requestId }, { status: 502 }), diagnostics);
   }

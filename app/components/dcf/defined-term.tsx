@@ -21,7 +21,7 @@ export const TERM_DEFINITIONS = {
   ebitMargin: "Target EBIT margin: the percentage of revenue expected to remain as operating profit before interest and taxes by Year 5.",
   taxRate: "Tax rate: the normalized cash tax percentage applied to positive operating profit. It should reflect a sustainable rate rather than a one-time tax benefit or charge.",
   terminalGrowth: "Terminal growth: the annual rate the company is assumed to grow forever after Year 5. It must remain below WACC, should generally not exceed the same-currency risk-free rate, and should resemble mature long-run nominal growth.",
-  marketPrice: "Market price: the current or reference share price used only to calculate potential upside or downside. Changing it does not change the DCF’s intrinsic value.",
+  marketPrice: "Market price: the current or reference price used for upside or downside and the equity weight in WACC. Changing it can change both WACC and the DCF value.",
   cash: "Cash: cash considered available to shareholders. It is added to enterprise value when calculating equity value.",
   fundedDebt: "Funded debt: interest-bearing borrowings that must be repaid. It is subtracted from enterprise value before calculating equity value.",
   riskFreeRate: "Risk-free rate: the return investors could earn with minimal default risk, commonly approximated with a long-term U.S. Treasury yield. It forms the starting point for required returns.",
@@ -31,7 +31,7 @@ export const TERM_DEFINITIONS = {
   equityWeight: "Equity / capital: the percentage of the company’s financing represented by equity market value. It determines how much the cost of equity influences WACC.",
   preTaxCostOfDebt: "Pre-tax cost of debt: the estimated interest rate the company pays or would pay on borrowings before the tax benefit of deductible interest.",
   debtWeight: "Debt / capital: the percentage of financing represented by funded debt. It determines how much the after-tax cost of debt influences WACC.",
-  companySpecificPremium: "Company-specific premium: a visible judgment adjustment added after the standard WACC formula. It starts at 0% when beta history is sufficient. If beta history is insufficient, the automatic starting value only fills the gap to the disclosed industry WACC; replace it with a bottom-up beta when possible and avoid double counting risk in cash flows.",
+  companySpecificPremium: "Company-specific premium: an optional judgment adjustment added after the standard WACC formula. It starts at 0% and is never used to force WACC toward an industry target. Avoid double counting risks already reflected in beta, debt cost, or forecast cash flows.",
 } as const;
 
 export type DefinedTermKey = keyof typeof TERM_DEFINITIONS;

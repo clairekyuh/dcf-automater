@@ -8,17 +8,18 @@ type NumberFieldProps = {
   label: string;
   term?: DefinedTermKey;
   value: number;
+  unavailable?: boolean;
   suffix: string;
   help: string;
   onChange: (value: number) => void;
 };
 
-export function NumberField({ id, label, term, value, suffix, help, onChange }: NumberFieldProps) {
+export function NumberField({ id, label, term, value, unavailable = false, suffix, help, onChange }: NumberFieldProps) {
   const [showHelp, setShowHelp] = useState(false);
   const displayValue = Number.isFinite(value) ? Math.round(value * 100) / 100 : 0;
   return <div className="number-field" id={id}>
     <div className="field-label"><span>{term ? <DefinedTerm term={term}>{label}</DefinedTerm> : label}</span><button type="button" aria-label={`Explain ${label}`} aria-expanded={showHelp} onClick={() => setShowHelp((open) => !open)}>?</button></div>
-    <div className="input-cell"><input aria-label={`${label} ${suffix}`} type="number" step="0.1" value={displayValue} onChange={(event) => onChange(Number(event.target.value))} /><b>{suffix}</b></div>
+    <div className="input-cell"><input aria-label={`${label} ${suffix}`} type="number" step="0.1" value={unavailable ? "" : displayValue} placeholder={unavailable ? "N/A" : undefined} onChange={(event) => onChange(Number(event.target.value))} /><b>{suffix}</b></div>
     {showHelp && <p className="field-help">{help}</p>}
   </div>;
 }

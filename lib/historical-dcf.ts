@@ -1,5 +1,6 @@
 export type HistoricalDcfInput = {
   year: string;
+  missingFields?: string[];
   fiscalDate?: string;
   revenue: number;
   operatingCashFlow: number;
@@ -37,6 +38,7 @@ export function normalizedHistoricalTaxRate(rows: HistoricalDcfInput[], fallback
 }
 
 export function historicalUfcf(row: HistoricalDcfInput, fallbackTaxRate: number) {
+  if (row.missingFields?.some((field) => ["operatingCashFlow", "capex"].includes(field))) return null;
   if (!Number.isFinite(row.operatingCashFlow) || !Number.isFinite(row.capex)) return null;
   const taxRate = historicalEffectiveTaxRate(row) ?? clamp(fallbackTaxRate, 0, 50);
   const afterTaxInterest = Math.max(0, row.interestExpense || 0) * (1 - taxRate / 100);
