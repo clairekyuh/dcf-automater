@@ -466,8 +466,8 @@ export async function POST(request: Request) {
       [4, 5, 6, 7, 8, 9, 10, 11].forEach((column, index) => {
         const letter = comps.getColumn(column).letter;
         const valid = peerMetrics[index].filter((value): value is number => value !== null && Number.isFinite(value));
-        const mean = valid.length ? valid.reduce((sum, value) => sum + value, 0) / valid.length : "N/A";
-        comps.getCell(meanRow, column).value = formulaCell(`IF(COUNT(${letter}5:${letter}${meanRow - 1})=0,"N/A",AVERAGE(${letter}5:${letter}${meanRow - 1}))`, mean);
+        const mean = valid.length ? valid.reduce((sum, value) => sum + value, 0) / valid.length : "";
+        comps.getCell(meanRow, column).value = formulaCell(`IF(COUNT(${letter}5:${letter}${meanRow - 1})=0,"",AVERAGE(${letter}5:${letter}${meanRow - 1}))`, mean);
         comps.getCell(meanRow, column).numFmt = column <= 5 ? moneyFormat : multipleFormat;
       });
     }
@@ -477,8 +477,8 @@ export async function POST(request: Request) {
       const letter = comps.getColumn(column).letter;
       const values = peers.map((peer) => [peer.marketCap, peer.enterpriseValue, peer.evToRevenueLtm, peer.evToRevenueNtm, peer.evToEbitdaLtm, peer.evToEbitdaNtm, peer.evToEbitLtm, peer.evToEbitNtm][column - 4]).filter((value): value is number => typeof value === "number" && Number.isFinite(value)).sort((a, b) => a - b);
       const mid = Math.floor(values.length / 2);
-      const median = !values.length ? "N/A" : values.length % 2 ? values[mid] : (values[mid - 1] + values[mid]) / 2;
-      comps.getCell(medianRow, column).value = formulaCell(`IF(COUNT(${letter}5:${letter}${meanRow - 1})=0,"N/A",MEDIAN(${letter}5:${letter}${meanRow - 1}))`, median);
+      const median = !values.length ? "" : values.length % 2 ? values[mid] : (values[mid - 1] + values[mid]) / 2;
+      comps.getCell(medianRow, column).value = formulaCell(`IF(COUNT(${letter}5:${letter}${meanRow - 1})=0,"",MEDIAN(${letter}5:${letter}${meanRow - 1}))`, median);
       comps.getCell(medianRow, column).numFmt = column <= 5 ? moneyFormat : multipleFormat;
     }
     for (const row of [meanRow, medianRow]) for (let column = 2; column <= 13; column += 1) { comps.getCell(row, column).font = { bold: true, color: { argb: navy } }; comps.getCell(row, column).border = { top: { style: "thin", color: { argb: navy } } }; }

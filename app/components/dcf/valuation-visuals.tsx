@@ -53,7 +53,7 @@ function OperatingChart({ data, result }: { data: CompanyData; result: DcfResult
   const forecastStart = points.findIndex((point) => point.period === "forecast");
   const dividerX = forecastStart > 0 ? (x(forecastStart - 1) + x(forecastStart)) / 2 : null;
   const statusLabel = (status: typeof points[number]["revenueStatus"]) => status === "reported" ? "Reported" : status === "consensus" ? "Consensus estimate" : "Model estimate";
-  const growthLabel = (growthValue: number | null) => growthValue === null ? "N/A" : `${oneDecimal.format(growthValue)}%`;
+  const growthLabel = (growthValue: number | null) => growthValue === null ? "—" : `${oneDecimal.format(growthValue)}%`;
   const revenueLabel = (value: number) => `$${oneDecimal.format(value)}M`;
   const sourceLabel = (source: string) => source
     .replace("S&P Global consensus via Stock Analysis", "S&P Global consensus")
@@ -115,8 +115,8 @@ function OperatingChart({ data, result }: { data: CompanyData; result: DcfResult
             <text x="12" y="40">Revenue</text><text x={tooltipWidth - 12} y="40" textAnchor="end">{revenueLabel(point.revenue)}</text>
             <text x="12" y="59">Growth</text><text x={tooltipWidth - 12} y="59" textAnchor="end">{growthLabel(point.revenueGrowth)}</text>
             <text x="12" y="78">Source</text><text x={tooltipWidth - 12} y="78" textAnchor="end">{source}</text>
-            <text x="12" y="96">Period</text><text x={tooltipWidth - 12} y="96" textAnchor="end">Full year · {point.fiscalPeriodEnd || "N/A"}</text>
-            <text x="12" y="114">Updated</text><text x={tooltipWidth - 12} y="114" textAnchor="end">{point.revenueSourceAsOf || "N/A"}</text>
+            <text x="12" y="96">Period</text><text x={tooltipWidth - 12} y="96" textAnchor="end">Full year · {point.fiscalPeriodEnd || "—"}</text>
+            <text x="12" y="114">Updated</text><text x={tooltipWidth - 12} y="114" textAnchor="end">{point.revenueSourceAsOf || "—"}</text>
           </g>
         </g>;
       })}
@@ -143,7 +143,7 @@ function MarginChart({ data, result }: { data: CompanyData; result: DcfResult })
   const periodWidth = (width - padding.left - padding.right) / Math.max(points.length - 1, 1);
   const tooltipWidth = 176;
   const tooltipHeight = 88;
-  const percentLabel = (value: number | null) => value === null ? "N/A" : `${oneDecimal.format(value)}%`;
+  const percentLabel = (value: number | null) => value === null ? "—" : `${oneDecimal.format(value)}%`;
 
   return <article className={styles.chartBlock}>
     <header>
@@ -232,7 +232,7 @@ function TerminalDependency({ perpetuity, multiple }: { perpetuity: DcfResult; m
         const terminalPercent = item.terminalPercent;
         const cappedWidth = terminalPercent === null ? 0 : Math.min(100, Math.max(0, terminalPercent));
         return <div key={item.label}>
-          <div><b>{item.label}</b><strong>{terminalPercent === null ? "N/A" : `${oneDecimal.format(terminalPercent)}%`}</strong></div>
+          <div><b>{item.label}</b><strong>{terminalPercent === null ? "—" : `${oneDecimal.format(terminalPercent)}%`}</strong></div>
           <i><span style={{ width: `${cappedWidth}%` }}/></i>
           {terminalPercent !== null && terminalPercent > 100 && <small>Above 100% because the explicit forecast reduces enterprise value.</small>}
         </div>;

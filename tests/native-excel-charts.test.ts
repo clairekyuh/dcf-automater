@@ -99,7 +99,7 @@ test("Excel scenario formulas rediscount explicit cash flows at each row WACC", 
   }
 });
 
-test("Excel preserves N/A for empty comps columns and retains raw exit formulas as requested", async () => {
+test("Excel leaves empty comps columns blank and retains raw exit formulas as requested", async () => {
   const requestPayload = payload();
   requestPayload.model.exitMultiple = -30;
   const response = await POST(new Request("https://example.test/api/export-dcf", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(requestPayload) }));
@@ -108,8 +108,8 @@ test("Excel preserves N/A for empty comps columns and retains raw exit formulas 
   await workbook.xlsx.load(await response.arrayBuffer());
   const comps = workbook.getWorksheet("Comps")!;
   assert.match(comps.getCell("H6").formula, /IF\(COUNT/);
-  assert.equal(comps.getCell("H6").result, "N/A");
-  assert.equal(comps.getCell("H7").result, "N/A");
+  assert.equal(comps.getCell("H6").result, undefined);
+  assert.equal(comps.getCell("H7").result, undefined);
   assert.equal(workbook.getWorksheet("DCF Output")!.getCell("I8").formula, "I6*I7");
   assert.equal(workbook.getWorksheet("Inputs")!.getCell("C25").value, -30);
 });

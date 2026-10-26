@@ -260,7 +260,7 @@ function ValuationBridge({ title, result, model, method, data }: { title: string
   const impliedExitMultiple = result.terminalEbitda > 0 ? result.terminalValue / result.terminalEbitda : null;
   const terminalFcfYield = result.terminalValue > 0 ? result.terminalFcf / result.terminalValue : null;
   const impliedGrowth = terminalFcfYield === null ? null : (result.waccPercent / 100 - terminalFcfYield) / (1 + terminalFcfYield) * 100;
-  const validMoney = (value: number) => result.valid ? `${usd0.format(value)}M` : "N/A";
+  const validMoney = (value: number) => result.valid ? `${usd0.format(value)}M` : "—";
   const invalidReason = method === "multiple" && model.exitMultiple <= 0 && benchmark.selected === null
     ? benchmark.reason
     : result.invalidReason;
@@ -270,10 +270,10 @@ function ValuationBridge({ title, result, model, method, data }: { title: string
     {method === "perpetuity" ? <>
       <div className="terminal-equation"><div><span>Normalized terminal <DefinedTerm term="ufcf">FCF</DefinedTerm></span><code>{fmt.format(result.terminalNopat)} × (1 − {fmt.format(model.terminalGrowth)}% ÷ {fmt.format(model.terminalRoic)}%)</code></div><b>{validMoney(result.terminalFcf)}</b></div>
       <div className="terminal-equation"><div><span><DefinedTerm term="terminalValue">Terminal value</DefinedTerm></span><code>{fmt.format(result.terminalFcf)} × (1 + {fmt.format(model.terminalGrowth)}%) ÷ ({fmt.format(result.waccPercent)}% − {fmt.format(model.terminalGrowth)}%)</code></div><b>{validMoney(result.terminalValue)}</b></div>
-      <div className="equation-context"><span>Growth <b>{fmt.format(model.terminalGrowth)}%</b></span><span><DefinedTerm term="terminalRoic">ROIC</DefinedTerm> <b>{fmt.format(model.terminalRoic)}%</b></span><span>Reinvestment <b>{result.terminalReinvestmentRate === null ? "N/A" : `${fmt.format(result.terminalReinvestmentRate * 100)}%`}</b></span><span>Peer growth <b>{industryGrowth === null ? "N/A" : `${fmt.format(industryGrowth)}%`}</b></span><span>Implied exit multiple <b>{impliedExitMultiple === null ? "N/A" : `${fmt.format(impliedExitMultiple)}×`}</b></span></div>
+      <div className="equation-context"><span>Growth <b>{fmt.format(model.terminalGrowth)}%</b></span><span><DefinedTerm term="terminalRoic">ROIC</DefinedTerm> <b>{fmt.format(model.terminalRoic)}%</b></span><span>Reinvestment <b>{result.terminalReinvestmentRate === null ? "—" : `${fmt.format(result.terminalReinvestmentRate * 100)}%`}</b></span><span>Peer growth <b>{industryGrowth === null ? "—" : `${fmt.format(industryGrowth)}%`}</b></span><span>Implied exit multiple <b>{impliedExitMultiple === null ? "—" : `${fmt.format(impliedExitMultiple)}×`}</b></span></div>
     </> : <>
       <div className="terminal-equation"><div><span><DefinedTerm term="terminalValue">Terminal value</DefinedTerm></span><code>{fmt.format(result.terminalEbitda)} Year-5 EBITDA × {fmt.format(model.exitMultiple)}×</code></div><b>{validMoney(result.terminalValue)}</b></div>
-      <div className="equation-context"><span>Year-5 <DefinedTerm term="ebitda">EBITDA</DefinedTerm> <b>{usd0.format(result.terminalEbitda)}M</b></span><span>Exit multiple <b>{fmt.format(model.exitMultiple)}×</b></span><span>Full peer median <b>{peerMedian === null ? "N/A" : `${fmt.format(peerMedian)}×`}</b></span><span>Reported peer range <b>{peerMultiples.length ? `${fmt.format(Math.min(...peerMultiples))} to ${fmt.format(Math.max(...peerMultiples))}×` : "N/A"}</b></span><span>Implied growth <b>{impliedGrowth === null ? "N/A" : `${fmt.format(impliedGrowth)}%`}</b></span></div>
+      <div className="equation-context"><span>Year-5 <DefinedTerm term="ebitda">EBITDA</DefinedTerm> <b>{usd0.format(result.terminalEbitda)}M</b></span><span>Exit multiple <b>{fmt.format(model.exitMultiple)}×</b></span><span>Full peer median <b>{peerMedian === null ? "—" : `${fmt.format(peerMedian)}×`}</b></span><span>Reported peer range <b>{peerMultiples.length ? `${fmt.format(Math.min(...peerMultiples))} to ${fmt.format(Math.max(...peerMultiples))}×` : "—"}</b></span><span>Implied growth <b>{impliedGrowth === null ? "—" : `${fmt.format(impliedGrowth)}%`}</b></span></div>
     </>}
     <div className="equation-flow">
       <EquationLine operator="" label={<><DefinedTerm term="pv">PV</DefinedTerm> of forecast <DefinedTerm term="ufcf">UFCF</DefinedTerm></>} value={`${usd0.format(result.pvForecast)}M`}/>
@@ -285,7 +285,7 @@ function ValuationBridge({ title, result, model, method, data }: { title: string
       <EquationLine operator="−" label="Other non-equity claims" value={`${usd0.format(model.preferredInterest)}M`}/>
       <EquationLine operator="=" label={<DefinedTerm term="equityValue">Equity value</DefinedTerm>} value={validMoney(result.equityValue)} emphasis="total"/>
       <EquationLine operator="÷" label={<DefinedTerm term="dilutedShares">Diluted shares</DefinedTerm>} value={`${fmt.format(model.shares)}M`}/>
-      <EquationLine operator="=" label="Implied price per share" value={result.valid ? usd.format(result.perShare) : "N/A"} emphasis="answer"/>
+      <EquationLine operator="=" label="Implied price per share" value={result.valid ? usd.format(result.perShare) : "—"} emphasis="answer"/>
     </div>
   </section>;
 }
@@ -302,7 +302,7 @@ function SensitivityTable({ data, model, method }: { data: CompanyData; model: M
       {waccs.map((wacc) => <tr key={wacc}><th>{fmt.format(wacc)}%</th>{columns.map((column) => {
         const result = calculate(data, model, method, method === "perpetuity" ? { wacc, terminalGrowth: column } : { wacc, exitMultiple: column });
         const active = Math.abs(wacc - selectedWacc) < .01 && Math.abs(column - (method === "perpetuity" ? model.terminalGrowth : model.exitMultiple)) < .01;
-        return <td className={active ? "active" : ""} key={column}>{result.valid ? usd.format(result.perShare) : "N/A"}</td>;
+        return <td className={active ? "active" : ""} key={column}>{result.valid ? usd.format(result.perShare) : "—"}</td>;
       })}</tr>)}
     </tbody></table></div>
   </div>;
@@ -667,7 +667,7 @@ export default function Home() {
     { label: "EBITDA", actuals: actualValues((row) => row.missingFields?.some((field) => ["ebit", "depreciation"].includes(field)) ? null : row.ebit + row.depreciation), values: result.years.map((year) => year.ebitda), terminal: result.terminalEbitda, type: "total" },
   ];
   const formatCell = (value: number | null, type?: string) => {
-    if (value === null || !Number.isFinite(value)) return "N/A";
+    if (value === null || !Number.isFinite(value)) return "—";
     if (type === "percent") return `${fmt.format(value)}%`;
     if (type === "factor") return value < 1 ? value.toFixed(3) : fmt.format(value);
     if (type === "negative") return value < 0 ? `(${fmt.format(Math.abs(value))})` : fmt.format(value);
@@ -754,7 +754,7 @@ export default function Home() {
       <div className="section-heading"><div><h2 id="valuation-title">Valuation</h2></div></div>
       <div className={dashboardStyles.sensitivityPanel}><div className="sensitivity-grid workbook-sensitivity"><SensitivityTable data={data} model={model} method="perpetuity"/>{model.exitMultiple > 0 ? <SensitivityTable data={data} model={model} method="multiple"/> : <div className="unavailable-sensitivity"><h3>Exit multiple unavailable</h3><p>{exitBenchmark.reason}</p><Link href={`/company-analysis?symbol=${encodeURIComponent(data.company.symbol)}#competitors`}>Review comparable companies →</Link></div>}</div></div>
       <details className={dashboardStyles.inlineDisclosure}><summary>DCF output</summary><div><DcfCashFlowOutput result={perpetuity}/></div></details>
-      <details className={dashboardStyles.inlineDisclosure}><summary>Enterprise-to-equity bridge</summary><div className="workbook-shell"><div className="formula-bar"><b>fx</b><code>{workbookFormula.valuation}</code></div><div className="workbook-panel"><div className="model-table-wrap"><table className="workbook-table valuation-workbook"><thead><tr><th>Valuation bridge</th><th>Perpetual growth</th><th>Exit multiple</th></tr></thead><tbody>{valuationSheet.map(([label, perpetuityValue, multipleValue]) => <tr className={["Enterprise value", "Equity value"].includes(String(label)) ? "workbook-total" : ""} key={String(label)}><td>{label}</td><td>{perpetuity.valid ? workbookMoney(Number(perpetuityValue)) : "N/A"}</td><td>{multiple.valid ? workbookMoney(Number(multipleValue)) : "N/A"}</td></tr>)}<tr><td>Share count used</td><td>{fmt.format(model.shares)}M</td><td>{fmt.format(model.shares)}M</td></tr><tr className="workbook-answer"><td>Implied value per share</td><td>{perpetuity.valid ? usd.format(perpetuity.perShare) : "N/A"}</td><td>{multiple.valid ? usd.format(multiple.perShare) : "N/A"}</td></tr></tbody></table></div></div></div></details>
+      <details className={dashboardStyles.inlineDisclosure}><summary>Enterprise-to-equity bridge</summary><div className="workbook-shell"><div className="formula-bar"><b>fx</b><code>{workbookFormula.valuation}</code></div><div className="workbook-panel"><div className="model-table-wrap"><table className="workbook-table valuation-workbook"><thead><tr><th>Valuation bridge</th><th>Perpetual growth</th><th>Exit multiple</th></tr></thead><tbody>{valuationSheet.map(([label, perpetuityValue, multipleValue]) => <tr className={["Enterprise value", "Equity value"].includes(String(label)) ? "workbook-total" : ""} key={String(label)}><td>{label}</td><td>{perpetuity.valid ? workbookMoney(Number(perpetuityValue)) : "—"}</td><td>{multiple.valid ? workbookMoney(Number(multipleValue)) : "—"}</td></tr>)}<tr><td>Share count used</td><td>{fmt.format(model.shares)}M</td><td>{fmt.format(model.shares)}M</td></tr><tr className="workbook-answer"><td>Implied value per share</td><td>{perpetuity.valid ? usd.format(perpetuity.perShare) : "—"}</td><td>{multiple.valid ? usd.format(multiple.perShare) : "—"}</td></tr></tbody></table></div></div></div></details>
     </section>}
 
     {!modelUnsupported && activeWorkspace === "assumptions" && <section className={`${dashboardStyles.detailPanel} sheet-section`} id="detail-workspace" role="tabpanel" aria-labelledby="assumptions-title">

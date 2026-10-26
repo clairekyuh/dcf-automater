@@ -128,7 +128,7 @@ export function forecastTiming(model: Pick<DcfModel, "forecastDrivers" | "valuat
 
 export function validateModelInputs(data: DcfData, model: DcfModel) {
   const missing = (data.missingFinancialInputs || []).filter((field) => ["cash", "debt", "ebit", "depreciation", "capex"].includes(field) && !model.sourceInputOverrides?.includes(field));
-  if (missing.length) return `Source inputs unavailable: ${missing.join(", ")}. Enter the missing cash/debt assumptions or explicitly edit each affected forecast row; source values remain N/A.`;
+  if (missing.length) return `Source inputs unavailable: ${missing.join(", ")}. Enter the missing cash or debt assumptions, or edit each affected forecast row before using the valuation.`;
   if (!Number.isFinite(data.metrics.revenue) || data.metrics.revenue <= 0) return "Starting revenue must be a positive finite number.";
   if (model.forecastDrivers.length !== 6) return "The DCF requires exactly six fiscal forecast periods.";
   const percentageFields: Array<keyof Omit<ForecastDriver, "periodEnd" | "source">> = [

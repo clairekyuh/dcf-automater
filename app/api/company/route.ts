@@ -3,7 +3,7 @@ import { fundedDebt } from "@/lib/financial-components";
 import { profitMultiple, signedMultiple } from "@/lib/comparable-metrics";
 import { conciseBusinessDescription } from "@/lib/company-description";
 import { buildPeerSimilarityRationale } from "@/lib/business-comparison";
-import { addYears, isStandardDcfUnsupported } from "@/lib/dcf-engine";
+import { addYears, clampNumber, isStandardDcfUnsupported } from "@/lib/dcf-engine";
 import { normalizedHistoricalTaxRate } from "@/lib/historical-dcf";
 import { estimateMarketBeta } from "@/lib/market-beta";
 import { latestTreasuryObservation } from "@/lib/market-inputs";
@@ -120,8 +120,8 @@ const median = (values: Array<number | null>) => {
   return valid.length % 2 ? valid[middle] : (valid[middle - 1] + valid[middle]) / 2;
 };
 
-type NasdaqRow = Record<string, string | null>;
-type NasdaqTable = { headers?: Record<string, string>; rows?: NasdaqRow[] };
+export type NasdaqRow = Record<string, string | null>;
+export type NasdaqTable = { headers?: Record<string, string>; rows?: NasdaqRow[] };
 
 async function nasdaq(endpoint: string, revalidate = 86400) {
   const url = `${NASDAQ_API}${endpoint}`;
@@ -181,6 +181,61 @@ function tableValue(table: NasdaqTable, labels: string[], column: string) {
   return null;
 }
 
+function normalizedStatementLabel(value: unknown) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+/**
+ * Nasdaq renders a real zero balance as `--`. The old parser collapsed that
+ * with an absent row, which incorrectly made enterprise value unavailable for
+ * companies such as Alphabet. Keep row presence separate from its numeric
+ * value so an explicit blank debt/investment row can safely resolve to zero.
+ */
+export function statementObservation(table: NasdaqTable, labels: string[], column: string) {
+  const normalizedLabels = new Set(labels.map(normalizedStatementLabel));
+  const row = table.rows?.find((item) => normalizedLabels.has(normalizedStatementLabel(item.value1)));
+  if (!row) return { present: false, value: null as number | null };
+  return { present: true, value: financialMillions(row[column]) };
+}
+
+function balanceValue(table: NasdaqTable, labels: string[], column: string) {
+  const observation = statementObservation(table, labels, column);
+  if (!observation.present) return null;
+  return observation.value ?? 0;
+}
+
+const CASH_LABELS = ["Cash and Cash Equivalents", "Cash & Cash Equivalents", "Cash and Equivalents", "Cash"];
+const SHORT_INVESTMENT_LABELS = ["Short-Term Investments", "Short Term Investments", "Marketable Securities"];
+const SHORT_DEBT_LABELS = [
+  "Short-Term Debt / Current Portion of Long-Term Debt",
+  "Short Term Debt / Current Portion of Long Term Debt",
+  "Short-Term Debt",
+  "Current Portion of Long-Term Debt",
+  "Current Debt",
+];
+const LONG_DEBT_LABELS = ["Long-Term Debt", "Long Term Debt", "Long-Term Debt, Net", "Noncurrent Debt"];
+
+export function cashAndInvestments(table: NasdaqTable, column: string) {
+  const cash = balanceValue(table, CASH_LABELS, column);
+  if (cash === null) return null;
+  const investments = balanceValue(table, SHORT_INVESTMENT_LABELS, column);
+  return cash + (investments ?? 0);
+}
+
+export function statementFundedDebt(table: NasdaqTable, column: string) {
+  const shortDebt = balanceValue(table, SHORT_DEBT_LABELS, column);
+  const longDebt = balanceValue(table, LONG_DEBT_LABELS, column);
+  return {
+    shortDebt,
+    longDebt,
+    total: shortDebt === null || longDebt === null ? null : Math.abs(shortDebt) + Math.abs(longDebt),
+  };
+}
+
 function growthRate(values: number[]) {
   const valid = values.filter((value) => value > 0);
   if (valid.length < 2) return 0;
@@ -212,14 +267,16 @@ async function nasdaqFundamentals(symbol: string) {
     .map(([key, date]) => ({ key, date }))
     .filter((period) => period.date);
   const historical = periodColumns.map(({ key, date }) => {
+    const cashBalance = cashAndInvestments(balance, key);
+    const debtBalance = statementFundedDebt(balance, key);
     const reported = {
       ebit: tableValue(income, ["Operating Income", "Earnings Before Interest and Tax"], key),
       depreciation: tableValue(cashFlow, ["Depreciation"], key),
       capex: tableValue(cashFlow, ["Capital Expenditures"], key),
       operatingCashFlow: tableValue(cashFlow, ["Net Cash Flow-Operating"], key),
-      cash: tableValue(balance, ["Cash and Cash Equivalents"], key),
-      shortDebt: tableValue(balance, ["Short-Term Debt / Current Portion of Long-Term Debt"], key),
-      longDebt: tableValue(balance, ["Long-Term Debt"], key),
+      cash: cashBalance,
+      shortDebt: debtBalance.shortDebt,
+      longDebt: debtBalance.longDebt,
     };
     const missingFields = Object.entries(reported).filter(([, value]) => value === null).map(([field]) => field);
     if (reported.shortDebt === null || reported.longDebt === null) missingFields.push("debt");
@@ -235,10 +292,10 @@ async function nasdaqFundamentals(symbol: string) {
     const cogs = reportedCogs === null ? undefined : Math.abs(reportedCogs);
     const reportedGrossProfit = tableValue(income, ["Gross Profit"], key);
     const grossProfit = reportedGrossProfit ?? (cogs === undefined ? undefined : revenue - cogs);
-    const cash = (tableValue(balance, ["Cash and Cash Equivalents"], key) || 0) + (tableValue(balance, ["Short-Term Investments"], key) || 0);
-    const shortDebt = Math.abs(tableValue(balance, ["Short-Term Debt / Current Portion of Long-Term Debt"], key) || 0);
-    const longDebt = Math.abs(tableValue(balance, ["Long-Term Debt"], key) || 0);
-    const debt = shortDebt + longDebt;
+    const cash = cashBalance ?? 0;
+    const shortDebt = Math.abs(debtBalance.shortDebt ?? 0);
+    const longDebt = Math.abs(debtBalance.longDebt ?? 0);
+    const debt = debtBalance.total ?? shortDebt + longDebt;
     const fiscalDate = isoDate(date);
     return {
       year: fiscalDate.slice(0, 4),
@@ -295,13 +352,14 @@ async function nasdaqFundamentals(symbol: string) {
     depreciation: sumQuarterly(quarterlyCashFlow, ["Depreciation"], true),
   } : null;
   const latestQuarterKey = quarterlyColumns[0]?.key;
+  const latestQuarterBalance = latestQuarterKey && quarterlyBalance
+    ? { cash: cashAndInvestments(quarterlyBalance, latestQuarterKey), debt: statementFundedDebt(quarterlyBalance, latestQuarterKey).total }
+    : null;
   const ltm = ltmOperating && latestQuarterKey ? {
     ...ltmOperating,
     periodEnd: isoDate(quarterlyColumns[0].date),
-    cash: (tableValue(quarterlyBalance || { rows: [] }, ["Cash and Cash Equivalents"], latestQuarterKey) || 0)
-      + (tableValue(quarterlyBalance || { rows: [] }, ["Short-Term Investments"], latestQuarterKey) || 0),
-    debt: Math.abs(tableValue(quarterlyBalance || { rows: [] }, ["Short-Term Debt / Current Portion of Long-Term Debt"], latestQuarterKey) || 0)
-      + Math.abs(tableValue(quarterlyBalance || { rows: [] }, ["Long-Term Debt"], latestQuarterKey) || 0),
+    cash: latestQuarterBalance?.cash ?? null,
+    debt: latestQuarterBalance?.debt ?? null,
   } : null;
   return {
     symbol,
@@ -315,6 +373,37 @@ async function nasdaqFundamentals(symbol: string) {
     previousClose: rawNumber(summary.PreviousClose) || 0,
     historical,
     ltm: ltm && ltm.revenue !== null && ltm.revenue > 0 ? ltm : null,
+  };
+}
+
+function automaticRevenueForecast(company: Awaited<ReturnType<typeof nasdaqFundamentals>>): RevenueForecast | null {
+  const latest = company.historical[0];
+  const prior = company.historical[1];
+  if (!latest?.revenue || !prior?.revenue || prior.revenue <= 0) return null;
+  const observedGrowth = (latest.revenue / prior.revenue - 1) * 100;
+  if (!Number.isFinite(observedGrowth)) return null;
+  // Keep a mechanical fallback from extrapolating an acquisition spike or a
+  // collapse indefinitely. It is explicitly labeled as an estimate, never as
+  // consensus.
+  const year1Growth = clampNumber(observedGrowth, -30, 50);
+  const year2Growth = year1Growth * 0.75;
+  const year1Revenue = latest.revenue * (1 + year1Growth / 100);
+  const year2Revenue = year1Revenue * (1 + year2Growth / 100);
+  const source = "Automatic estimate from latest reported revenue growth";
+  const sourceUrl = `https://www.nasdaq.com/market-activity/stocks/${company.symbol.toLowerCase()}/financials`;
+  const asOf = todayPacific();
+  return {
+    year1Revenue,
+    year2Revenue,
+    year1Growth,
+    year2Growth,
+    source,
+    sourceUrl,
+    asOf,
+    periods: [
+      { periodEnd: addYears(latest.fiscalDate, 1), revenue: year1Revenue, growth: year1Growth, status: "estimate", source, sourceUrl, asOf },
+      { periodEnd: addYears(latest.fiscalDate, 2), revenue: year2Revenue, growth: year2Growth, status: "estimate", source, sourceUrl, asOf },
+    ],
   };
 }
 
@@ -345,7 +434,7 @@ type RevenueForecast = {
     periodEnd: string;
     revenue: number;
     growth: number;
-    status: "consensus";
+    status: "consensus" | "estimate";
     source: string;
     sourceUrl: string;
     asOf: string;
@@ -473,11 +562,11 @@ function comparableFromNasdaq(company: Awaited<ReturnType<typeof nasdaqFundament
     evToEbitLtmQuality: ebitLtm.quality,
     evToEbitNtmQuality: ebitNtm.quality,
     ltmBasis: company.ltm ? "Latest four reported quarters" : `Latest reported fiscal year ended ${latest.fiscalDate}; quarterly provider data unavailable`,
-    ntmBasis: forecast ? `Full fiscal year ending ${forecast.periods[0]?.periodEnd || "date unavailable"}; consensus revenue, historical EBIT/EBITDA margins held constant; not rolling NTM` : null,
+    ntmBasis: forecast ? `Full fiscal year ending ${forecast.periods[0]?.periodEnd || "date unavailable"}; ${forecast.source}; historical EBIT/EBITDA margins held constant; not rolling NTM` : null,
     forwardPeriodEnd: forecast?.periods[0]?.periodEnd ?? null,
     financialsAsOf: company.ltm?.periodEnd || latest.fiscalDate,
     balanceAsOf: latest.fiscalDate,
-    dataNotes: ["EV uses the latest annual funded debt and cash/investments. Preferred/minority claims and lease capitalization are not verified for this provider-only row.", ...(latest.missingFields?.length ? [`Unavailable source fields: ${latest.missingFields.join(", ")}. Affected ratios remain N/A.`] : [])],
+    dataNotes: ["EV uses the latest annual funded debt and cash/investments. Preferred/minority claims and lease capitalization are not verified for this provider-only row.", ...(latest.missingFields?.length ? [`Unavailable source fields: ${latest.missingFields.join(", ")}. Ratios requiring those fields are left blank.`] : [])],
     retrievedAt: new Date().toISOString(),
     sourceUrl: `https://www.nasdaq.com/market-activity/stocks/${company.symbol.toLowerCase()}/financials`,
     pe: signedMultiple(company.marketCap, latest.netIncome ?? null),
@@ -895,7 +984,9 @@ export async function GET(request: NextRequest) {
       .map((result) => result.value);
     const peerForecasts = valuationOnly ? [] : await Promise.all(peerCompanies.map((peer) =>
       measureDiagnostic(diagnostics, { event: "provider_peer_forecast", provider: "stock-analysis", symbol: peer.symbol }, () =>
-        analystRevenueForecast(peer.symbol, peer.historical[0].revenue, peer.historical[0].fiscalDate)).catch(() => null),
+        analystRevenueForecast(peer.symbol, peer.historical[0].revenue, peer.historical[0].fiscalDate))
+        .then((forecast) => forecast || automaticRevenueForecast(peer))
+        .catch(() => automaticRevenueForecast(peer)),
     ));
     const peers = peerCompanies.map((peer, index) => {
         const peerDescription = conciseBusinessDescription({
