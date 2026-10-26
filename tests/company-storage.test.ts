@@ -90,6 +90,18 @@ test("malformed and oversized company payloads are rejected and removed", () => 
   assert.equal(oversized.getItem(COMPANY_STORAGE_KEY), null);
 });
 
+test("outdated financial payloads are discarded after a data-mapping change", () => {
+  const local = new MemoryStorage();
+  local.setItem(COMPANY_STORAGE_KEY, JSON.stringify({
+    version: COMPANY_STORAGE_VERSION - 1,
+    kind: "company",
+    savedAt: Date.now(),
+    payload: company(),
+  }));
+  assert.equal(readCompanyData("AAPL", { local }), null);
+  assert.equal(local.getItem(COMPANY_STORAGE_KEY), null);
+});
+
 test("storage falls back to session storage when persistent storage is unavailable", () => {
   const local = new MemoryStorage();
   const session = new MemoryStorage();
