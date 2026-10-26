@@ -200,7 +200,10 @@ export async function POST(request: Request) {
     inputs.getCell("B6").value = "Financials through"; inputs.getCell("C6").value = payload.asOf;
     inputs.getCell("B7").value = "Valuation date"; inputs.getCell("C7").value = asDate(payload.model.valuationDate); inputs.getCell("C7").numFmt = "yyyy-mm-dd"; styleInput(inputs.getCell("C7"), "Sets the exact five-year valuation window and partial-year weighting.");
     inputs.getCell("B8").value = "Units"; inputs.getCell("C8").value = "USD millions except per-share data";
-    inputs.getCell("B9").value = "Starting revenue"; inputs.getCell("C9").value = payload.metrics.revenue; inputs.getCell("C9").numFmt = moneyFormat; inputs.getCell("C9").note = `${payload.source}; financials through ${payload.asOf}.`;
+    const startingRevenue = payload.model.startingRevenue ?? payload.metrics.revenue;
+    inputs.getCell("B9").value = "Starting revenue"; inputs.getCell("C9").value = startingRevenue; inputs.getCell("C9").numFmt = moneyFormat; inputs.getCell("C9").note = payload.model.startingRevenue !== undefined && payload.model.startingRevenue !== payload.metrics.revenue
+      ? `Estimated fiscal base rolled forward from reported revenue through the valuation date. Latest reported financials: ${payload.asOf}.`
+      : `${payload.source}; financials through ${payload.asOf}.`;
     inputs.getCell("B10").value = "Capital, WACC & terminal assumptions"; styleSection(inputs.getRow(10), 2, 3);
     const scalarInputs: Array<[number, string, number, string, string]> = [
       [11, "Market price", payload.model.marketPrice, perShareFormat, "Used only for upside/downside and market-value capital weights."],

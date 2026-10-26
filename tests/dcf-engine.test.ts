@@ -50,6 +50,16 @@ test("fiscal timing uses Apple's September year-end instead of December", () => 
   assert.ok(timing.firstYearWeight > 0.17 && timing.firstYearWeight < 0.20);
 });
 
+test("rolled forecast models use the estimated fiscal base rather than stale reported revenue", () => {
+  const rolled = model("2027-09-27");
+  rolled.valuationDate = "2026-10-25";
+  rolled.startingRevenue = 1_100;
+  rolled.forecastDrivers[0].revenueGrowth = 10;
+  const result = calculateDcf({ metrics: { revenue: 1_000 } }, rolled, "multiple");
+  assert.equal(result.valid, true);
+  assert.ok(Math.abs(result.years[0].revenue - 1_210) < 1e-9);
+});
+
 test("terminal growth cannot change the exit-multiple result", () => {
   const data = { metrics: { revenue: 1_000 } };
   const base = model();

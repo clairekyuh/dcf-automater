@@ -32,6 +32,7 @@ import {
 import { assessStandardDcfApplicability } from "@/lib/dcf-applicability";
 import { estimateTerminalRoic } from "@/lib/terminal-assumptions";
 import { financialSectorRiskAnalysis, riskAnalysis } from "@/lib/risk-analysis";
+import { completedForecastYears } from "@/lib/forecast-calendar";
 
 type Model = DcfModel;
 type Method = DcfMethod;
@@ -164,28 +165,34 @@ function buildModel(data: CompanyData): Model {
     ? (data.forecast.year2Revenue / data.forecast.year1Revenue - 1) * 100
     : Math.max(rec.terminal + 1, yearOneGrowth * .75);
   const matureExplicitGrowth = clamp(Math.min(Math.max(yearTwoGrowth * .45, rec.terminal + 1), 10), rec.terminal + .5, 12);
+  const valuationDate = localValuationDate();
+  const completedYears = completedForecastYears(fiscalDate, valuationDate);
+  const growthForYear = (yearIndex: number) => {
+    if (yearIndex === 0) return yearOneGrowth;
+    if (yearIndex === 1) return yearTwoGrowth;
+    const progress = Math.min(1, (yearIndex - 1) / 4);
+    return yearTwoGrowth > 0 && matureExplicitGrowth > 0
+      ? yearTwoGrowth * Math.pow(matureExplicitGrowth / yearTwoGrowth, progress)
+      : yearTwoGrowth + (matureExplicitGrowth - yearTwoGrowth) * progress;
+  };
+  let startingRevenue = data.metrics.revenue;
+  for (let index = 0; index < completedYears; index += 1) startingRevenue *= 1 + growthForYear(index) / 100;
   const latestGrossMargin = latest?.grossMargin ?? (latest?.cogs !== undefined && latest.revenue ? (latest.revenue - latest.cogs) / latest.revenue * 100 : Math.max(rec.margin + 12, 30));
   const startingDa = clamp(data.metrics.daPercentRevenue || rec.da, 0, 100);
   const startingCapex = clamp(data.metrics.capexPercentRevenue || rec.capex, 0, 300);
   const forecastDrivers: ForecastDriver[] = Array.from({ length: 6 }, (_, index) => {
-    let revenueGrowth = yearOneGrowth;
-    if (index === 1) revenueGrowth = yearTwoGrowth;
-    if (index >= 2) {
-      const progress = (index - 1) / 4;
-      revenueGrowth = yearTwoGrowth > 0 && matureExplicitGrowth > 0
-        ? yearTwoGrowth * Math.pow(matureExplicitGrowth / yearTwoGrowth, progress)
-        : yearTwoGrowth + (matureExplicitGrowth - yearTwoGrowth) * progress;
-    }
-    const operatingProgress = Math.min(1, (index + 1) / 5);
-    const reinvestmentProgress = index / 5;
+    const forecastYearIndex = index + completedYears;
+    const revenueGrowth = growthForYear(forecastYearIndex);
+    const operatingProgress = Math.min(1, (forecastYearIndex + 1) / 5);
+    const reinvestmentProgress = Math.min(1, forecastYearIndex / 5);
     const fadeReinvestment = (start: number, target: number) => start > 0 && target > 0
       ? start * Math.pow(target / start, reinvestmentProgress)
       : start + (target - start) * reinvestmentProgress;
     const ebitMargin = data.metrics.ebitMargin + (rec.margin - data.metrics.ebitMargin) * operatingProgress;
     const grossMargin = clamp(latestGrossMargin + (Math.max(latestGrossMargin, rec.margin + 10) - latestGrossMargin) * operatingProgress, ebitMargin, 95);
     return {
-      periodEnd: addYears(fiscalDate, index + 1),
-      source: index < 2 && data.forecast ? data.forecast.source : "Editable model estimate. Not analyst consensus.",
+      periodEnd: addYears(fiscalDate, forecastYearIndex + 1),
+      source: forecastYearIndex < 2 && data.forecast ? data.forecast.source : "Editable model estimate. Not analyst consensus.",
       revenueGrowth: Math.round(revenueGrowth * 10) / 10,
       grossMargin: Math.round(grossMargin * 10) / 10,
       ebitMargin: Math.round(ebitMargin * 10) / 10,
@@ -203,6 +210,7 @@ function buildModel(data: CompanyData): Model {
   const observedCostDebt = latest?.interestExpense && averageDebt ? latest.interestExpense / averageDebt * 100 : null;
   const baseModel: Model = {
     forecastDrivers,
+    startingRevenue,
     normalizedTaxRate: data.metrics.taxRate || 21,
     riskFreeRate: data.market.riskFreeRate ?? 4.5,
     beta: data.market.beta || 1,
@@ -220,7 +228,7 @@ function buildModel(data: CompanyData): Model {
     preferredInterest: Math.max(0, data.metrics.preferredInterest || 0),
     shares: Math.round((data.market.shares || 1) * 1000) / 1000,
     marketPrice: Math.round(data.market.estimatedPrice * 100) / 100,
-    valuationDate: localValuationDate(),
+    valuationDate,
   };
   const selectedWacc = calculateWacc(baseModel).selectedWacc;
   baseModel.terminalRoic = Math.round(estimateTerminalRoic(data.historical, baseModel.normalizedTaxRate, selectedWacc).value * 100) / 100;

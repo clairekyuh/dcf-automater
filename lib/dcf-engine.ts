@@ -17,6 +17,7 @@ export type ForecastDriver = {
 export type DcfModel = {
   forecastDrivers: ForecastDriver[];
   sourceInputOverrides?: string[];
+  startingRevenue?: number;
   normalizedTaxRate: number;
   riskFreeRate: number;
   beta: number;
@@ -129,7 +130,8 @@ export function forecastTiming(model: Pick<DcfModel, "forecastDrivers" | "valuat
 export function validateModelInputs(data: DcfData, model: DcfModel) {
   const missing = (data.missingFinancialInputs || []).filter((field) => ["cash", "debt", "ebit", "depreciation", "capex"].includes(field) && !model.sourceInputOverrides?.includes(field));
   if (missing.length) return `Source inputs unavailable: ${missing.join(", ")}. Enter the missing cash or debt assumptions, or edit each affected forecast row before using the valuation.`;
-  if (!Number.isFinite(data.metrics.revenue) || data.metrics.revenue <= 0) return "Starting revenue must be a positive finite number.";
+  const startingRevenue = model.startingRevenue ?? data.metrics.revenue;
+  if (!Number.isFinite(startingRevenue) || startingRevenue <= 0) return "Starting revenue must be a positive finite number.";
   if (model.forecastDrivers.length !== 6) return "The DCF requires exactly six fiscal forecast periods.";
   const percentageFields: Array<keyof Omit<ForecastDriver, "periodEnd" | "source">> = [
     "revenueGrowth", "grossMargin", "ebitMargin", "taxRate", "daPercent", "capexPercent", "changeNwcPercent", "deferredTaxPercent", "otherNonCashPercent",
@@ -146,7 +148,7 @@ export function validateModelInputs(data: DcfData, model: DcfModel) {
   }
   const timingError = validateForecastCalendar(model);
   if (timingError) return timingError;
-  const scalarValues = [model.normalizedTaxRate, model.riskFreeRate, model.beta, model.equityRiskPremium, model.preTaxCostDebt, model.companyRiskPremium, model.terminalGrowth, model.terminalRoic, model.exitMultiple, model.cash, model.shortDebt, model.longDebt, model.preferredInterest, model.shares, model.marketPrice];
+  const scalarValues = [startingRevenue, model.normalizedTaxRate, model.riskFreeRate, model.beta, model.equityRiskPremium, model.preTaxCostDebt, model.companyRiskPremium, model.terminalGrowth, model.terminalRoic, model.exitMultiple, model.cash, model.shortDebt, model.longDebt, model.preferredInterest, model.shares, model.marketPrice];
   if (!scalarValues.every(Number.isFinite)) return "All valuation assumptions must be finite numbers.";
   if ([model.cash, model.shortDebt, model.longDebt, model.preferredInterest].some((value) => value < 0)) return "Cash, debt, and other non-equity claims cannot be negative.";
   const selectedWacc = calculateWacc(model).selectedWacc;
@@ -166,7 +168,7 @@ export function calculateDcf(
   const exitMultiple = overrides.exitMultiple ?? model.exitMultiple;
   const wacc = waccPercent / 100;
   const timing = forecastTiming(model);
-  let previousRevenue = data.metrics.revenue;
+  let previousRevenue = model.startingRevenue ?? data.metrics.revenue;
 
   const years = model.forecastDrivers.map((driver, index) => {
     const revenue = previousRevenue * (1 + driver.revenueGrowth / 100);

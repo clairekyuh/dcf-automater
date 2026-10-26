@@ -93,6 +93,7 @@ export function validateExportPayload(payload: unknown): string | null {
     "terminalGrowth", "terminalRoic", "exitMultiple",
   ];
   if (!hasFiniteFields(model, requiredModelNumbers)) return "The model contains a missing or invalid numeric assumption.";
+  if (model.startingRevenue !== undefined && (!finiteNumber(model.startingRevenue) || Number(model.startingRevenue) <= 0)) return "The model starting revenue is invalid.";
   if (typeof model.valuationDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(model.valuationDate)) return "The valuation date is invalid.";
   if (!Array.isArray(model.forecastDrivers) || model.forecastDrivers.length !== 6) return "The Excel model requires exactly six forecast periods.";
   for (const driver of model.forecastDrivers) {
